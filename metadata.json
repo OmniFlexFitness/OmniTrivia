@@ -1,0 +1,5 @@
+{
+  "name": "OmniTrivia - Neon Edition",
+  "description": "A high-energy, multiplayer-style trivia game powered by Gemini. Features real-time gameplay simulation, dynamic question generation, and the ability to import custom trivia rounds from CSV files or public Google Sheets. Designed for deployment at trivia.omniflexfitness.com.",
+  "notes": "To use the Google Sheets import feature, the Google Sheets API must be enabled in your Google Cloud project."
+}

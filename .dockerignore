@@ -1,0 +1,13 @@
+# Git files
+.git
+.gitignore
+
+# Node modules (if any were installed locally)
+node_modules
+
+# Docker files
+Dockerfile
+.dockerignore
+
+# Deployment instructions
+DEPLOYMENT.md
