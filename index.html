@@ -1,0 +1,994 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="OmniFlex Trivia" />
+<meta name="theme-color" content="#000000" />
+<title>OmniFlex Trivia Wheel — Round 4</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Audiowide&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: #000;
+    color: #fff;
+    font-family: 'Space Mono', monospace;
+    min-height: 100vh;
+    overflow-x: hidden;
+    user-select: none;
+    position: relative;
+  }
+
+  /* === BACKGROUND LAYERS === */
+  .bg-grid {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background-image:
+      linear-gradient(rgba(0,240,255,0.18) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,240,255,0.18) 1px, transparent 1px);
+    background-size: 50px 50px;
+    opacity: 0.18;
+    z-index: 0;
+  }
+  .bg-scanlines {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background-image: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.04) 2px, rgba(255,255,255,0.04) 3px);
+    z-index: 0;
+  }
+  .bg-vignette {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background: radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.78) 100%);
+    z-index: 0;
+  }
+
+  /* === LAYOUT === */
+  .app {
+    position: relative;
+    z-index: 1;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 32px 16px 96px;
+  }
+
+  /* === HEADER === */
+  .header { text-align: center; margin-bottom: 24px; }
+  .header h1 {
+    font-family: 'Audiowide', monospace;
+    font-size: clamp(2.2rem, 6vw, 4.5rem);
+    letter-spacing: 0.15em;
+    background: linear-gradient(90deg, #00F0FF 0%, #FF00E5 50%, #FFE600 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+    filter: drop-shadow(0 0 30px rgba(255,0,229,0.4));
+    margin-bottom: 8px;
+  }
+  .header p {
+    color: #67E8F9;
+    letter-spacing: 0.4em;
+    font-size: 0.75rem;
+  }
+
+  /* === STATUS BAR === */
+  .status-bar {
+    position: fixed;
+    top: 16px;
+    right: 24px;
+    z-index: 5;
+    font-size: 0.7rem;
+    letter-spacing: 0.3em;
+    font-weight: bold;
+    color: #0E7490;
+    transition: color 0.2s;
+  }
+
+  /* === STRIP CONTAINER === */
+  .strip-container {
+    position: relative;
+    width: 100%;
+    max-width: 1200px;
+    height: 200px;
+    overflow: hidden;
+    margin-bottom: 36px;
+    border: 2px solid transparent;
+    border-radius: 12px;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    -webkit-mask-image: linear-gradient(90deg, transparent 0%, black 5%, black 95%, transparent 100%);
+    mask-image: linear-gradient(90deg, transparent 0%, black 5%, black 95%, transparent 100%);
+  }
+  .strip-container.active {
+    border-color: rgba(255, 230, 0, 0.5);
+    box-shadow: 0 0 50px rgba(255, 230, 0, 0.35), inset 0 0 30px rgba(255, 230, 0, 0.08);
+  }
+
+  /* Selection zone */
+  .selection-zone {
+    position: absolute;
+    top: 4px;
+    bottom: 4px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 288px;
+    border: 3px solid #FFE600;
+    border-radius: 12px;
+    box-shadow: 0 0 30px #FFE600, inset 0 0 20px rgba(255,230,0,0.2);
+    pointer-events: none;
+    z-index: 20;
+  }
+  .selection-zone.locked { animation: lockPulse 1.6s ease-in-out infinite; }
+
+  .caret {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 20;
+    pointer-events: none;
+    width: 0;
+    height: 0;
+    border-left: 14px solid transparent;
+    border-right: 14px solid transparent;
+    filter: drop-shadow(0 0 8px #FFE600);
+  }
+  .caret-top { top: -2px; border-top: 16px solid #FFE600; }
+  .caret-bottom { bottom: -2px; border-bottom: 16px solid #FFE600; }
+
+  /* Speed lines overlay */
+  .speed-lines {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 10;
+    background: repeating-linear-gradient(90deg, transparent 0, transparent 28px, rgba(255,230,0,0.13) 28px, rgba(255,230,0,0.13) 30px);
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+  .speed-lines.visible {
+    opacity: 1;
+    animation: speedLines 0.35s linear infinite;
+  }
+
+  /* === STRIP === */
+  .strip {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    will-change: transform;
+  }
+
+  /* === CARDS === */
+  .card {
+    flex-shrink: 0;
+    width: 280px;
+    height: 180px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    border: 2px solid;
+    transition: opacity 0.3s, filter 0.3s;
+  }
+  .card.disabled {
+    opacity: 0.25;
+    filter: grayscale(60%);
+  }
+  .card-icon {
+    width: 56px;
+    height: 56px;
+    margin-bottom: 12px;
+  }
+  .card-icon svg {
+    width: 100%;
+    height: 100%;
+    stroke-width: 1.5;
+  }
+  .card-name {
+    font-family: 'Audiowide', monospace;
+    font-size: 1.25rem;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+    text-align: center;
+    padding: 0 12px;
+  }
+
+  /* === RESULT AREA === */
+  .result-area {
+    z-index: 1;
+    text-align: center;
+    min-height: 110px;
+    padding: 0 16px;
+    margin-bottom: 24px;
+    width: 100%;
+    max-width: 800px;
+  }
+  .result-pre { color: #67E8F9; letter-spacing: 0.4em; font-size: 0.7rem; margin-bottom: 8px; text-transform: uppercase; }
+  .result-name {
+    font-family: 'Audiowide', monospace;
+    font-size: clamp(1.6rem, 4vw, 3rem);
+    font-weight: 900;
+    letter-spacing: 0.15em;
+    margin-bottom: 16px;
+  }
+  .question-box {
+    background: rgba(0,0,0,0.5);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 8px;
+    padding: 20px 24px;
+    margin: 16px auto 0;
+    max-width: 700px;
+    text-align: left;
+    font-size: 1rem;
+    line-height: 1.5;
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
+  }
+  .question-label {
+    font-family: 'Audiowide', monospace;
+    font-size: 0.7rem;
+    letter-spacing: 0.4em;
+    color: #67E8F9;
+    margin-bottom: 8px;
+  }
+  .question-text { color: #fff; font-weight: 700; }
+  .answer-box {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px dashed rgba(255,255,255,0.2);
+  }
+  .answer-label {
+    font-family: 'Audiowide', monospace;
+    font-size: 0.7rem;
+    letter-spacing: 0.4em;
+    color: #39FF14;
+    margin-bottom: 8px;
+  }
+  .answer-text { color: #39FF14; font-weight: 700; text-shadow: 0 0 10px #39FF14; }
+
+  .status-msg {
+    font-family: 'Space Mono', monospace;
+    font-weight: bold;
+    letter-spacing: 0.3em;
+    font-size: 0.85rem;
+    padding-top: 32px;
+    text-transform: uppercase;
+  }
+
+  /* === CONTROLS === */
+  .controls {
+    z-index: 1;
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-bottom: 32px;
+  }
+  .btn {
+    font-family: 'Audiowide', monospace;
+    font-size: clamp(0.95rem, 2vw, 1.4rem);
+    font-weight: 900;
+    letter-spacing: 0.2em;
+    padding: 16px 32px;
+    border: 2px solid;
+    background: transparent;
+    cursor: pointer;
+    transition: all 0.15s;
+    text-transform: uppercase;
+  }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-cyan { border-color: #00F0FF; color: #00F0FF; box-shadow: 0 0 30px rgba(0,240,255,0.5); }
+  .btn-cyan:hover { background: #00F0FF; color: #000; }
+  .btn-yellow { border-color: #FFE600; color: #FFE600; box-shadow: 0 0 40px rgba(255,230,0,0.7); animation: yellowPulse 0.8s ease-in-out infinite; }
+  .btn-yellow:hover { background: #FFE600; color: #000; animation: none; }
+  .btn-green { border-color: #39FF14; color: #39FF14; box-shadow: 0 0 30px rgba(57,255,20,0.5); }
+  .btn-green:hover { background: #39FF14; color: #000; }
+  .btn-purple { border-color: #9D4EDD; color: #9D4EDD; box-shadow: 0 0 30px rgba(157,78,221,0.5); }
+  .btn-purple:hover { background: #9D4EDD; color: #000; }
+  .btn-magenta { border-color: #FF00E5; color: #FF00E5; box-shadow: 0 0 30px rgba(255,0,229,0.5); }
+  .btn-magenta:hover { background: #FF00E5; color: #000; }
+  .hidden { display: none !important; }
+
+  /* === HOST PANEL === */
+  .host-toggle {
+    position: fixed;
+    bottom: 16px;
+    right: 16px;
+    z-index: 50;
+  }
+  .host-toggle button {
+    font-family: 'Space Mono', monospace;
+    background: rgba(0,0,0,0.85);
+    border: 1px solid rgba(0,240,255,0.4);
+    color: #67E8F9;
+    padding: 8px 14px;
+    font-size: 0.7rem;
+    letter-spacing: 0.3em;
+    cursor: pointer;
+    text-transform: uppercase;
+    backdrop-filter: blur(8px);
+    transition: all 0.2s;
+  }
+  .host-toggle button:hover { border-color: #00F0FF; color: #00F0FF; box-shadow: 0 0 20px rgba(0,240,255,0.4); }
+
+  .host-panel {
+    position: fixed;
+    bottom: 60px;
+    right: 16px;
+    z-index: 50;
+    background: rgba(0,0,0,0.93);
+    border: 1px solid rgba(0,240,255,0.5);
+    border-radius: 8px;
+    padding: 20px;
+    width: 320px;
+    backdrop-filter: blur(12px);
+    box-shadow: 0 0 40px rgba(0,240,255,0.25);
+  }
+  .host-panel h3 {
+    font-family: 'Audiowide', monospace;
+    font-size: 0.85rem;
+    color: #00F0FF;
+    letter-spacing: 0.3em;
+    margin-bottom: 16px;
+    text-shadow: 0 0 10px #00F0FF;
+  }
+  .host-panel .desc {
+    font-size: 0.7rem;
+    color: #94A3B8;
+    margin-bottom: 16px;
+    line-height: 1.5;
+  }
+  .toggle-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+  }
+  .toggle-row:last-child { border-bottom: none; }
+  .toggle-name {
+    font-family: 'Audiowide', monospace;
+    font-size: 0.85rem;
+    letter-spacing: 0.05em;
+  }
+  .toggle-btn {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.65rem;
+    font-weight: bold;
+    letter-spacing: 0.2em;
+    padding: 5px 12px;
+    border: 1px solid;
+    background: transparent;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.15s;
+    min-width: 80px;
+  }
+  .toggle-btn.on { border-color: #39FF14; color: #39FF14; }
+  .toggle-btn.on:hover { background: rgba(57,255,20,0.15); }
+  .toggle-btn.off { border-color: #FF3366; color: #FF3366; }
+  .toggle-btn.off:hover { background: rgba(255,51,102,0.15); }
+  .reset-all {
+    margin-top: 16px;
+    font-family: 'Space Mono', monospace;
+    font-size: 0.7rem;
+    letter-spacing: 0.2em;
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.3);
+    color: #94A3B8;
+    padding: 8px 14px;
+    cursor: pointer;
+    border-radius: 4px;
+    width: 100%;
+    transition: all 0.15s;
+  }
+  .reset-all:hover { border-color: #fff; color: #fff; }
+  .stats-line {
+    margin-top: 12px;
+    font-size: 0.65rem;
+    color: #67E8F9;
+    letter-spacing: 0.15em;
+    text-align: center;
+    font-style: italic;
+    opacity: 0.7;
+  }
+
+  /* === FOOTER === */
+  .footer {
+    position: fixed;
+    bottom: 8px;
+    left: 16px;
+    color: #0E7490;
+    font-size: 0.65rem;
+    letter-spacing: 0.4em;
+    z-index: 1;
+  }
+
+  /* === ANIMATIONS === */
+  @keyframes speedLines {
+    from { background-position: 0 0; }
+    to { background-position: -60px 0; }
+  }
+  @keyframes yellowPulse {
+    0%, 100% { box-shadow: 0 0 30px rgba(255,230,0,0.5); }
+    50% { box-shadow: 0 0 60px rgba(255,230,0,1); }
+  }
+  @keyframes lockPulse {
+    0%, 100% { box-shadow: 0 0 30px #FFE600, inset 0 0 20px rgba(255,230,0,0.2); }
+    50% { box-shadow: 0 0 60px #FFE600, inset 0 0 30px rgba(255,230,0,0.4); }
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .fade-in { animation: fadeIn 0.5s ease-out; }
+</style>
+</head>
+<body>
+  <div class="bg-grid"></div>
+  <div class="bg-scanlines"></div>
+  <div class="bg-vignette"></div>
+
+  <div class="status-bar" id="statusBar">STATUS :: AWAITING_GRADUATE</div>
+
+  <div class="app">
+    <header class="header">
+      <h1>DIPLOMA WHEEL</h1>
+      <p>// CLASS_OF_2026 :: TAP TO LOCK YOUR FATE</p>
+    </header>
+
+    <div class="strip-container" id="container">
+      <div class="speed-lines" id="speedLines"></div>
+      <div class="selection-zone" id="selectionZone"></div>
+      <div class="caret caret-top"></div>
+      <div class="caret caret-bottom"></div>
+      <div class="strip" id="strip"></div>
+    </div>
+
+    <div class="result-area" id="resultArea">
+      <div class="status-msg" id="idleMsg" style="color: #0E7490;">PRESS START SPIN TO BEGIN</div>
+    </div>
+
+    <div class="controls">
+      <button id="startBtn" class="btn btn-cyan">▶ START SPIN</button>
+      <button id="revealBtn" class="btn btn-green hidden">🔓 REVEAL ANSWER</button>
+      <button id="respinBtn" class="btn btn-purple hidden">↻ RESPIN</button>
+      <button id="resetBtn" class="btn btn-magenta hidden">→ NEXT GRADUATE</button>
+    </div>
+  </div>
+
+  <div class="host-toggle">
+    <button id="hostToggleBtn">⚙ HOST CONTROLS</button>
+  </div>
+
+  <div class="host-panel hidden" id="hostPanel">
+    <h3>TOPIC AVAILABILITY</h3>
+    <p class="desc">Toggle categories OFF to temporarily disable. The wheel will skip to nearest enabled category if it lands on a disabled one. At least 1 must remain enabled.</p>
+    <div id="categoryToggles"></div>
+    <button class="reset-all" id="resetAllBtn">⟳ RESET ALL TOPICS + QUESTIONS</button>
+    <div class="stats-line" id="statsLine">questions remaining: 30/30</div>
+  </div>
+
+  <div class="footer">OMNIFLEX // TRIVIA SYSTEM v2.0 // STANDALONE BUILD</div>
+
+<script>
+// =========================================================
+// CATEGORY DATA + 5 QUESTIONS PER CATEGORY (30 TOTAL)
+// =========================================================
+const CATEGORIES = [
+  {
+    id: 'pop',
+    name: 'Pop Culture',
+    color: '#FF00E5',
+    glow: '255, 0, 229',
+    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/><path d="M5 18H3"/></svg>`,
+    questions: [
+      { q: 'What 1990s sitcom featured a Manhattan coffee shop called Central Perk as the main hangout for six friends?', a: 'Friends' },
+      { q: 'The Met Gala, the most exclusive night in fashion, is held annually at what New York City institution?', a: 'The Metropolitan Museum of Art' },
+      { q: 'At the 2022 Academy Awards, Will Smith famously slapped which comedian over a joke about Smith\'s wife?', a: 'Chris Rock' },
+      { q: 'What reality TV family launched a 20-season media empire when their original show premiered on E! in 2007?', a: 'The Kardashians (Keeping Up with the Kardashians)' },
+      { q: 'Who hosted The Tonight Show for 30 years before retiring in 1992 and being succeeded by Jay Leno?', a: 'Johnny Carson' }
+    ]
+  },
+  {
+    id: 'music',
+    name: 'Music',
+    color: '#9D4EDD',
+    glow: '157, 78, 221',
+    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>`,
+    questions: [
+      { q: 'What 1969 Beatles album cover famously features the four band members crossing a London street in single file?', a: 'Abbey Road' },
+      { q: 'Released in 1982, what Michael Jackson album is widely considered the best-selling album of all time?', a: 'Thriller' },
+      { q: 'What music genre originated in the South Bronx in the early 1970s, with DJ Kool Herc credited as a founding figure?', a: 'Hip-hop (Rap)' },
+      { q: 'Beethoven was famously almost completely deaf when he composed which symphony, his final completed one?', a: 'The Ninth Symphony (Symphony No. 9)' },
+      { q: 'What pop megastar released the album "1989" in 2014, named for her birth year, and re-recorded it as Taylor\'s Version in 2023?', a: 'Taylor Swift' }
+    ]
+  },
+  {
+    id: 'movies',
+    name: 'Movies & TV',
+    color: '#00F0FF',
+    glow: '0, 240, 255',
+    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 3v18"/><path d="M3 7.5h4"/><path d="M3 12h18"/><path d="M3 16.5h4"/><path d="M17 3v18"/><path d="M17 7.5h4"/><path d="M17 16.5h4"/></svg>`,
+    questions: [
+      { q: 'What 1939 film features the closing line "Frankly, my dear, I don\'t give a damn"?', a: 'Gone with the Wind' },
+      { q: 'Who directed Pulp Fiction, Kill Bill, Inglourious Basterds, and Once Upon a Time in Hollywood?', a: 'Quentin Tarantino' },
+      { q: 'What 2019 South Korean film won Best Picture at the 2020 Oscars, becoming the first non-English language film to do so?', a: 'Parasite' },
+      { q: 'What 2013 Disney animated film features the Idina Menzel power ballad "Let It Go"?', a: 'Frozen' },
+      { q: 'What HBO series followed the wealthy Roy family fighting for control of a global media empire across four seasons?', a: 'Succession' }
+    ]
+  },
+  {
+    id: 'sports',
+    name: 'Sports',
+    color: '#FFE600',
+    glow: '255, 230, 0',
+    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>`,
+    questions: [
+      { q: 'What major North American sports league awards the Stanley Cup to its annual champion?', a: 'NHL (Hockey)' },
+      { q: 'Who broke Kareem Abdul-Jabbar\'s all-time NBA scoring record in February 2023?', a: 'LeBron James' },
+      { q: 'What country has won the most FIFA Men\'s World Cups, with five total championships?', a: 'Brazil' },
+      { q: 'How many points is a touchdown worth in American football, before any extra-point or two-point attempt?', a: '6' },
+      { q: 'Tom Brady spent the first 20 years of his NFL career with what franchise, winning 6 of his 7 Super Bowls there?', a: 'New England Patriots' }
+    ]
+  },
+  {
+    id: 'science',
+    name: 'Science',
+    color: '#39FF14',
+    glow: '57, 255, 20',
+    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><path d="M20.2 20.2c2.04-2.03.02-7.36-4.5-11.9-4.54-4.52-9.87-6.54-11.9-4.5-2.04 2.03-.02 7.36 4.5 11.9 4.54 4.52 9.87 6.54 11.9 4.5Z"/><path d="M15.7 15.7c4.52-4.54 6.54-9.87 4.5-11.9-2.03-2.04-7.36-.02-11.9 4.5-4.52 4.54-6.54 9.87-4.5 11.9 2.03 2.04 7.36.02 11.9-4.5Z"/></svg>`,
+    questions: [
+      { q: 'What is the chemical symbol for gold on the periodic table?', a: 'Au' },
+      { q: 'How many planets are officially recognized in our solar system today, after Pluto\'s reclassification in 2006?', a: '8' },
+      { q: 'What is the largest organ in the human body, by both surface area and weight?', a: 'Skin' },
+      { q: 'What scientist developed both the Special and General Theories of Relativity in the early 20th century?', a: 'Albert Einstein' },
+      { q: 'What gas makes up roughly 78% of Earth\'s atmosphere, more than any other?', a: 'Nitrogen' }
+    ]
+  },
+  {
+    id: 'florida',
+    name: 'Florida & Local',
+    color: '#FF3366',
+    glow: '255, 51, 102',
+    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M13 8c0-2.76-2.46-5-5.5-5S2 5.24 2 8h2l1-1 1 1h4"/><path d="M13 7.14A5.82 5.82 0 0 1 16.5 6c3.04 0 5.5 2.24 5.5 5h-3l-1-1-1 1h-3"/><path d="M5.89 9.71c-2.15 2.15-2.3 5.47-.35 7.43l4.24-4.25.7-.7.71-.71 2.12-2.12c-1.95-1.96-5.27-1.8-7.42.35z"/><path d="M11 15.5c.5 2.5-.17 4.5-1 6.5h4c2-5.5-.5-12-1-14"/></svg>`,
+    questions: [
+      { q: 'What is the capital city of Florida — not Miami, not Tampa, not Orlando?', a: 'Tallahassee' },
+      { q: 'What invasive constrictor snake species has overrun the Florida Everglades since the 1990s, devastating native wildlife?', a: 'Burmese python' },
+      { q: 'The Florida Keys end at what southernmost city in the continental United States?', a: 'Key West' },
+      { q: 'What is Florida\'s state fruit, given the citrus industry\'s historic dominance in the state?', a: 'Orange' },
+      { q: 'What public university in Fort Myers made the NCAA basketball Sweet 16 as a 15-seed in 2013, earning the nickname "Dunk City"?', a: 'Florida Gulf Coast University (FGCU)' }
+    ]
+  }
+];
+
+// =========================================================
+// CONSTANTS
+// =========================================================
+const CARD_WIDTH = 280;
+const CARD_GAP = 24;
+const CARD_TOTAL = CARD_WIDTH + CARD_GAP;
+const STRIP_REPEAT = 6;
+const SET_WIDTH = CATEGORIES.length * CARD_TOTAL;
+const INITIAL_VELOCITY = 3500;     // px/s — slightly faster blur of motion
+const MIN_DECEL_DISTANCE = 350;    // px — min travel after tap (prevents teleport-stops)
+
+// =========================================================
+// STATE
+// =========================================================
+const state = {
+  phase: 'idle', // idle | spinning | decelerating | locked
+  position: 0,
+  velocity: 0,
+  selected: null,
+  currentQuestion: null,
+  answerRevealed: false,
+  enabledCategories: new Set(CATEGORIES.map(c => c.id)),
+  usedQuestions: {}, // { 'pop': Set([0, 2]), ... }
+  targetPosition: null,  // calculated when user taps a category
+  customDecel: 0,        // calculated to land precisely on tapped category
+  targetCategory: null   // reference to the tapped category (for status display)
+};
+
+CATEGORIES.forEach(c => { state.usedQuestions[c.id] = new Set(); });
+
+// =========================================================
+// ELEMENT REFERENCES
+// =========================================================
+const $ = id => document.getElementById(id);
+const els = {
+  strip: $('strip'),
+  container: $('container'),
+  speedLines: $('speedLines'),
+  selectionZone: $('selectionZone'),
+  resultArea: $('resultArea'),
+  startBtn: $('startBtn'),
+  revealBtn: $('revealBtn'),
+  respinBtn: $('respinBtn'),
+  resetBtn: $('resetBtn'),
+  statusBar: $('statusBar'),
+  hostToggleBtn: $('hostToggleBtn'),
+  hostPanel: $('hostPanel'),
+  categoryToggles: $('categoryToggles'),
+  resetAllBtn: $('resetAllBtn'),
+  statsLine: $('statsLine')
+};
+
+// =========================================================
+// STRIP RENDERING
+// =========================================================
+function buildStrip() {
+  const html = [];
+  for (let i = 0; i < STRIP_REPEAT; i++) {
+    CATEGORIES.forEach((cat, idx) => {
+      const isDisabled = !state.enabledCategories.has(cat.id);
+      const cls = isDisabled ? 'card disabled' : 'card';
+      html.push(`
+        <div class="${cls}" data-cat="${cat.id}" data-idx="${idx}" style="
+          background: linear-gradient(135deg, rgba(${cat.glow}, 0.18) 0%, rgba(0,0,0,0.85) 100%);
+          border-color: ${cat.color};
+          box-shadow: 0 0 25px rgba(${cat.glow}, 0.5), inset 0 0 30px rgba(${cat.glow}, 0.08);
+        ">
+          <div class="card-icon" style="color: ${cat.color}; filter: drop-shadow(0 0 12px ${cat.color});">${cat.icon}</div>
+          <div class="card-name" style="color: ${cat.color}; text-shadow: 0 0 12px ${cat.color};">${cat.name}</div>
+        </div>
+      `);
+    });
+  }
+  els.strip.innerHTML = html.join('');
+}
+
+// =========================================================
+// ANIMATION LOOP
+// =========================================================
+let rafId = null;
+let lastTime = 0;
+
+function animate(now) {
+  const dt = Math.min((now - lastTime) / 1000, 0.05);
+  lastTime = now;
+
+  state.position += state.velocity * dt;
+  if (state.phase === 'decelerating') {
+    state.velocity = Math.max(0, state.velocity - state.customDecel * dt);
+  }
+
+  const effectivePos = ((state.position % SET_WIDTH) + SET_WIDTH) % SET_WIDTH;
+  els.strip.style.transform = `translateX(-${effectivePos}px)`;
+
+  if (state.phase === 'decelerating' && (state.velocity <= 0.5 || state.position >= state.targetPosition)) {
+    state.position = state.targetPosition;
+    state.velocity = 0;
+    handleLock();
+    return;
+  }
+  rafId = requestAnimationFrame(animate);
+}
+
+function startAnimation() {
+  cancelAnimationFrame(rafId);
+  lastTime = performance.now();
+  rafId = requestAnimationFrame(animate);
+}
+
+// =========================================================
+// LOCK + SNAP LOGIC
+// =========================================================
+function handleLock() {
+  const containerWidth = els.container.offsetWidth;
+  const centerOffset = containerWidth / 2;
+  const effectivePos = ((state.position % SET_WIDTH) + SET_WIDTH) % SET_WIDTH;
+  const idealIdx = (centerOffset + effectivePos - CARD_WIDTH / 2) / CARD_TOTAL;
+  let selectedRawIdx = Math.round(idealIdx);
+  let finalIdx = ((selectedRawIdx % CATEGORIES.length) + CATEGORIES.length) % CATEGORIES.length;
+
+  // If landed on disabled category, snap to nearest enabled
+  if (!state.enabledCategories.has(CATEGORIES[finalIdx].id)) {
+    finalIdx = findNearestEnabled(finalIdx);
+    // adjust selectedRawIdx so snap-target matches
+    const offset = ((finalIdx - (selectedRawIdx % CATEGORIES.length) + CATEGORIES.length) % CATEGORIES.length);
+    const offsetSigned = offset > CATEGORIES.length / 2 ? offset - CATEGORIES.length : offset;
+    selectedRawIdx = selectedRawIdx + offsetSigned;
+  }
+
+  // Snap to exact center
+  const targetPos = selectedRawIdx * CARD_TOTAL + CARD_WIDTH / 2 - centerOffset;
+  const targetWrapped = ((targetPos % SET_WIDTH) + SET_WIDTH) % SET_WIDTH;
+  els.strip.style.transform = `translateX(-${targetWrapped}px)`;
+  state.position = targetPos;
+
+  state.selected = CATEGORIES[finalIdx];
+  state.phase = 'locked';
+
+  // Pick a random unused question
+  state.currentQuestion = pickRandomQuestion(state.selected);
+  state.answerRevealed = false;
+
+  renderLocked();
+}
+
+function findNearestEnabled(startIdx) {
+  // Search outward from startIdx for nearest enabled
+  for (let dist = 1; dist <= CATEGORIES.length; dist++) {
+    const right = (startIdx + dist) % CATEGORIES.length;
+    const left = ((startIdx - dist) % CATEGORIES.length + CATEGORIES.length) % CATEGORIES.length;
+    if (state.enabledCategories.has(CATEGORIES[right].id)) return right;
+    if (state.enabledCategories.has(CATEGORIES[left].id)) return left;
+  }
+  return startIdx; // fallback
+}
+
+// =========================================================
+// QUESTION SELECTION
+// =========================================================
+function pickRandomQuestion(category) {
+  const used = state.usedQuestions[category.id];
+  // reset pool if all used
+  if (used.size >= category.questions.length) used.clear();
+  const available = category.questions
+    .map((q, i) => i)
+    .filter(i => !used.has(i));
+  const pickedIdx = available[Math.floor(Math.random() * available.length)];
+  used.add(pickedIdx);
+  return category.questions[pickedIdx];
+}
+
+// =========================================================
+// RENDERING — RESULT AREA
+// =========================================================
+function renderLocked() {
+  const cat = state.selected;
+  const q = state.currentQuestion;
+  els.resultArea.innerHTML = `
+    <div class="fade-in">
+      <div class="result-pre">// CATEGORY LOCKED</div>
+      <div class="result-name" style="color: ${cat.color}; text-shadow: 0 0 20px ${cat.color}, 0 0 40px ${cat.color}, 0 0 80px ${cat.color};">${cat.name.toUpperCase()}</div>
+      <div class="question-box" style="border-color: rgba(${cat.glow}, 0.4);">
+        <div class="question-label">QUESTION</div>
+        <div class="question-text">${q.q}</div>
+        <div class="answer-box ${state.answerRevealed ? '' : 'hidden'}" id="answerBox">
+          <div class="answer-label">ANSWER</div>
+          <div class="answer-text">${q.a}</div>
+        </div>
+      </div>
+    </div>
+  `;
+  showButtons(['revealBtn', 'respinBtn', 'resetBtn']);
+  els.selectionZone.classList.add('locked');
+  els.speedLines.classList.remove('visible');
+  els.container.classList.remove('active');
+  setStatus('TARGET_LOCKED', '#39FF14');
+  updateStats();
+}
+
+function renderIdle() {
+  els.resultArea.innerHTML = `<div class="status-msg" style="color: #0E7490;">PRESS START SPIN TO BEGIN</div>`;
+  showButtons(['startBtn']);
+  els.selectionZone.classList.remove('locked');
+  els.speedLines.classList.remove('visible');
+  els.container.classList.remove('active');
+  setStatus('AWAITING_GRADUATE', '#0E7490');
+}
+
+function renderSpinning() {
+  els.resultArea.innerHTML = `<div class="status-msg" style="color: #FFE600;">▼ TAP A CATEGORY CARD TO LOCK IT ▼</div>`;
+  showButtons([]);
+  els.selectionZone.classList.remove('locked');
+  els.speedLines.classList.add('visible');
+  els.container.classList.add('active');
+  setStatus('SPINNING_FAST', '#FFE600');
+}
+
+function renderDecelerating() {
+  const targetName = state.targetCategory ? state.targetCategory.name.toUpperCase() : '';
+  const targetColor = state.targetCategory ? state.targetCategory.color : '#FF00E5';
+  els.resultArea.innerHTML = `<div class="status-msg" style="color: ${targetColor};">▣ LOCKING ON :: ${targetName} ▣</div>`;
+  showButtons([]);
+  els.speedLines.classList.add('visible');
+  els.container.classList.add('active');
+  setStatus('LOCKING_TARGET', '#FF00E5');
+}
+
+function showButtons(ids) {
+  ['startBtn','revealBtn','respinBtn','resetBtn'].forEach(id => {
+    if (ids.includes(id)) els[id].classList.remove('hidden');
+    else els[id].classList.add('hidden');
+  });
+}
+
+function setStatus(text, color) {
+  els.statusBar.textContent = `STATUS :: ${text}`;
+  els.statusBar.style.color = color;
+}
+
+// =========================================================
+// CONTROL HANDLERS
+// =========================================================
+function handleStart() {
+  state.velocity = INITIAL_VELOCITY;
+  state.selected = null;
+  state.currentQuestion = null;
+  state.answerRevealed = false;
+  state.phase = 'spinning';
+  renderSpinning();
+  startAnimation();
+}
+function handleTapCategory(categoryId) {
+  if (state.phase !== 'spinning') return;
+  if (!state.enabledCategories.has(categoryId)) return;
+
+  const catIdx = CATEGORIES.findIndex(c => c.id === categoryId);
+  const containerWidth = els.container.offsetWidth;
+  const centerOffset = containerWidth / 2;
+
+  // Find the next instance of the tapped category whose centered-position
+  // is at least MIN_DECEL_DISTANCE ahead of the current position.
+  let k = Math.ceil((state.position + centerOffset - CARD_WIDTH / 2) / CARD_TOTAL);
+  let targetPos = null;
+  let attempts = 0;
+  while (attempts < 100) {
+    const cardCatIdx = ((k % CATEGORIES.length) + CATEGORIES.length) % CATEGORIES.length;
+    const candidatePos = k * CARD_TOTAL + CARD_WIDTH / 2 - centerOffset;
+    if (cardCatIdx === catIdx && candidatePos > state.position + MIN_DECEL_DISTANCE) {
+      targetPos = candidatePos;
+      break;
+    }
+    k++;
+    attempts++;
+  }
+  if (targetPos === null) return;
+
+  // Kinematic equation: a = v² / (2d) — gives exact deceleration to land at target
+  const distance = targetPos - state.position;
+  state.targetPosition = targetPos;
+  state.customDecel = (state.velocity * state.velocity) / (2 * distance);
+  state.targetCategory = CATEGORIES[catIdx];
+  state.phase = 'decelerating';
+  renderDecelerating();
+}
+function handleReveal() {
+  state.answerRevealed = true;
+  const box = $('answerBox');
+  if (box) box.classList.remove('hidden');
+  els.revealBtn.classList.add('hidden');
+}
+function handleRespin() {
+  // Restart full spin
+  state.selected = null;
+  state.currentQuestion = null;
+  state.answerRevealed = false;
+  els.selectionZone.classList.remove('locked');
+  handleStart();
+}
+function handleReset() {
+  state.velocity = 0;
+  state.selected = null;
+  state.currentQuestion = null;
+  state.answerRevealed = false;
+  state.phase = 'idle';
+  els.selectionZone.classList.remove('locked');
+  cancelAnimationFrame(rafId);
+  renderIdle();
+}
+
+// =========================================================
+// HOST PANEL
+// =========================================================
+function buildHostPanel() {
+  const html = CATEGORIES.map(cat => {
+    const isOn = state.enabledCategories.has(cat.id);
+    return `
+      <div class="toggle-row">
+        <span class="toggle-name" style="color: ${cat.color};">${cat.name}</span>
+        <button class="toggle-btn ${isOn ? 'on' : 'off'}" data-cat="${cat.id}">${isOn ? '✓ ENABLED' : '✗ DISABLED'}</button>
+      </div>
+    `;
+  }).join('');
+  els.categoryToggles.innerHTML = html;
+  els.categoryToggles.querySelectorAll('.toggle-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const catId = btn.dataset.cat;
+      // ensure at least one stays enabled
+      if (state.enabledCategories.has(catId) && state.enabledCategories.size === 1) {
+        alert('At least 1 category must remain enabled.');
+        return;
+      }
+      if (state.enabledCategories.has(catId)) {
+        state.enabledCategories.delete(catId);
+      } else {
+        state.enabledCategories.add(catId);
+      }
+      buildHostPanel();
+      buildStrip();
+    });
+  });
+}
+
+function handleResetAll() {
+  state.enabledCategories = new Set(CATEGORIES.map(c => c.id));
+  CATEGORIES.forEach(c => { state.usedQuestions[c.id] = new Set(); });
+  buildHostPanel();
+  buildStrip();
+  updateStats();
+}
+
+function updateStats() {
+  let totalUsed = 0;
+  let totalAvailable = 0;
+  CATEGORIES.forEach(cat => {
+    if (state.enabledCategories.has(cat.id)) {
+      totalAvailable += cat.questions.length;
+      totalUsed += state.usedQuestions[cat.id].size;
+    }
+  });
+  els.statsLine.textContent = `questions remaining: ${totalAvailable - totalUsed}/${totalAvailable}`;
+}
+
+// =========================================================
+// EVENT LISTENERS
+// =========================================================
+els.startBtn.addEventListener('click', handleStart);
+els.revealBtn.addEventListener('click', handleReveal);
+els.respinBtn.addEventListener('click', handleRespin);
+els.resetBtn.addEventListener('click', handleReset);
+
+// Tap-to-target: detect which card was tapped during spin and lock onto its category
+els.container.addEventListener('click', (e) => {
+  if (state.phase !== 'spinning') return;
+  const card = e.target.closest('.card');
+  if (!card) return;
+  handleTapCategory(card.dataset.cat);
+});
+
+els.hostToggleBtn.addEventListener('click', () => els.hostPanel.classList.toggle('hidden'));
+els.resetAllBtn.addEventListener('click', handleResetAll);
+
+// Keyboard shortcuts (host convenience)
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  if (e.code === 'Space') {
+    e.preventDefault();
+    if (state.phase === 'idle') handleStart();
+    else if (state.phase === 'spinning') {
+      // Spacebar = lock onto whichever category is currently centered
+      const containerWidth = els.container.offsetWidth;
+      const centerOffset = containerWidth / 2;
+      const effectivePos = ((state.position % SET_WIDTH) + SET_WIDTH) % SET_WIDTH;
+      const idealIdx = (centerOffset + effectivePos - CARD_WIDTH / 2) / CARD_TOTAL;
+      const centeredIdx = ((Math.round(idealIdx) % CATEGORIES.length) + CATEGORIES.length) % CATEGORIES.length;
+      handleTapCategory(CATEGORIES[centeredIdx].id);
+    }
+    else if (state.phase === 'locked' && !state.answerRevealed) handleReveal();
+    else if (state.phase === 'locked' && state.answerRevealed) handleReset();
+  }
+  if (e.key === 'r' || e.key === 'R') {
+    if (state.phase === 'locked') handleRespin();
+  }
+});
+
+// =========================================================
+// INITIALIZE
+// =========================================================
+buildStrip();
+buildHostPanel();
+updateStats();
+renderIdle();
+</script>
+</body>
+</html>
