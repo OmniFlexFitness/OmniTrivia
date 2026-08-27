@@ -21,6 +21,22 @@ Vite prints two URLs:
 Everyone on the same Wi-Fi opens the **Network** URL. `npm run dev:lan` does the
 same thing explicitly if you have overridden the config.
 
+## Who else can reach it
+
+`npm run dev` binds to every interface, which is what lets phones join — and
+also what lets anyone else on that Wi-Fi open the same URL. Vite inlines
+`VITE_API_KEY` into the code it serves, so **every device that loads the
+Network URL receives your Gemini key** and can spend your quota. The dev
+server prints a warning at startup when this applies.
+
+On a venue or guest network, do one or more of:
+
+- Restrict the key in Google Cloud (API restrictions + a low quota cap), and
+  rotate it after the event.
+- Run `npm run dev:local` (localhost only) and play purely off the host screen.
+- Import your questions from CSV instead of generating them, and run with no
+  key set at all — nothing to leak.
+
 ## If the Network URL does not load from a phone
 
 1. **Same network.** Phones on a guest VLAN or on cellular cannot reach your
