@@ -1,10 +1,11 @@
 import React from 'react';
 import { useGame } from '../context/GameContext';
 import Button from './Button';
-import { CheckCircle, RefreshCw, List } from 'lucide-react';
+import QuestionReviewCard from './QuestionReviewCard';
+import { CheckCircle, RefreshCw, AlertTriangle } from 'lucide-react';
 
 const ReviewScreen: React.FC = () => {
-  const { roundsConfig, confirmGame, restartGame } = useGame();
+  const { roundsConfig, confirmGame, restartGame, contentWarning } = useGame();
 
   return (
     <div className="min-h-screen bg-slate-900 p-6 flex flex-col items-center">
@@ -14,6 +15,19 @@ const ReviewScreen: React.FC = () => {
           <RefreshCw size={16} className="mr-2 inline" /> RESTART
         </Button>
       </header>
+
+      {contentWarning && (
+        <div className="w-full max-w-4xl bg-amber-900/40 border border-amber-500 text-amber-200 p-4 rounded-xl mb-6 flex items-start gap-3">
+          <AlertTriangle className="shrink-0 mt-0.5" />
+          <div>
+            <p className="font-bold">These are not real questions.</p>
+            <p className="text-sm mt-1 text-amber-300/90">{contentWarning}</p>
+            <p className="text-sm mt-1 text-amber-300/90">
+              Restart and try again, or import your own questions, before playing in front of anyone.
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="w-full max-w-4xl space-y-6 mb-8">
         {roundsConfig.map((round) => (
@@ -32,9 +46,12 @@ const ReviewScreen: React.FC = () => {
             
             <div className="space-y-2">
               {round.questions.map((q, idx) => (
-                <div key={q.id} className="bg-slate-900/50 p-3 rounded-lg border border-slate-800 text-sm text-slate-300">
-                  <span className="text-neon-blue font-bold mr-2">{idx + 1}.</span> {q.text}
-                </div>
+                <QuestionReviewCard
+                  key={q.id}
+                  question={q}
+                  categoryId={round.category.id}
+                  questionIndex={idx}
+                />
               ))}
             </div>
           </div>

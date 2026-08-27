@@ -11,3 +11,9 @@ Dockerfile
 
 # Deployment instructions
 DEPLOYMENT.md
+
+# Build output (regenerated inside the image)
+dist
+
+# Local secrets - the key is passed via --build-arg instead
+.env

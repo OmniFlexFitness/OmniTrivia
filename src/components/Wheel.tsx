@@ -5,8 +5,10 @@ import { Category } from "../types";
 import Button from "./Button";
 import { ArrowRight } from "lucide-react";
 
-// Minimum velocity (deg/s) required to trigger a spin
-const MIN_SPIN_VELOCITY = 800;
+// Minimum velocity (deg/s) required to trigger a spin by flicking. Kept low
+// enough to be reachable with a trackpad or a touchscreen; the SPIN button is
+// the guaranteed path regardless.
+const MIN_SPIN_VELOCITY = 250;
 // Friction applied during deceleration
 const FRICTION = 0.985;
 // Minimum velocity to stop animation
@@ -103,15 +105,11 @@ const Wheel: React.FC = () => {
     [isDragging, isHost, getAngleFromCenter],
   );
 
-  // Handle drag end - trigger spin if velocity threshold met
-  const handleDragEnd = useCallback(() => {
-    if (!isDragging) return;
-    setIsDragging(false);
+  // Run the spin animation and land on this round's pre-generated category.
+  const triggerSpin = useCallback(
+    (velocity: number) => {
+      if (winningCategory || isSpinning) return;
 
-    const velocity = Math.abs(velocityRef.current);
-
-    if (velocity >= MIN_SPIN_VELOCITY && !winningCategory) {
-      // Valid spin! Trigger the spin animation
       setIsSpinning(true);
       setHasValidSpin(true);
 
@@ -142,11 +140,30 @@ const Wheel: React.FC = () => {
         setIsSpinning(false);
         setWinningCategory(targetCategory);
       }, 3000);
+    },
+    [winningCategory, isSpinning, activeCategories, targetCategory],
+  );
+
+  // Handle drag end - trigger spin if velocity threshold met
+  const handleDragEnd = useCallback(() => {
+    if (!isDragging) return;
+    setIsDragging(false);
+
+    const velocity = Math.abs(velocityRef.current);
+
+    if (velocity >= MIN_SPIN_VELOCITY && !winningCategory) {
+      triggerSpin(velocity);
     } else if (velocity > 0) {
       // Below threshold - gentle deceleration back to rest
       animateDeceleration();
     }
-  }, [isDragging, winningCategory, activeCategories, targetCategory]);
+  }, [isDragging, winningCategory, triggerSpin]);
+
+  // Button path: always available to the host, so a weak flick, a trackpad, or
+  // a touchscreen can never leave the game stuck on category selection.
+  const handleSpinClick = () => {
+    triggerSpin(MIN_SPIN_VELOCITY * 4);
+  };
 
   // Animate deceleration for sub-threshold spins
   const animateDeceleration = useCallback(() => {
@@ -274,7 +291,7 @@ const Wheel: React.FC = () => {
                 ? "Category selected!"
                 : isSpinning
                   ? "Spinning..."
-                  : "Drag the wheel to spin!"}
+                  : "Ready to reveal the category!"}
             </span>
           ) : (
             <span>Waiting for Host to spin...</span>
@@ -355,13 +372,26 @@ const Wheel: React.FC = () => {
               </Button>
             )}
           </div>
+        ) : isHost ? (
+          <div className="flex flex-col items-center gap-3 w-full">
+            <Button
+              onClick={handleSpinClick}
+              variant="neon"
+              fullWidth
+              disabled={isSpinning}
+              className="flex items-center justify-center gap-2"
+            >
+              {isSpinning ? "SPINNING..." : "SPIN THE WHEEL"}
+            </Button>
+            <div className="text-slate-500 text-xs text-center">
+              {isSpinning
+                ? "The wheel is spinning..."
+                : "Or flick the wheel with your mouse or finger."}
+            </div>
+          </div>
         ) : (
           <div className="text-slate-500 text-sm text-center">
-            {isHost
-              ? isSpinning
-                ? "The wheel is spinning..."
-                : "Click and drag the wheel, then release with a flick!"
-              : "Waiting for Host..."}
+            Waiting for Host...
           </div>
         )}
       </div>

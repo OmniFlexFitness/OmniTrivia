@@ -8,8 +8,15 @@ import {
   RoundConfig,
   Category,
 } from "../types";
-import { BOT_NAMES, TIMER_DURATION, AVATARS, CATEGORIES } from "../constants";
+import {
+  BOT_NAMES,
+  TIMER_DURATION,
+  AVATARS,
+  AVATAR_COLORS,
+  CATEGORIES,
+} from "../constants";
 import { generateQuestions } from "../services/geminiService";
+import { parseImportData } from "../services/importService";
 
 interface GameContextType extends GameState {
   initHost: () => void;
@@ -17,7 +24,16 @@ interface GameContextType extends GameState {
   generateGame: (rounds: number, questions: number) => Promise<void>;
   confirmGame: () => void;
   updateConfig: (rounds: number, questions: number) => void;
-  joinGame: (name: string, avatar: string) => void;
+  initImport: () => void;
+  importGame: (csvData: string) => void;
+  goBackToConfig: () => void;
+  joinGame: (
+    name: string,
+    avatar: string,
+    avatarColor?: string,
+    avatarAccessory?: string,
+    pin?: string,
+  ) => void;
   hostJoinAsPlayer: (name: string, avatar: string) => void;
   addBot: () => void;
   startGame: () => void;
@@ -26,6 +42,7 @@ interface GameContextType extends GameState {
   nextQuestion: () => void;
   nextRound: () => void;
   restartGame: () => void;
+  playAgain: () => void;
   regenerateQuestion: (
     categoryId: string,
     questionIndex: number,
@@ -56,6 +73,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     timeLeft: TIMER_DURATION,
     loading: false,
     error: null,
+    contentWarning: null,
+    initialPin: new URLSearchParams(window.location.search).get("pin"),
   });
 
   // Timer Logic
@@ -102,6 +121,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     setState((prev) => ({
       ...prev,
       loading: true,
+      error: null,
+      contentWarning: null,
       totalRounds: rounds,
       questionsPerRound: questions,
     }));
@@ -121,35 +142,91 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         }
       }
 
-      const newRoundsConfig: RoundConfig[] = [];
+      // Generate every round concurrently. Sequential calls made a 5-round game
+      // wait for 5 round-trips before the host saw anything.
+      const results = await Promise.all(
+        selectedCats.map((category) =>
+          generateQuestions(category.name, questions),
+        ),
+      );
 
-      // Generate questions for each round
-      for (let i = 0; i < rounds; i++) {
-        const category = selectedCats[i];
-        const generatedQuestions = await generateQuestions(
-          category.name,
-          questions,
-        );
+      const newRoundsConfig: RoundConfig[] = results.map((result, i) => ({
+        roundNumber: i + 1,
+        category: selectedCats[i],
+        questions: result.questions,
+      }));
 
-        newRoundsConfig.push({
-          roundNumber: i + 1,
-          category: category,
-          questions: generatedQuestions,
-        });
-      }
+      // Warn the host that they are about to run placeholders in front of a room.
+      const failed = results.filter((r) => r.usedFallback);
+      const contentWarning =
+        failed.length > 0
+          ? `${failed.length} of ${results.length} round(s) used placeholder questions instead of real ones. ${failed[0].error}`
+          : null;
 
       setState((prev) => ({
         ...prev,
         loading: false,
         roundsConfig: newRoundsConfig,
+        contentWarning,
         phase: GamePhase.REVIEW,
       }));
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error generating game:", error);
       setState((prev) => ({
         ...prev,
         loading: false,
-        error: "Failed to generate game content.",
+        error: `Failed to generate game content: ${error?.message || "unknown error"}`,
+      }));
+    }
+  };
+
+  const initImport = () => {
+    setState((prev) => ({
+      ...prev,
+      isHost: true,
+      error: null,
+      phase: GamePhase.IMPORT,
+    }));
+  };
+
+  const goBackToConfig = () => {
+    setState((prev) => ({
+      ...prev,
+      error: null,
+      phase: GamePhase.HOST_CONFIG,
+    }));
+  };
+
+  const importGame = (csvData: string) => {
+    try {
+      const parsed = parseImportData(csvData);
+      const categoryContents = Object.values(parsed);
+
+      const newRoundsConfig: RoundConfig[] = categoryContents.map(
+        (content, i) => ({
+          roundNumber: i + 1,
+          category: content.category,
+          questions: content.questions,
+        }),
+      );
+
+      setState((prev) => ({
+        ...prev,
+        loading: false,
+        error: null,
+        contentWarning: null,
+        roundsConfig: newRoundsConfig,
+        totalRounds: newRoundsConfig.length,
+        questionsPerRound: Math.max(
+          ...newRoundsConfig.map((r) => r.questions.length),
+        ),
+        phase: GamePhase.REVIEW,
+      }));
+    } catch (error: any) {
+      setState((prev) => ({
+        ...prev,
+        loading: false,
+        error: error?.message || "Failed to import questions.",
       }));
     }
   };
@@ -171,11 +248,19 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     }));
   };
 
-  const joinGame = (name: string, avatar: string) => {
+  const joinGame = (
+    name: string,
+    avatar: string,
+    avatarColor?: string,
+    avatarAccessory?: string,
+    pin?: string,
+  ) => {
     const newPlayer: Player = {
       id: `user-${Date.now()}`,
       name,
       avatar,
+      avatarColor,
+      avatarAccessory,
       score: 0,
       isBot: false,
       streak: 0,
@@ -185,6 +270,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
       ...prev,
       players: [...prev.players, newPlayer],
       currentPlayerId: newPlayer.id,
+      // Without a backend there is nothing to validate the PIN against, so keep
+      // what the player typed for display rather than silently dropping it.
+      gamePin: prev.gamePin ?? pin ?? null,
       phase: GamePhase.LOBBY,
     }));
   };
@@ -194,6 +282,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
       id: `host-${Date.now()}`,
       name: name || "Host",
       avatar: avatar || AVATARS[0],
+      avatarColor: AVATAR_COLORS[0],
       score: 0,
       isBot: false,
       isHost: true,
@@ -380,16 +469,43 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     setState((prev) => ({
       ...prev,
       phase: GamePhase.START,
-      score: 0,
       currentRound: 0,
+      currentQuestion: null,
       currentQuestionIndex: 0,
       questionsQueue: [],
       usedCategories: [],
+      selectedCategory: null,
       players: [],
       isHost: false,
       gamePin: null,
       currentPlayerId: null,
       roundsConfig: [],
+      timeLeft: TIMER_DURATION,
+      loading: false,
+      error: null,
+      contentWarning: null,
+    }));
+  };
+
+  // Replay the same questions with fresh scores, so "play again" does not force
+  // the host to burn another round of generation in front of a waiting room.
+  const playAgain = () => {
+    setState((prev) => ({
+      ...prev,
+      phase: GamePhase.LOBBY,
+      currentRound: 0,
+      currentQuestion: null,
+      currentQuestionIndex: 0,
+      questionsQueue: [],
+      usedCategories: [],
+      selectedCategory: null,
+      timeLeft: TIMER_DURATION,
+      players: prev.players.map((p) => ({
+        ...p,
+        score: 0,
+        streak: 0,
+        lastAnswerCorrect: undefined,
+      })),
     }));
   };
 
@@ -406,15 +522,12 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     const roundConfig = state.roundsConfig[roundIndex];
     try {
       // Generate a single new question
-      const newQuestions = await generateQuestions(
-        roundConfig.category.name,
-        1,
-      );
-      if (newQuestions.length === 0) return;
+      const result = await generateQuestions(roundConfig.category.name, 1);
+      if (result.usedFallback || result.questions.length === 0) return;
 
       // Replace the question at the specified index
       const updatedQuestions = [...roundConfig.questions];
-      updatedQuestions[questionIndex] = newQuestions[0];
+      updatedQuestions[questionIndex] = result.questions[0];
 
       const updatedRoundsConfig = [...state.roundsConfig];
       updatedRoundsConfig[roundIndex] = {
@@ -440,6 +553,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         generateGame,
         confirmGame,
         updateConfig,
+        initImport,
+        importGame,
+        goBackToConfig,
         joinGame,
         hostJoinAsPlayer,
         addBot,
@@ -449,6 +565,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         nextQuestion,
         nextRound,
         restartGame,
+        playAgain,
         regenerateQuestion,
       }}
     >

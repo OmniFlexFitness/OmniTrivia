@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useGame } from '../context/GameContext';
 import { AVATARS } from '../constants';
 import Button from './Button';
+import AvatarDisplay from './AvatarDisplay';
 import { Users, Zap, Settings, UserPlus, PlayCircle } from 'lucide-react';
 
 const LobbyScreen: React.FC = () => {
@@ -85,8 +86,13 @@ const LobbyScreen: React.FC = () => {
                 className={`bg-slate-800 border p-4 rounded-xl flex flex-col items-center animate-bounce-short transition-colors ${player.isHost ? 'border-neon-yellow shadow-[0_0_10px_rgba(250,255,0,0.3)]' : 'border-slate-700 hover:border-neon-blue'}`}
                 style={{ animationDelay: `${Math.random()}s`, animationDuration: '3s' }}
               >
-                <div className="text-5xl mb-2 filter drop-shadow-[0_0_5px_rgba(255,255,255,0.5)]">
-                  {player.avatar}
+                <div className="mb-2 filter drop-shadow-[0_0_5px_rgba(255,255,255,0.5)]">
+                  <AvatarDisplay
+                    avatar={player.avatar}
+                    color={player.avatarColor}
+                    accessory={player.avatarAccessory}
+                    size="lg"
+                  />
                 </div>
                 <div className="font-bold text-slate-200 truncate w-full text-center text-lg">
                   {player.name}

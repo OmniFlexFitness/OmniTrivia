@@ -36,33 +36,51 @@ same thing explicitly if you have overridden the config.
 
 ## Trivia question source
 
-`src/services/geminiService.ts` reads `VITE_API_KEY` from `.env` and calls
-Gemini (`gemini-1.5-flash`) to generate each round. With no key — or on any API
-error — it silently falls back to placeholder questions that read
-"This is a mock question #1 about Science...". If you see those, the key is
-missing or the call failed; check the browser console.
+Copy `.env.example` to `.env` and put your Gemini key in `VITE_API_KEY`.
+`src/services/geminiService.ts` calls `gemini-1.5-flash` to generate every
+round, with a 20-second ceiling per request.
+
+If a round cannot be generated, it falls back to placeholder questions **and
+the review screen shows a warning banner naming the reason**. Never start a
+game while that banner is up — the questions are not real.
+
+To run your own questions instead, use **IMPORT MY OWN QUESTIONS** on the setup
+screen. It takes a CSV file or a public Google Sheet with these columns:
+
+```
+category,question,option1,option2,option3,option4,correctAnswer,explanation
+Science,What planet is known as the Red Planet?,Mars,Venus,Jupiter,Mercury,Mars,Iron oxide gives Mars its colour.
+```
+
+Each distinct `category` becomes its own round.
+
+## Running the game
+
+1. **HOST GAME** → pick rounds and questions per round.
+2. **GENERATE & REVIEW** (or **IMPORT MY OWN QUESTIONS**). Read the review
+   screen; the ↻ button on any question regenerates just that one.
+3. **APPROVE & OPEN LOBBY** → you get a PIN. **JOIN AS PLAYER** to play along,
+   **ADD BOT** for more opponents.
+4. **START GAME** → **SPIN THE WHEEL** each round (or flick the wheel), then
+   **START ROUND**.
+5. Answer, advance with **NEXT QUESTION**, then **SEE FINAL RESULTS**.
+6. **PLAY AGAIN** replays the same questions with scores reset — it does not
+   regenerate, so it costs no API calls.
 
 ## What actually works today
 
 Game state lives entirely in React context (`src/context/GameContext.tsx`).
 There is no server, no socket, and no shared session. Concretely:
 
-- **Hosting works.** Configure rounds, generate/review questions, get a PIN,
-  play through the wheel, questions, and leaderboard in one browser.
+- **Hosting works end to end** — verified through a full two-round game.
 - **Joining from another device does not.** A phone that opens the Network URL
   and enters the PIN starts its *own* isolated game in its *own* browser tab.
-  The PIN is never validated and the host never sees that player.
+  The PIN is never validated and the host never sees that player. A `?pin=`
+  link pre-fills the field, but that is all it does.
 - **Other players in the lobby are bots.** `GameContext` auto-adds bots every
   3 seconds until there are 3 players, and scores them with `Math.random()`.
 
-So the current build is a solid single-screen / big-screen trivia runner, not a
-Kahoot-style multiplayer session. Making players on other devices join the same
-game needs a real backend (a small WebSocket server holding room state keyed by
-PIN, with the client reading from it instead of local context).
-
-## Known build drift
-
-`npm run build` fails typechecking today — some components call context methods
-that do not exist yet (`importGame`, `goBackToConfig`, `initialPin`, and a
-5-argument `joinGame`). `npm run dev` still runs because Vite does not
-typecheck. Run `npm run typecheck` to see the current list.
+So this is a big-screen trivia runner: one host machine, everyone answering in
+the room. Making players on other devices join the same game needs a real
+backend (a small WebSocket server holding room state keyed by PIN, with the
+client reading from it instead of local context).
