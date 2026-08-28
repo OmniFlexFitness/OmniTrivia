@@ -1,6 +1,7 @@
 export enum GamePhase {
   START = "START",
   HOST_CONFIG = "HOST_CONFIG",
+  IMPORT = "IMPORT", // Importing questions from CSV / Google Sheets
   REVIEW = "REVIEW", // New phase for reviewing questions
   JOIN = "JOIN",
   LOBBY = "LOBBY",
@@ -77,6 +78,11 @@ export interface GameState {
   timeLeft: number;
   loading: boolean;
   error: string | null;
+  // Set when a round fell back to placeholder questions so the host is warned
+  // before starting a game in front of a room.
+  contentWarning: string | null;
+  // Pre-filled from a ?pin= query param so QR-code links skip manual entry.
+  initialPin: string | null;
 }
 
 export interface Category {

@@ -68,8 +68,15 @@ This command uses Cloud Build to build your Docker image and push it to the Arti
 Make sure you are in the root directory of the application (where the `Dockerfile` is located).
 
 ```bash
-gcloud builds submit --tag ${REGION}-docker.pkg.dev/${PROJECT_ID}/omnitrivia-repo/omnitrivia-app:latest
+gcloud builds submit \
+  --tag ${REGION}-docker.pkg.dev/${PROJECT_ID}/omnitrivia-repo/omnitrivia-app:latest
 ```
+
+The `Dockerfile` is a multi-stage build: it runs `npm run build` and serves the
+resulting `dist/` from nginx. To bake in an Anthropic key, pass it as a build
+arg (`--build-arg VITE_ANTHROPIC_API_KEY=...`) — note that Vite inlines it into
+the public JS bundle, so anyone who loads the deployed site can read it. Give
+the key a low spend limit, or deploy without one and import questions instead.
 
 This process might take a few minutes. Cloud Build will package your application files into a container image and store it securely.
 

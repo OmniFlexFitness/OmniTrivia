@@ -19,8 +19,10 @@ const QuestionReviewCard: React.FC<QuestionReviewCardProps> = ({ question, categ
     setIsRegenerating(false);
   };
 
+  const questionType = question.type ?? QuestionType.MULTIPLE_CHOICE;
+
   const renderAnswer = () => {
-    switch (question.type) {
+    switch (questionType) {
       case QuestionType.SLIDER:
         const [min, max, step, correctLow, correctHigh] = question.options;
         return <p className="text-green-400 font-bold">✓ Range: {correctLow} - {correctHigh}</p>;
@@ -52,13 +54,13 @@ const QuestionReviewCard: React.FC<QuestionReviewCardProps> = ({ question, categ
             {question.text}
           </p>
           <span className={`text-xs font-mono uppercase px-2 py-0.5 rounded ml-7 mt-2 inline-block ${
-            question.type === QuestionType.TRUE_FALSE ? 'bg-purple-500/20 text-purple-300' :
-            question.type === QuestionType.TYPE_ANSWER ? 'bg-yellow-500/20 text-yellow-300' :
-            question.type === QuestionType.SLIDER ? 'bg-orange-500/20 text-orange-300' :
-            question.type === QuestionType.PUZZLE ? 'bg-red-500/20 text-red-300' :
+            questionType === QuestionType.TRUE_FALSE ? 'bg-purple-500/20 text-purple-300' :
+            questionType === QuestionType.TYPE_ANSWER ? 'bg-yellow-500/20 text-yellow-300' :
+            questionType === QuestionType.SLIDER ? 'bg-orange-500/20 text-orange-300' :
+            questionType === QuestionType.PUZZLE ? 'bg-red-500/20 text-red-300' :
             'bg-sky-500/20 text-sky-300'
           }`}>
-            {question.type.replace('_', ' ')}
+            {questionType.replace('_', ' ')}
           </span>
         </div>
         <button 

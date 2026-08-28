@@ -34,7 +34,7 @@ const renderCorrectAnswer = (question: Question) => {
 };
 
 const Leaderboard: React.FC = () => {
-  const { players, currentQuestion, nextQuestion, nextRound, phase, isHost, currentRound, totalRounds } = useGame();
+  const { players, currentQuestion, nextQuestion, nextRound, playAgain, phase, isHost, currentRound, totalRounds } = useGame();
 
   // Sort players by score
   const sortedPlayers = [...players].sort((a, b) => b.score - a.score);
@@ -44,7 +44,7 @@ const Leaderboard: React.FC = () => {
 
   const handleAction = () => {
     if (isGameOver) {
-      window.location.reload(); // Simple restart
+      playAgain(); // Replay the same questions with fresh scores
     } else if (isRoundEnd) {
       nextRound();
     } else {
@@ -52,9 +52,13 @@ const Leaderboard: React.FC = () => {
     }
   };
 
+  const isFinalRound = currentRound >= totalRounds;
+
   const getButtonText = () => {
     if (isGameOver) return 'PLAY AGAIN';
-    if (isRoundEnd) return `START ROUND ${Math.min(currentRound + 1, totalRounds)}`;
+    if (isRoundEnd) {
+      return isFinalRound ? 'SEE FINAL RESULTS' : `START ROUND ${currentRound + 1}`;
+    }
     return 'NEXT QUESTION';
   };
 

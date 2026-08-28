@@ -2,13 +2,13 @@ import React from 'react';
 
 interface AvatarDisplayProps {
   avatar: string;
-  color: string;
-  accessory: string;
+  color?: string;
+  accessory?: string;
   size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl';
   className?: string;
 }
 
-const AvatarDisplay: React.FC<AvatarDisplayProps> = ({ avatar, color, accessory, size = 'md', className = '' }) => {
+const AvatarDisplay: React.FC<AvatarDisplayProps> = ({ avatar, color = 'bg-slate-600', accessory = '', size = 'md', className = '' }) => {
   const sizeClasses = {
     sm: 'w-8 h-8 text-lg',
     md: 'w-12 h-12 text-2xl',

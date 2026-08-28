@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { useGame } from '../context/GameContext';
 import Button from './Button';
-import { Settings, ArrowRight, Loader2 } from 'lucide-react';
+import { Settings, ArrowRight, Loader2, Upload, AlertTriangle } from 'lucide-react';
 
 const HostConfigScreen: React.FC = () => {
-  const { generateGame, loading } = useGame();
+  const { generateGame, loading, error, initImport } = useGame();
   const [rounds, setRounds] = useState(3);
   const [questions, setQuestions] = useState(5);
 
@@ -18,6 +18,7 @@ const HostConfigScreen: React.FC = () => {
         <Loader2 size={64} className="text-neon-blue animate-spin mb-4" />
         <p className="text-xl font-mono animate-pulse">GENERATING GAME CONTENT...</p>
         <p className="text-slate-400 mt-2">Creating {rounds} rounds of trivia</p>
+        <p className="text-slate-600 text-sm mt-4">This falls back to placeholder questions if the API cannot be reached.</p>
       </div>
     );
   }
@@ -29,6 +30,13 @@ const HostConfigScreen: React.FC = () => {
           <Settings className="text-neon-blue" size={32} />
           <h2 className="text-3xl font-bold text-white">GAME SETUP</h2>
         </div>
+
+        {error && (
+          <div className="bg-red-900/50 border border-red-500 text-red-300 p-4 rounded-lg mb-6 flex items-center gap-3">
+            <AlertTriangle className="shrink-0" />
+            <span className="text-sm">{error}</span>
+          </div>
+        )}
 
         <div className="space-y-8">
           <div>
@@ -61,9 +69,12 @@ const HostConfigScreen: React.FC = () => {
             </div>
           </div>
 
-          <div className="pt-4">
+          <div className="pt-4 space-y-3">
             <Button onClick={handleGenerate} fullWidth variant="neon" className="flex items-center justify-center gap-2">
               GENERATE & REVIEW <ArrowRight />
+            </Button>
+            <Button onClick={initImport} fullWidth variant="secondary" className="flex items-center justify-center gap-2 border-slate-600">
+              <Upload size={18} /> IMPORT MY OWN QUESTIONS
             </Button>
           </div>
         </div>
