@@ -3,7 +3,7 @@ import react from "@vitejs/plugin-react";
 
 /**
  * Vite inlines VITE_* values into the code it serves, so a LAN-bound dev server
- * hands the Gemini key to every device that opens the Network URL. That is the
+ * hands the Anthropic key to every device that opens the Network URL. That is the
  * accepted trade for local play, but the host should be told, not surprised.
  */
 const warnOnExposedKey = (apiKey: string): Plugin => ({
@@ -24,12 +24,12 @@ const warnOnExposedKey = (apiKey: string): Plugin => ({
       server.config.logger.warn(
         [
           "",
-          "  WARNING: VITE_API_KEY is readable by anyone on this network.",
+          "  WARNING: VITE_ANTHROPIC_API_KEY is readable by anyone on this network.",
           "  The dev server is bound to all interfaces, and Vite inlines the key",
           "  into the code it serves, so any device that opens the Network URL",
-          "  can read it and spend your Gemini quota.",
-          "  Restrict the key in Google Cloud, or use `npm run dev:local` on an",
-          "  untrusted network. See LOCAL_PLAY.md.",
+          "  can read it and spend against your Anthropic account.",
+          "  Give the key a low spend limit in the Anthropic Console, or use",
+          "  `npm run dev:local` on an untrusted network. See LOCAL_PLAY.md.",
           "",
         ].join("\n"),
       );
@@ -43,7 +43,7 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
 
   return {
-    plugins: [react(), warnOnExposedKey(env.VITE_API_KEY)],
+    plugins: [react(), warnOnExposedKey(env.VITE_ANTHROPIC_API_KEY)],
     server: {
       // Bind to every interface so phones/laptops on the same Wi-Fi can reach
       // the dev server at http://<host-lan-ip>:5173

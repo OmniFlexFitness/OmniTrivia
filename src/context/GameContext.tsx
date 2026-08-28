@@ -15,7 +15,7 @@ import {
   AVATAR_COLORS,
   CATEGORIES,
 } from "../constants";
-import { generateQuestions } from "../services/geminiService";
+import { generateQuestions } from "../services/claudeService";
 import { parseImportData } from "../services/importService";
 import { isAnswerCorrect, Answer } from "../services/scoring";
 

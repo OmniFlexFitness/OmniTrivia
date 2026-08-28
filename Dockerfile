@@ -11,10 +11,10 @@ COPY . .
 
 # Vite inlines VITE_* variables at build time, so the key has to be present
 # here rather than at container runtime.
-#   docker build --build-arg VITE_API_KEY=... .
+#   docker build --build-arg VITE_ANTHROPIC_API_KEY=... .
 # NOTE: anything inlined this way ships inside the public JS bundle.
-ARG VITE_API_KEY=""
-ENV VITE_API_KEY=$VITE_API_KEY
+ARG VITE_ANTHROPIC_API_KEY=""
+ENV VITE_ANTHROPIC_API_KEY=$VITE_ANTHROPIC_API_KEY
 
 RUN npm run build
 

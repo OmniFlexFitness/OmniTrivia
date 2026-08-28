@@ -25,14 +25,14 @@ same thing explicitly if you have overridden the config.
 
 `npm run dev` binds to every interface, which is what lets phones join — and
 also what lets anyone else on that Wi-Fi open the same URL. Vite inlines
-`VITE_API_KEY` into the code it serves, so **every device that loads the
-Network URL receives your Gemini key** and can spend your quota. The dev
-server prints a warning at startup when this applies.
+`VITE_ANTHROPIC_API_KEY` into the code it serves, so **every device that loads
+the Network URL receives your Anthropic key** and can spend against your
+account. The dev server prints a warning at startup when this applies.
 
 On a venue or guest network, do one or more of:
 
-- Restrict the key in Google Cloud (API restrictions + a low quota cap), and
-  rotate it after the event.
+- Give the key a low spend limit in the Anthropic Console, and rotate it after
+  the event.
 - Run `npm run dev:local` (localhost only) and play purely off the host screen.
 - Import your questions from CSV instead of generating them, and run with no
   key set at all — nothing to leak.
@@ -52,9 +52,12 @@ On a venue or guest network, do one or more of:
 
 ## Trivia question source
 
-Copy `.env.example` to `.env` and put your Gemini key in `VITE_API_KEY`.
-`src/services/geminiService.ts` calls `gemini-1.5-flash` to generate every
-round, with a 20-second ceiling per request.
+Copy `.env.example` to `.env` and put your Anthropic key in
+`VITE_ANTHROPIC_API_KEY` (create one at
+https://console.anthropic.com/settings/keys). `src/services/claudeService.ts`
+calls `claude-opus-5` to generate every round, with a 90-second ceiling per
+request. The model fills a schema directly via structured outputs, so a
+malformed response is caught rather than half-parsed.
 
 If a round cannot be generated, it falls back to placeholder questions **and
 the review screen shows a warning banner naming the reason**. Never start a

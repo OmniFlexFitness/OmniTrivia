@@ -12,12 +12,13 @@
         "dev:local": "vite --host localhost"
     },
     "dependencies": {
+        "@anthropic-ai/sdk": "^0.122.0",
+        "framer-motion": "^10.16.16",
+        "lucide-react": "^0.303.0",
         "react": "^18.2.0",
         "react-dom": "^18.2.0",
-        "@google/generative-ai": "^0.21.0",
-        "lucide-react": "^0.303.0",
-        "framer-motion": "^10.16.16",
-        "react-qr-code": "^2.0.12"
+        "react-qr-code": "^2.0.12",
+        "zod": "^4.5.1"
     },
     "devDependencies": {
         "@types/react": "^18.2.0",
