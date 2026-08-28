@@ -17,6 +17,7 @@ import {
 } from "../constants";
 import { generateQuestions } from "../services/geminiService";
 import { parseImportData } from "../services/importService";
+import { isAnswerCorrect, Answer } from "../services/scoring";
 
 interface GameContextType extends GameState {
   initHost: () => void;
@@ -38,7 +39,7 @@ interface GameContextType extends GameState {
   addBot: () => void;
   startGame: () => void;
   selectCategory: (category: string) => Promise<void>; // Kept for compatibility but modified
-  submitAnswer: (answerIndex: number) => void;
+  submitAnswer: (answer: Answer) => void;
   nextQuestion: () => void;
   nextRound: () => void;
   restartGame: () => void;
@@ -384,13 +385,15 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     }));
   };
 
-  const submitAnswer = (answerIndex: number) => {
+  const submitAnswer = (answer: Answer) => {
     if (state.phase !== GamePhase.PLAYING || !state.currentQuestion) return;
 
     // If host is just watching (currentPlayerId is null), they can't submit
     if (state.isHost && !state.currentPlayerId) return;
 
-    const isCorrect = answerIndex === state.currentQuestion.correctIndex;
+    // Typed text, slider values and puzzle orderings are not option indices, so
+    // grading has to go through the type-aware check.
+    const isCorrect = isAnswerCorrect(state.currentQuestion, answer);
     const timeBonus = Math.floor(state.timeLeft * 10);
     const points = isCorrect ? 100 + timeBonus : 0;
 

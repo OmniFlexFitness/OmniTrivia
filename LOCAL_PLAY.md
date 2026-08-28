@@ -60,15 +60,16 @@ If a round cannot be generated, it falls back to placeholder questions **and
 the review screen shows a warning banner naming the reason**. Never start a
 game while that banner is up — the questions are not real.
 
-To run your own questions instead, use **IMPORT MY OWN QUESTIONS** on the setup
-screen. It takes a CSV file or a public Google Sheet with these columns:
+### Running with no API key at all
 
-```
-category,question,option1,option2,option3,option4,correctAnswer,explanation
-Science,What planet is known as the Red Planet?,Mars,Venus,Jupiter,Mercury,Mars,Iron oxide gives Mars its colour.
-```
+You do not need a key. **IMPORT MY OWN QUESTIONS** on the setup screen takes a
+CSV file or a public Google Sheet and makes no network calls whatsoever —
+verified by playing a full game with `.env` removed and zero outbound requests.
+This is the recommended way to run a real event: the questions are yours, the
+game works offline, and there is no key to leak on a venue network.
 
-Each distinct `category` becomes its own round.
+See **QUESTION_FORMAT.md** for the column spec, and `questions.example.csv` for
+a working file covering all five question types.
 
 ## Running the game
 

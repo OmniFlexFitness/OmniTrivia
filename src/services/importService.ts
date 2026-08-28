@@ -56,12 +56,16 @@ export const parseImportData = (csvData: string): { [categoryId: string]: Catego
                 questionType = typeStr as QuestionType;
             }
 
-            const options = [
-                row[colMap['option1']],
-                row[colMap['option2']],
-                row[colMap['option3']],
-                row[colMap['option4']],
-            ].filter(opt => opt && opt.trim() !== '');
+            // Read every option<N> column present, not a fixed four: SLIDER
+            // needs five values (min, max, step, low, high) and PUZZLE rounds
+            // can be longer than four items.
+            const optionCols = Object.keys(colMap)
+                .filter(key => /^option\d+$/.test(key))
+                .sort((a, b) => Number(a.slice(6)) - Number(b.slice(6)));
+
+            const options = optionCols
+                .map(key => row[colMap[key]])
+                .filter(opt => opt && opt.trim() !== '');
             
             const correctAnswerStr = row[colMap['correctanswer']];
             const explanation = colMap['explanation'] !== undefined ? row[colMap['explanation']] : 'No explanation provided.';

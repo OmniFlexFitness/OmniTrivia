@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Question, QuestionType } from '../types';
 import { useGame } from '../context/GameContext';
+import { isAnswerCorrect } from '../services/scoring';
 import Button from './Button';
 import { Reorder } from 'framer-motion';
 import { Check, GripVertical } from 'lucide-react';
@@ -99,7 +100,7 @@ const MultipleChoiceQuestion: React.FC<{ question: Question, onSubmit: (answer: 
 
 const TypeAnswerQuestion: React.FC<{ question: Question, onSubmit: (answer: string) => void, isSubmitted: boolean }> = ({ question, onSubmit, isSubmitted }) => {
     const [answer, setAnswer] = useState('');
-    const isCorrect = isSubmitted && question.options.some(opt => opt.toLowerCase() === answer.toLowerCase().trim());
+    const isCorrect = isSubmitted && isAnswerCorrect(question, answer);
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -135,7 +136,7 @@ const SliderQuestion: React.FC<{ question: Question, onSubmit: (answer: number) 
         onSubmit(value);
     };
 
-    const isCorrect = value >= correctLow && value <= correctHigh;
+    const isCorrect = isAnswerCorrect(question, value);
     const rangeWidth = max - min;
     const correctRangeWidth = ((correctHigh - correctLow) / rangeWidth) * 100;
     const correctRangeOffset = ((correctLow - min) / rangeWidth) * 100;
