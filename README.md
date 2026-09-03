@@ -45,9 +45,17 @@ does and does not get you, and for firewall troubleshooting.
 
 ### Bring your own (no API key needed)
 
-**HOST GAME → IMPORT MY OWN QUESTIONS**, then pick a CSV or paste a public
-Google Sheet URL. This path makes **no network calls at all** — nothing to
-configure, nothing to leak, and the questions are exactly the ones you wrote.
+**HOST GAME → IMPORT MY OWN QUESTIONS**, then either select a CSV file or paste
+a public Google Sheet URL. No API key is needed either way, and the questions
+are exactly the ones you wrote.
+
+- **A CSV file makes no network calls at all** — it is read in the browser.
+  This is the one that works fully offline, and the safest option on a venue
+  network: there is no key involved and nothing to leak.
+- **A Google Sheet is fetched from `docs.google.com`** over the network, so it
+  needs internet access and a sheet shared as "Anyone with the link can view".
+  Convenient for editing questions collaboratively, but it will fail offline —
+  export the sheet to CSV beforehand if the venue's Wi-Fi is unreliable.
 
 `QUESTION_FORMAT.md` has the column spec; `questions.example.csv` is a working
 file covering all five question types.

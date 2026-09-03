@@ -66,10 +66,17 @@ game while that banner is up — the questions are not real.
 ### Running with no API key at all
 
 You do not need a key. **IMPORT MY OWN QUESTIONS** on the setup screen takes a
-CSV file or a public Google Sheet and makes no network calls whatsoever —
-verified by playing a full game with `.env` removed and zero outbound requests.
-This is the recommended way to run a real event: the questions are yours, the
-game works offline, and there is no key to leak on a venue network.
+CSV file or a public Google Sheet.
+
+Importing a **CSV file** makes no network calls whatsoever — verified by
+playing a full game with no key set and zero outbound requests. That is the
+recommended way to run a real event: the questions are yours, the game works
+offline, and there is no key to leak on a venue network.
+
+Importing a **Google Sheet** does make one request, to `docs.google.com`, to
+export the sheet as CSV. It needs working internet and a sheet shared as
+"Anyone with the link can view" — so export it to a CSV file ahead of time if
+the venue Wi-Fi cannot be trusted.
 
 See **QUESTION_FORMAT.md** for the column spec, and `questions.example.csv` for
 a working file covering all five question types.

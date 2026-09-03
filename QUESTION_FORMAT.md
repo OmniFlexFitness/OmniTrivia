@@ -1,11 +1,13 @@
 # Question file format
 
 Use this to hand OmniTrivia your own questions instead of generating them.
-**No API key is needed for this path** — importing runs entirely in the browser
-and makes no network calls at all.
+**No API key is needed for this path.**
 
 Load a file with **HOST GAME → IMPORT MY OWN QUESTIONS → Select File**, or paste
-a public Google Sheet URL on the same screen.
+a public Google Sheet URL on the same screen. A CSV file is parsed entirely in
+the browser and makes no network calls at all; a Google Sheet is fetched from
+`docs.google.com` first (see the Google Sheets section below), so it needs
+internet access.
 
 `questions.example.csv` in this repo is a working file covering every type. Open
 it alongside this doc.
