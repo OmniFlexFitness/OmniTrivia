@@ -54,7 +54,10 @@ On a venue or guest network, do one or more of:
 
 Copy `.env.example` to `.env` and put your Anthropic key in
 `VITE_ANTHROPIC_API_KEY` (create one at
-https://console.anthropic.com/settings/keys). `src/services/claudeService.ts`
+https://console.anthropic.com/settings/keys). Identity-linked keys also need
+`VITE_ANTHROPIC_WORKSPACE_ID` set to a `wrkspc_...` id, or every request is
+rejected with "anthropic-workspace-id is required"; ordinary keys can leave it
+blank. `src/services/claudeService.ts`
 calls `claude-opus-5` to generate every round, with a 90-second ceiling per
 request. The model fills a schema directly via structured outputs, so a
 malformed response is caught rather than half-parsed.

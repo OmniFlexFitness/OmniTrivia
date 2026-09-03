@@ -72,6 +72,16 @@ Create a key at <https://console.anthropic.com/settings/keys>. `npm run dev`
 picks it up; **HOST GAME → GENERATE & REVIEW** then writes each round with
 `claude-opus-5`.
 
+If your key is **identity-linked**, requests are rejected with
+`anthropic-workspace-id is required` until they name a workspace. Add it too:
+
+```
+VITE_ANTHROPIC_WORKSPACE_ID=wrkspc_...
+```
+
+Ordinary keys carry their own workspace and need nothing here — leave it blank.
+The review screen tells you which case you are in if a round fails.
+
 Always read the review screen before opening the lobby. If generation failed,
 a banner says so and the questions are placeholders, not real ones.
 
