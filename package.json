@@ -17,6 +17,8 @@
         "preview": "vite preview --host 0.0.0.0",
         "pretypecheck": "node scripts/check-deps.mjs",
         "typecheck": "tsc --noEmit",
+        "precheck-key": "node scripts/check-deps.mjs",
+        "check-key": "node scripts/check-key.mjs",
         "pregenerate-questions": "node scripts/check-deps.mjs",
         "generate-questions": "node scripts/generate-questions.mjs"
     },

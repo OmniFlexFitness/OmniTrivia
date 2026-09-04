@@ -38,7 +38,15 @@ const Wheel: React.FC = () => {
   const targetCategory = targetCategoryConfig
     ? targetCategoryConfig.category
     : CATEGORIES[0];
-  const activeCategories = CATEGORIES;
+  // The wheel must show the categories this game is actually playing. An
+  // imported set is frequently not the built-in ten, and drawing the built-ins
+  // regardless meant findIndex below returned -1 for any custom category — the
+  // wheel then landed a slice off, pointing at one name while announcing
+  // another. Fall back to the built-ins only before a game is configured.
+  const activeCategories =
+    roundsConfig.length > 0
+      ? roundsConfig.map((round) => round.category)
+      : CATEGORIES;
 
   // Calculate angle from center of wheel to mouse position
   const getAngleFromCenter = useCallback(

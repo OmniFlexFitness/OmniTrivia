@@ -63,6 +63,7 @@ does and does not get you, and for firewall troubleshooting.
 | `npm run typecheck` | Typecheck without building |
 | `npm run check-deps` | Verify Node and dependencies without starting anything |
 | `npm run generate-questions` | Write a question CSV with Claude, without exposing the key |
+| `npm run check-key` | Diagnose why generation is returning placeholders |
 
 ## Questions
 
@@ -83,6 +84,15 @@ npm run generate-questions -- --categories Music,Food --out kava-night.csv
 
 That script calls Claude from Node, so the key stays on your machine and never
 reaches the bundle or the room's Wi-Fi. It reads the same `.env`.
+
+### Write your own with any assistant
+
+`QUESTION_PROMPT.md` is a prompt you paste into Claude, ChatGPT or anything
+else you have open. It carries the whole column spec and the parser's rules,
+and returns a CSV you import directly. Change the `CATEGORIES` line and you
+change the rounds — the wheel draws whatever categories the imported file
+contains, so custom ones are first-class (they just show with a ❓ instead of
+a themed icon).
 
 ### Bring your own (no API key needed)
 
@@ -126,8 +136,13 @@ The review screen tells you which case you are in if a round fails.
 Always read the review screen before opening the lobby. If generation failed,
 a banner says so and the questions are placeholders, not real ones.
 
-If every round comes back as placeholders saying no key is set, the dev server
-never saw your `.env`. It prints a warning at startup when that is the case.
+If every round comes back as placeholders, run **`npm run check-key`**. It
+resolves the key the same way the app does, says which file supplied it, calls
+the API once and reports what came back, and flags leftovers from the old
+Gemini version. That answers the question faster than reading anything below.
+
+The usual cause is that the dev server never saw your `.env`. It prints a
+warning at startup when that is the case.
 Check that the file is named exactly `.env` — on Windows, Notepad appends
 `.txt` unless you pick "All Files" in the save dialog, and `.env.txt` is
 ignored — that it sits next to `package.json`, and that you restarted the
