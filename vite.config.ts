@@ -20,7 +20,28 @@ const warnOnExposedKey = (apiKey: string): Plugin => ({
         host === true ||
         (typeof host === "string" && !loopback.includes(host.toLowerCase()));
 
-      if (!lanBound || !apiKey) return;
+      if (!apiKey) {
+        // The app's only symptom is placeholder questions on the review
+        // screen, which reads as a broken app rather than a missing file.
+        // On Windows the usual cause is Notepad saving ".env" as ".env.txt".
+        server.config.logger.warn(
+          [
+            "",
+            "  No VITE_ANTHROPIC_API_KEY found, so GENERATE & REVIEW will only",
+            "  produce placeholder questions. Put your key in a file named",
+            "  exactly `.env` next to package.json and restart this server:",
+            "",
+            "    VITE_ANTHROPIC_API_KEY=sk-ant-...",
+            "    VITE_ANTHROPIC_WORKSPACE_ID=wrkspc_...   (identity-linked keys only)",
+            "",
+            "  Or skip the key entirely: HOST GAME > IMPORT MY OWN QUESTIONS.",
+            "",
+          ].join("\n"),
+        );
+        return;
+      }
+
+      if (!lanBound) return;
       server.config.logger.warn(
         [
           "",

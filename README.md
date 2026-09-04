@@ -62,8 +62,27 @@ does and does not get you, and for firewall troubleshooting.
 | `npm run preview` | Serve the built `dist/` |
 | `npm run typecheck` | Typecheck without building |
 | `npm run check-deps` | Verify Node and dependencies without starting anything |
+| `npm run generate-questions` | Write a question CSV with Claude, without exposing the key |
 
 ## Questions
+
+### Ready to play: `questions.csv`
+
+`questions.csv` in this repo is a full night — 10 rounds of 5, one per
+category, mixing multiple choice, true/false, a slider, a drag-to-order puzzle
+and a typed answer. **HOST GAME → IMPORT MY OWN QUESTIONS → Select File** and
+you are playing, with no API key involved.
+
+Regenerate it, or write a different set, without ever putting the key in the
+browser:
+
+```bash
+npm run generate-questions                                   # all 10 categories
+npm run generate-questions -- --categories Music,Food --out kava-night.csv
+```
+
+That script calls Claude from Node, so the key stays on your machine and never
+reaches the bundle or the room's Wi-Fi. It reads the same `.env`.
 
 ### Bring your own (no API key needed)
 
@@ -106,6 +125,13 @@ The review screen tells you which case you are in if a round fails.
 
 Always read the review screen before opening the lobby. If generation failed,
 a banner says so and the questions are placeholders, not real ones.
+
+If every round comes back as placeholders saying no key is set, the dev server
+never saw your `.env`. It prints a warning at startup when that is the case.
+Check that the file is named exactly `.env` — on Windows, Notepad appends
+`.txt` unless you pick "All Files" in the save dialog, and `.env.txt` is
+ignored — that it sits next to `package.json`, and that you restarted the
+server after creating it. Vite reads it only at startup.
 
 > **The key ships in the browser bundle.** Vite inlines `VITE_*` variables into
 > the JavaScript it serves, so anyone who loads the app — including every device

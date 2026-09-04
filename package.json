@@ -16,7 +16,9 @@
         "prepreview": "node scripts/check-deps.mjs",
         "preview": "vite preview --host 0.0.0.0",
         "pretypecheck": "node scripts/check-deps.mjs",
-        "typecheck": "tsc --noEmit"
+        "typecheck": "tsc --noEmit",
+        "pregenerate-questions": "node scripts/check-deps.mjs",
+        "generate-questions": "node scripts/generate-questions.mjs"
     },
     "dependencies": {
         "@anthropic-ai/sdk": "^0.122.0",
