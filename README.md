@@ -21,6 +21,27 @@ npm run dev
 `npm install` is not optional — the repo does not vendor dependencies, and the
 bundler needs binaries built for your platform.
 
+### Reusing an older clone
+
+`node_modules/` used to be committed to this repo. A clone made before it was
+removed still has that directory on disk, and it predates the switch to the
+Anthropic SDK — so Vite starts and then dies on the first import:
+
+```
+[plugin:vite:import-analysis] Failed to resolve import "@anthropic-ai/sdk"
+```
+
+The directory is stale, not broken. Delete it and reinstall:
+
+```bash
+rm -rf node_modules && npm install                          # macOS / Linux
+rmdir /s /q node_modules && npm install                     # Windows (cmd)
+Remove-Item -Recurse -Force node_modules; npm install       # Windows (PowerShell)
+```
+
+`npm run dev` now checks this before starting and names any missing package
+instead of failing inside Vite.
+
 Vite prints two URLs:
 
 ```
@@ -40,6 +61,7 @@ does and does not get you, and for firewall troubleshooting.
 | `npm run build` | Typecheck, then build to `dist/` |
 | `npm run preview` | Serve the built `dist/` |
 | `npm run typecheck` | Typecheck without building |
+| `npm run check-deps` | Verify Node and dependencies without starting anything |
 
 ## Questions
 

@@ -4,12 +4,19 @@
     "version": "1.0.0",
     "type": "module",
     "scripts": {
+        "check-deps": "node scripts/check-deps.mjs",
+        "predev": "node scripts/check-deps.mjs",
         "dev": "vite",
-        "build": "tsc && vite build",
-        "preview": "vite preview --host 0.0.0.0",
+        "predev:lan": "node scripts/check-deps.mjs",
         "dev:lan": "vite --host 0.0.0.0",
-        "typecheck": "tsc --noEmit",
-        "dev:local": "vite --host localhost"
+        "predev:local": "node scripts/check-deps.mjs",
+        "dev:local": "vite --host localhost",
+        "prebuild": "node scripts/check-deps.mjs",
+        "build": "tsc && vite build",
+        "prepreview": "node scripts/check-deps.mjs",
+        "preview": "vite preview --host 0.0.0.0",
+        "pretypecheck": "node scripts/check-deps.mjs",
+        "typecheck": "tsc --noEmit"
     },
     "dependencies": {
         "@anthropic-ai/sdk": "^0.122.0",

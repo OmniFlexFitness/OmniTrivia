@@ -11,6 +11,10 @@ npm install          # first time only
 npm run dev          # binds to all interfaces (see vite.config.ts)
 ```
 
+If `npm run dev` reports missing packages, your `node_modules` is a leftover
+from when this repo committed its dependencies. Delete it and run `npm install`
+again — see "Reusing an older clone" in `README.md`.
+
 Vite prints two URLs:
 
 ```
