@@ -4,12 +4,23 @@
     "version": "1.0.0",
     "type": "module",
     "scripts": {
+        "check-deps": "node scripts/check-deps.mjs",
+        "predev": "node scripts/check-deps.mjs",
         "dev": "vite",
-        "build": "tsc && vite build",
-        "preview": "vite preview --host 0.0.0.0",
+        "predev:lan": "node scripts/check-deps.mjs",
         "dev:lan": "vite --host 0.0.0.0",
+        "predev:local": "node scripts/check-deps.mjs",
+        "dev:local": "vite --host localhost",
+        "prebuild": "node scripts/check-deps.mjs",
+        "build": "tsc && vite build",
+        "prepreview": "node scripts/check-deps.mjs",
+        "preview": "vite preview --host 0.0.0.0",
+        "pretypecheck": "node scripts/check-deps.mjs",
         "typecheck": "tsc --noEmit",
-        "dev:local": "vite --host localhost"
+        "precheck-key": "node scripts/check-deps.mjs",
+        "check-key": "node scripts/check-key.mjs",
+        "pregenerate-questions": "node scripts/check-deps.mjs",
+        "generate-questions": "node scripts/generate-questions.mjs"
     },
     "dependencies": {
         "@anthropic-ai/sdk": "^0.122.0",
@@ -27,5 +38,7 @@
         "typescript": "^5.3.3",
         "vite": "^5.0.12"
     },
-    "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
+    "engines": {
+        "node": ">=18"
+    }
 }

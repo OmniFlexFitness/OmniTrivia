@@ -5,6 +5,14 @@ import { Question, QuestionType } from "../types";
 
 const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY || "";
 
+/**
+ * Identity-linked keys are rejected unless the request names the workspace it
+ * acts in ("anthropic-workspace-id is required when authenticating with an
+ * identity-linked API key"). Ordinary keys carry their own workspace and need
+ * nothing here, so the header is only sent when this is set.
+ */
+const workspaceId = import.meta.env.VITE_ANTHROPIC_WORKSPACE_ID || "";
+
 // A live game cannot sit on a hanging request while a room waits, so give the
 // API a hard ceiling and fall back to placeholders past it. Generation runs at
 // setup time, not mid-game, so this is generous enough for adaptive thinking.
@@ -20,7 +28,13 @@ const MODEL = "claude-opus-5";
  * running with no key at all).
  */
 const client = apiKey
-  ? new Anthropic({ apiKey, dangerouslyAllowBrowser: true })
+  ? new Anthropic({
+      apiKey,
+      dangerouslyAllowBrowser: true,
+      ...(workspaceId
+        ? { defaultHeaders: { "anthropic-workspace-id": workspaceId } }
+        : {}),
+    })
   : null;
 
 // The model fills this shape directly — no JSON hidden in markdown fences, and
@@ -161,6 +175,15 @@ const describeError = (error: any): string => {
     return "Rate limited by the Anthropic API. Wait a moment and try again.";
   }
   if (error instanceof Anthropic.BadRequestError) {
+    // Identity-linked keys fail this way until a workspace is named, and the
+    // raw message does not say where to put it.
+    if (/workspace/i.test(error.message)) {
+      return (
+        "This Anthropic key is tied to a workspace and the request did not " +
+        "name one. Set VITE_ANTHROPIC_WORKSPACE_ID in .env to the workspace " +
+        "id (starts with wrkspc_) and restart the dev server."
+      );
+    }
     return `The Anthropic API rejected the request: ${error.message}`;
   }
   if (error instanceof Anthropic.APIConnectionError) {

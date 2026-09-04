@@ -16,6 +16,10 @@ COPY . .
 ARG VITE_ANTHROPIC_API_KEY=""
 ENV VITE_ANTHROPIC_API_KEY=$VITE_ANTHROPIC_API_KEY
 
+# Only needed for identity-linked keys; harmless when empty.
+ARG VITE_ANTHROPIC_WORKSPACE_ID=""
+ENV VITE_ANTHROPIC_WORKSPACE_ID=$VITE_ANTHROPIC_WORKSPACE_ID
+
 RUN npm run build
 
 # --- Serve stage -------------------------------------------------------------

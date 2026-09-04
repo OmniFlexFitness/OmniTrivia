@@ -11,6 +11,10 @@ npm install          # first time only
 npm run dev          # binds to all interfaces (see vite.config.ts)
 ```
 
+If `npm run dev` reports missing packages, your `node_modules` is a leftover
+from when this repo committed its dependencies. Delete it and run `npm install`
+again — see "Reusing an older clone" in `README.md`.
+
 Vite prints two URLs:
 
 ```
@@ -54,7 +58,10 @@ On a venue or guest network, do one or more of:
 
 Copy `.env.example` to `.env` and put your Anthropic key in
 `VITE_ANTHROPIC_API_KEY` (create one at
-https://console.anthropic.com/settings/keys). `src/services/claudeService.ts`
+https://console.anthropic.com/settings/keys). Identity-linked keys also need
+`VITE_ANTHROPIC_WORKSPACE_ID` set to a `wrkspc_...` id, or every request is
+rejected with "anthropic-workspace-id is required"; ordinary keys can leave it
+blank. `src/services/claudeService.ts`
 calls `claude-opus-5` to generate every round, with a 90-second ceiling per
 request. The model fills a schema directly via structured outputs, so a
 malformed response is caught rather than half-parsed.
@@ -66,10 +73,17 @@ game while that banner is up — the questions are not real.
 ### Running with no API key at all
 
 You do not need a key. **IMPORT MY OWN QUESTIONS** on the setup screen takes a
-CSV file or a public Google Sheet and makes no network calls whatsoever —
-verified by playing a full game with `.env` removed and zero outbound requests.
-This is the recommended way to run a real event: the questions are yours, the
-game works offline, and there is no key to leak on a venue network.
+CSV file or a public Google Sheet.
+
+Importing a **CSV file** makes no network calls whatsoever — verified by
+playing a full game with no key set and zero outbound requests. That is the
+recommended way to run a real event: the questions are yours, the game works
+offline, and there is no key to leak on a venue network.
+
+Importing a **Google Sheet** does make one request, to `docs.google.com`, to
+export the sheet as CSV. It needs working internet and a sheet shared as
+"Anyone with the link can view" — so export it to a CSV file ahead of time if
+the venue Wi-Fi cannot be trusted.
 
 See **QUESTION_FORMAT.md** for the column spec, and `questions.example.csv` for
 a working file covering all five question types.
