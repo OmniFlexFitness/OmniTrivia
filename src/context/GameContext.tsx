@@ -9,6 +9,7 @@ import React, {
 import {
   Answer,
   AnswerRecord,
+  RevealReason,
   GameState,
   GamePhase,
   GameMode,
@@ -105,7 +106,7 @@ const BROADCAST_TIMEOUT_MS = 6000;
  * ------------------------------------------------------------------ */
 
 /** Close the question: bank the points, then put the answer on screen. */
-const endQuestion = (prev: GameState): GameState => {
+const endQuestion = (prev: GameState, reason: RevealReason): GameState => {
   if (prev.phase !== GamePhase.PLAYING) return prev;
 
   const active = new Set(
@@ -137,6 +138,7 @@ const endQuestion = (prev: GameState): GameState => {
     phase: GamePhase.QUESTION_REVEAL,
     timerPaused: false,
     revealSecondsLeft: REVEAL_DURATION,
+    revealReason: reason,
   };
 };
 
@@ -203,6 +205,7 @@ const advanceFromReveal = (prev: GameState): GameState => {
       timerPaused: false,
       questionDuration: TIMER_DURATION,
       revealSecondsLeft: REVEAL_DURATION,
+      revealReason: null,
     };
   }
 
@@ -267,6 +270,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     timerPaused: false,
     questionDuration: TIMER_DURATION,
     revealSecondsLeft: REVEAL_DURATION,
+    revealReason: null,
     autoAdvance: true,
     wheelSpinning: false,
     categoryRevealed: false,
@@ -297,7 +301,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         if (prev.phase !== GamePhase.PLAYING) return prev;
         const timeLeft = prev.timeLeft - 1;
         return timeLeft <= 0
-          ? endQuestion({ ...prev, timeLeft: 0 })
+          ? endQuestion({ ...prev, timeLeft: 0 }, "time")
           : { ...prev, timeLeft };
       });
     }, 1000);
@@ -369,7 +373,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
       const next = { ...prev, currentAnswers };
       // The whole point of the counter on the broadcast: once the last player
       // is in there is nothing left to wait for, so the clock stops early.
-      return everyoneIsIn ? endQuestion(next) : next;
+      return everyoneIsIn ? endQuestion(next, "all-in") : next;
     });
   }, []);
 
@@ -451,6 +455,11 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
       ) {
         return;
       }
+
+      // A display latched onto another host tab is not watching this one, so
+      // its heartbeats must not light up this host's pill.
+      const watching = message.hostId;
+      if (watching && watching !== hostId.current) return;
 
       broadcastSeenAt.current = Date.now();
       setBroadcastConnected(true);
@@ -763,6 +772,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         timeLeft: TIMER_DURATION,
         timerPaused: false,
         questionDuration: TIMER_DURATION,
+        revealReason: null,
       };
     });
   };
@@ -774,7 +784,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
   };
 
   /** Host control: stop the clock and put the answer up now. */
-  const endQuestionNow = () => setState((prev) => endQuestion(prev));
+  const endQuestionNow = () => setState((prev) => endQuestion(prev, "host"));
 
   const toggleTimerPaused = () =>
     setState((prev) => ({ ...prev, timerPaused: !prev.timerPaused }));
@@ -847,6 +857,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         timeLeft: TIMER_DURATION,
         timerPaused: false,
         questionDuration: TIMER_DURATION,
+        revealReason: null,
         // Each round is scored on its own, so every matchup starts level.
         players: prev.players.map((p) => ({
           ...p,
@@ -880,6 +891,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
       timerPaused: false,
       questionDuration: TIMER_DURATION,
       revealSecondsLeft: REVEAL_DURATION,
+      revealReason: null,
       wheelSpinning: false,
       categoryRevealed: false,
       loading: false,
@@ -907,6 +919,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
       timerPaused: false,
       questionDuration: TIMER_DURATION,
       revealSecondsLeft: REVEAL_DURATION,
+      revealReason: null,
       wheelSpinning: false,
       categoryRevealed: false,
       players: prev.players.map((p) => ({

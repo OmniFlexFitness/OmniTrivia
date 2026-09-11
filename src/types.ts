@@ -33,6 +33,13 @@ export enum QuestionType {
  */
 export type Answer = number | string | string[];
 
+/**
+ * Why a question stopped. The room is told which it was, so this is recorded
+ * when it happens rather than guessed afterwards from the clock — a host who
+ * reveals early leaves time on it, and so does the last player answering.
+ */
+export type RevealReason = "all-in" | "time" | "host";
+
 export interface Player {
   id: string;
   name: string;
@@ -135,6 +142,8 @@ export interface GameState {
 
   timeLeft: number;
   timerPaused: boolean;
+  // Why the question on screen ended. Null until it does.
+  revealReason: RevealReason | null;
   // How long the current question was given in total. Tracked rather than
   // assumed from TIMER_DURATION because the host can add time mid-question,
   // and every progress bar and ring measures against it.
@@ -246,6 +255,7 @@ export interface BroadcastSnapshot {
   timerDuration: number;
   timerPaused: boolean;
   revealSecondsLeft: number;
+  revealReason: RevealReason | null;
   autoAdvance: boolean;
 
   /** Who is competing this round, who has locked in, and who got it right. */
@@ -270,5 +280,8 @@ export interface BroadcastSnapshot {
 export type BroadcastMessage =
   | { type: "snapshot"; snapshot: BroadcastSnapshot }
   | { type: "host-heartbeat"; at: number; hostId: string }
-  | { type: "broadcast-hello" }
-  | { type: "broadcast-heartbeat"; at: number };
+  // `hostId` names the host this display is following, so a host that is not
+  // being watched does not light up its BROADCAST LIVE pill. Null while the
+  // display has not latched onto anyone yet.
+  | { type: "broadcast-hello"; hostId?: string | null }
+  | { type: "broadcast-heartbeat"; at: number; hostId?: string | null };

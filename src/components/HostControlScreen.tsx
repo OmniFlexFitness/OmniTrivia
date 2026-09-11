@@ -55,7 +55,13 @@ const Panel: React.FC<{
 const AnswerTracker: React.FC = () => {
   const { players, currentAnswers, bracket, currentRound, phase } = useGame();
   const active = rosterForRound(bracket[currentRound - 1], players);
-  const revealing = phase === GamePhase.QUESTION_REVEAL;
+  // The answers stay on screen past the reveal, into the round and game end.
+  // Anyone without a record has missed their chance by then, whichever of
+  // those phases we are in.
+  const revealing =
+    phase === GamePhase.QUESTION_REVEAL ||
+    phase === GamePhase.ROUND_END ||
+    phase === GamePhase.GAME_OVER;
 
   if (active.length === 0) {
     return (
@@ -415,7 +421,9 @@ const RoundEndControls: React.FC = () => {
             ? "The bracket is decided — one player is left standing."
             : next
               ? `${next.matchups.length} matchup(s) drawn for round ${currentRound + 1}.`
-              : "No further rounds are configured."}
+              : currentRound < totalRounds
+                ? `Round ${currentRound + 1} of ${totalRounds} is up next.`
+                : "No further rounds are configured."}
         </p>
 
         {round && (

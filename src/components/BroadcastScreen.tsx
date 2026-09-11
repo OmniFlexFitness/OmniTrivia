@@ -542,7 +542,11 @@ const QuestionStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
           <div className="w-48 h-48 rounded-full border-8 border-green-500 flex flex-col items-center justify-center bg-green-500/10 shadow-[0_0_40px_rgba(34,197,94,0.35)]">
             <CheckCircle2 size={56} className="text-green-400" />
             <div className="mt-2 font-mono uppercase tracking-widest text-green-400 text-sm">
-              {snapshot.timeLeft > 0 ? "All in" : "Time's up"}
+              {snapshot.revealReason === "all-in"
+                ? "All in"
+                : snapshot.revealReason === "host"
+                  ? "Revealed"
+                  : "Time's up"}
             </div>
           </div>
         ) : (
@@ -775,8 +779,15 @@ const BroadcastScreen: React.FC = () => {
   useEffect(() => {
     const claim = (id: string | undefined): boolean => {
       if (!id) return true; // A host from before this handshake existed.
+
       const stale = Date.now() - lastHeard.current > HOST_TIMEOUT_MS;
-      if (latchedHost.current === null || stale) latchedHost.current = id;
+      if (latchedHost.current === null || stale) {
+        const switching = latchedHost.current !== id;
+        latchedHost.current = id;
+        // A heartbeat is not a game. Without asking, this screen could sit on
+        // the previous host's round until the new one happens to change state.
+        if (switching) postMessage({ type: "broadcast-hello", hostId: id });
+      }
       if (latchedHost.current !== id) return false;
       lastHeard.current = Date.now();
       return true;
@@ -795,9 +806,14 @@ const BroadcastScreen: React.FC = () => {
 
     // Announce ourselves so the host replies with a fresh snapshot rather than
     // leaving us on whatever localStorage happened to be holding.
-    postMessage({ type: "broadcast-hello" });
+    postMessage({ type: "broadcast-hello", hostId: latchedHost.current });
     const heartbeat = setInterval(
-      () => postMessage({ type: "broadcast-heartbeat", at: Date.now() }),
+      () =>
+        postMessage({
+          type: "broadcast-heartbeat",
+          at: Date.now(),
+          hostId: latchedHost.current,
+        }),
       2000,
     );
     const clock = setInterval(() => setNow(Date.now()), 1000);

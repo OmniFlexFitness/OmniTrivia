@@ -83,8 +83,9 @@ export const publicOptions = (question: Question): string[] => {
     case QuestionType.TYPE_ANSWER:
       return [];
     case QuestionType.SLIDER:
-      // options are [min, max, step, correctLow, correctHigh].
-      return question.options.slice(0, 3);
+      // options are [min, max, step, correctLow, correctHigh]. Only the two
+      // bounds are needed to draw the scale, so only those are published.
+      return question.options.slice(0, 2);
     case QuestionType.PUZZLE:
       return puzzleDisplayOrder(question);
     default:
@@ -221,6 +222,7 @@ export const buildSnapshot = (
     timerDuration: state.questionDuration,
     timerPaused: state.timerPaused,
     revealSecondsLeft: state.revealSecondsLeft,
+    revealReason: state.revealReason,
     autoAdvance: state.autoAdvance,
 
     activePlayerIds: rosterForRound(bracketRound, state.players),
