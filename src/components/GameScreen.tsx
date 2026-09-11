@@ -35,10 +35,10 @@ const GameScreen: React.FC = () => {
         {phase === GamePhase.CATEGORY_SELECT && <Wheel />}
         
         {phase === GamePhase.PLAYING && currentQuestion && (
-          <QuestionCard question={currentQuestion} />
+          <QuestionCard key={currentQuestion.id} question={currentQuestion} />
         )}
 
-        {(phase === GamePhase.ROUND_RESULT || phase === GamePhase.ROUND_END || phase === GamePhase.GAME_OVER) && (
+        {(phase === GamePhase.QUESTION_REVEAL || phase === GamePhase.ROUND_END || phase === GamePhase.GAME_OVER) && (
           <Leaderboard />
         )}
       </div>

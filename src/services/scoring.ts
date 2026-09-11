@@ -1,10 +1,9 @@
-import { Question, QuestionType } from "../types";
+import { Answer, Question, QuestionType } from "../types";
 
-/**
- * What a player submits depends on the question type: an option index for
- * multiple choice, typed text, a slider value, or a reordered list.
- */
-export type Answer = number | string | string[];
+// The answer shape moved to types.ts so the broadcast snapshot can reference it
+// without pulling in game logic. Re-exported here because this module is where
+// callers expect to find it.
+export type { Answer };
 
 /** Loose text match: case and surrounding/repeated whitespace are ignored. */
 const normalize = (value: string): string =>

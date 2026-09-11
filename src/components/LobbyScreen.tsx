@@ -3,10 +3,10 @@ import { useGame } from '../context/GameContext';
 import { AVATARS } from '../constants';
 import Button from './Button';
 import AvatarDisplay from './AvatarDisplay';
-import { Users, Zap, Settings, UserPlus, PlayCircle } from 'lucide-react';
+import { Users, Zap, Settings, UserPlus, PlayCircle, Monitor } from 'lucide-react';
 
 const LobbyScreen: React.FC = () => {
-  const { players, startGame, isHost, totalRounds, questionsPerRound, gamePin, addBot, hostJoinAsPlayer, currentPlayerId } = useGame();
+  const { players, startGame, isHost, totalRounds, questionsPerRound, gamePin, addBot, hostJoinAsPlayer, currentPlayerId, openBroadcast, broadcastConnected } = useGame();
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [hostName, setHostName] = useState('Host');
   const [hostAvatar, setHostAvatar] = useState(AVATARS[0]);
@@ -131,6 +131,22 @@ const LobbyScreen: React.FC = () => {
 
           {isHost ? (
             <div className="space-y-3 mt-auto">
+              {/* The room sees the game through this window, so it wants to be
+                  open and dragged onto the projector before kickoff. */}
+              <Button
+                onClick={openBroadcast}
+                fullWidth
+                variant="secondary"
+                className={`flex items-center justify-center gap-3 ${
+                  broadcastConnected
+                    ? 'border-neon-green text-neon-green'
+                    : 'border-neon-pink text-neon-pink animate-pulse'
+                }`}
+              >
+                <Monitor size={20} />
+                {broadcastConnected ? 'BROADCAST LIVE' : 'OPEN BROADCAST DISPLAY'}
+              </Button>
+
               {!isHostJoined && (
                 <Button 
                   onClick={() => setShowJoinModal(true)} 

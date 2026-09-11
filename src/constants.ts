@@ -40,3 +40,14 @@ export const BOT_NAMES = [
 ];
 
 export const TIMER_DURATION = 15; // seconds per question
+// How long the answer stays on the broadcast before it moves to the next
+// question. Long enough to read the explanation, short enough to keep a room
+// of people moving.
+export const REVEAL_DURATION = 6; // seconds
+
+// Bots stand in for the players a real backend would carry. They answer at a
+// believable spread of times so the "answered / still answering" counter on
+// the broadcast means something during a question.
+export const BOT_ACCURACY = 0.6;
+export const BOT_MIN_THINK_SECONDS = 2;
+export const BOT_MAX_THINK_SECONDS = TIMER_DURATION - 2;

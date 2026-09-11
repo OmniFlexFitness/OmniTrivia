@@ -93,28 +93,59 @@ a working file covering all five question types.
 1. **HOST GAME** → pick rounds and questions per round.
 2. **GENERATE & REVIEW** (or **IMPORT MY OWN QUESTIONS**). Read the review
    screen; the ↻ button on any question regenerates just that one.
-3. **APPROVE & OPEN LOBBY** → you get a PIN. **JOIN AS PLAYER** to play along,
-   **ADD BOT** for more opponents.
+3. **APPROVE & OPEN LOBBY** → you get a PIN. **OPEN BROADCAST DISPLAY**, drag
+   that window onto the projector and put it full screen. **JOIN AS PLAYER** to
+   play along, **ADD BOT** for more opponents.
 4. **START GAME** → **SPIN THE WHEEL** each round (or flick the wheel), then
    **START ROUND**.
-5. Answer, advance with **NEXT QUESTION**, then **SEE FINAL RESULTS**.
+5. Questions run themselves — the clock counts down, the broadcast counts the
+   room in, and the question closes early once everyone has answered. **Pause**,
+   **+10s**, **Reveal** and the **auto-advance** toggle are on the control
+   screen when you need to take the wheel.
 6. **PLAY AGAIN** replays the same questions with scores reset — it does not
    regenerate, so it costs no API calls.
+
+### Setting up the two screens
+
+The host window and the broadcast window are different interfaces, and only the
+broadcast one is meant to be seen.
+
+- Extend your desktop rather than mirroring it, or the room watches you work.
+- The broadcast window is the same app at `?view=broadcast`, so on Windows
+  <kbd>Win</kbd>+<kbd>Shift</kbd>+<kbd>←/→</kbd> throws it onto the other
+  display, and <kbd>F11</kbd> makes it full screen.
+- The two windows talk over `BroadcastChannel`, which is same-browser and
+  same-machine only. Opening `?view=broadcast` on a phone or a second laptop
+  gets you a window that sits on "WAITING FOR THE HOST" forever — that needs the
+  backend described below.
+- The broadcast window shows **no host** in its header if the host window is
+  closed, reloaded or still on the start screen. Reopening the game from the
+  host window brings it straight back; the broadcast window does not need
+  restarting.
 
 ## What actually works today
 
 Game state lives entirely in React context (`src/context/GameContext.tsx`).
 There is no server, no socket, and no shared session. Concretely:
 
-- **Hosting works end to end** — verified through a full two-round game.
+- **Hosting works end to end** — verified through a full two-round game,
+  bracket and all.
+- **The broadcast window works**, because it is a second window of the same
+  app on the same machine rather than a second client. The host window
+  publishes a snapshot of the game; the broadcast window renders it and can
+  never change it. Nothing about that path crosses the network.
 - **Joining from another device does not.** A phone that opens the Network URL
   and enters the PIN starts its *own* isolated game in its *own* browser tab.
   The PIN is never validated and the host never sees that player. A `?pin=`
   link pre-fills the field, but that is all it does.
 - **Other players in the lobby are bots.** `GameContext` auto-adds bots every
-  3 seconds until there are 3 players, and scores them with `Math.random()`.
+  3 seconds until there are 3 players. They answer at staggered, random times
+  during each question and are graded by the same scoring code as a person, so
+  the "answered / still answering" count on the broadcast moves the way a real
+  room would — but they are still guessing, not playing.
 
-So this is a big-screen trivia runner: one host machine, everyone answering in
-the room. Making players on other devices join the same game needs a real
-backend (a small WebSocket server holding room state keyed by PIN, with the
-client reading from it instead of local context).
+So this is a big-screen trivia runner: one host machine driving two windows,
+everyone answering in the room. Making players on other devices join the same
+game needs a real backend (a small WebSocket server holding room state keyed by
+PIN, with the client reading from it instead of local context). That same
+server is what would let the broadcast screen live on a different machine.

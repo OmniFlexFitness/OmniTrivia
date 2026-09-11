@@ -15,8 +15,14 @@ const FRICTION = 0.985;
 const STOP_THRESHOLD = 0.5;
 
 const Wheel: React.FC = () => {
-  const { selectCategory, isHost, currentRound, totalRounds, roundsConfig } =
-    useGame();
+  const {
+    selectCategory,
+    beginWheelSpin,
+    isHost,
+    currentRound,
+    totalRounds,
+    roundsConfig,
+  } = useGame();
 
   // Core state
   const [rotation, setRotation] = useState(0);
@@ -120,6 +126,9 @@ const Wheel: React.FC = () => {
 
       setIsSpinning(true);
       setHasValidSpin(true);
+      // The broadcast window has no wheel of its own; this is what puts the
+      // room on a suspense screen while the host spins.
+      beginWheelSpin();
 
       // Calculate target rotation to land on the rigged category
       const targetIndex = activeCategories.findIndex(
@@ -149,7 +158,7 @@ const Wheel: React.FC = () => {
         setWinningCategory(targetCategory);
       }, 3000);
     },
-    [winningCategory, isSpinning, activeCategories, targetCategory],
+    [winningCategory, isSpinning, activeCategories, targetCategory, beginWheelSpin],
   );
 
   // Handle drag end - trigger spin if velocity threshold met

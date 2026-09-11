@@ -156,17 +156,56 @@ server after creating it. Vite reads it only at startup.
 > entirely and import your questions. Moving generation behind a small server is
 > the real fix, and is not built yet.
 
+## Two screens: hosting and broadcast
+
+A game runs on two windows, and they show completely different things.
+
+- **The hosting interface** is the host's own screen. It carries the question
+  with its answer, the clock and its controls, a live read on who has answered,
+  the round's matchups and the bracket. Nobody else should see it.
+- **The broadcast interface** is the projector or TV. It shows the question and
+  the answer choices, a countdown ring, and a running count of how many players
+  have answered and how many the room is still waiting on — and nothing else.
+  The answer never reaches it until the question is over.
+
+Open the broadcast window from **OPEN BROADCAST DISPLAY** in the lobby or in
+the header of the control screen, then drag it onto the second display and put
+it full screen. The button turns green and reads **BROADCAST LIVE** once the
+two windows are talking.
+
+> The two windows sync over `BroadcastChannel`, so they have to be **the same
+> browser on the same machine** — a laptop with the projector as a second
+> display. A different device cannot be the broadcast screen; that needs the
+> backend described under "What this is not".
+
 ## Hosting a game
 
 1. **HOST GAME** → choose rounds and questions per round.
 2. **GENERATE & REVIEW**, or **IMPORT MY OWN QUESTIONS**. Read the review
    screen — the ↻ on any question regenerates just that one.
-3. **APPROVE & OPEN LOBBY** → you get a PIN. **JOIN AS PLAYER** to play along,
-   **ADD BOT** for more opponents.
+3. **APPROVE & OPEN LOBBY** → you get a PIN. **OPEN BROADCAST DISPLAY** and
+   move it to the big screen. **JOIN AS PLAYER** to play along, **ADD BOT** for
+   more opponents.
 4. **START GAME** → **SPIN THE WHEEL** each round, then **START ROUND**.
-5. Answer, **NEXT QUESTION**, then **SEE FINAL RESULTS**.
-6. **PLAY AGAIN** replays the same questions with scores reset — no
+5. Each question runs itself: the clock counts down, the broadcast counts
+   players in, and the question closes as soon as the last one has answered.
+   The answer goes up, then the next question follows. **Pause**, **+10s**,
+   **Reveal** and **auto-advance off** are there when the room needs them.
+6. At the end of a round the broadcast shows the round's results, the standings
+   and the bracket, including who is up against whom next. **START ROUND N** to
+   carry on.
+7. **PLAY AGAIN** replays the same questions with scores reset — no
    regeneration, no API spend.
+
+### How a round is scored
+
+Players are drawn into head-to-head pairs when the game starts, and the odd
+player out gets a bye. Each round is scored on its own — every pairing starts
+level at zero — and the higher score in a pairing advances. A tie is settled on
+the running total, then on the draw; never on a coin flip in front of a room.
+
+The game ends when one player is left standing, or when the rounds run out,
+whichever comes first.
 
 ## What this is not
 
@@ -175,9 +214,11 @@ is hosting. A phone that opens the Network URL and types the PIN starts its
 *own* separate game — the PIN is not checked against anything, and the host
 never sees that player. The other names in your lobby are bots.
 
-So: one screen everyone looks at, people answering out loud or on the host
-machine. Getting players onto their own phones needs a backend holding room
-state keyed by PIN, which does not exist yet.
+So: the broadcast screen everyone looks at, people answering out loud or on the
+host machine. Getting players onto their own phones needs a backend holding
+room state keyed by PIN, which does not exist yet — and the same gap is why the
+broadcast window has to be a second display on the host's own machine rather
+than any device you point at the URL.
 
 ## Deploying
 
