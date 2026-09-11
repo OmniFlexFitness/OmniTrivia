@@ -36,6 +36,7 @@ import {
   buildFirstRound,
   buildNextRound,
   resolveRound,
+  rosterForRound,
 } from "../services/bracket";
 import { buildSnapshot } from "../services/snapshot";
 import {
@@ -69,6 +70,7 @@ interface GameContextType extends GameState {
   startGame: () => void;
   selectCategory: (category: string) => Promise<void>; // Kept for compatibility but modified
   beginWheelSpin: () => void;
+  revealCategory: () => void;
   submitAnswer: (answer: Answer) => void;
   nextQuestion: () => void;
   nextRound: () => void;
@@ -106,7 +108,9 @@ const BROADCAST_TIMEOUT_MS = 6000;
 const endQuestion = (prev: GameState): GameState => {
   if (prev.phase !== GamePhase.PLAYING) return prev;
 
-  const active = new Set(activePlayerIds(prev.bracket[prev.currentRound - 1]));
+  const active = new Set(
+    rosterForRound(prev.bracket[prev.currentRound - 1], prev.players),
+  );
   const byPlayer = new Map(prev.currentAnswers.map((a) => [a.playerId, a]));
 
   // Points land here rather than at submit time so nothing on a shared screen
@@ -160,9 +164,11 @@ const finishRound = (prev: GameState): GameState => {
       : player,
   );
 
-  // With two or more players, one survivor means the bracket is decided and
-  // the game is over even if there are rounds left on the card.
-  const decided = prev.players.length >= 2 && advancingIds.length <= 1;
+  // One survivor means the bracket is decided and the game is over, even if
+  // there are rounds left on the card. A bracket only exists when there were
+  // two or more players to draw, so there is no degenerate case here where a
+  // lone player is walked through byes for the rest of the night.
+  const decided = advancingIds.length <= 1;
   const hasMoreRounds = prev.currentRound < prev.totalRounds;
 
   if (!decided && hasMoreRounds) {
@@ -261,6 +267,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     revealSecondsLeft: REVEAL_DURATION,
     autoAdvance: true,
     wheelSpinning: false,
+    categoryRevealed: false,
     loading: false,
     error: null,
     contentWarning: null,
@@ -329,7 +336,10 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
       if (prev.phase !== GamePhase.PLAYING || !prev.currentQuestion) return prev;
       if (prev.currentAnswers.some((a) => a.playerId === playerId)) return prev;
 
-      const active = activePlayerIds(prev.bracket[prev.currentRound - 1]);
+      const active = rosterForRound(
+        prev.bracket[prev.currentRound - 1],
+        prev.players,
+      );
       // Eliminated players and spectators can watch, but they cannot score.
       if (!active.includes(playerId)) return prev;
 
@@ -370,7 +380,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     const question = state.currentQuestion;
     if (!question) return;
 
-    const active = new Set(activePlayerIds(state.bracket[state.currentRound - 1]));
+    const active = new Set(
+      rosterForRound(state.bracket[state.currentRound - 1], state.players),
+    );
     const answered = new Set(state.currentAnswers.map((a) => a.playerId));
     const thinking = state.players.filter(
       (p) => p.isBot && active.has(p.id) && !answered.has(p.id),
@@ -681,11 +693,14 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         players,
         currentRound: 1,
         // The draw for round one is made before a single question is asked, so
-        // the broadcast can show the room who they are up against.
-        bracket: [buildFirstRound(players)],
+        // the broadcast can show the room who they are up against. One player
+        // on their own is not a tournament: they play the rounds as configured
+        // and nobody is eliminated.
+        bracket: players.length >= 2 ? [buildFirstRound(players)] : [],
         championId: null,
         currentAnswers: [],
         wheelSpinning: false,
+        categoryRevealed: false,
         phase: GamePhase.CATEGORY_SELECT,
       };
     });
@@ -693,7 +708,24 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
 
   /** The host started the wheel; the broadcast switches to a suspense screen. */
   const beginWheelSpin = () => {
-    setState((prev) => ({ ...prev, wheelSpinning: true }));
+    setState((prev) => ({
+      ...prev,
+      wheelSpinning: true,
+      categoryRevealed: false,
+    }));
+  };
+
+  /**
+   * The wheel has landed. This is the beat the room is watching for, and it
+   * happens when the animation ends — not later, when the host gets around to
+   * pressing START ROUND.
+   */
+  const revealCategory = () => {
+    setState((prev) => ({
+      ...prev,
+      wheelSpinning: false,
+      categoryRevealed: true,
+    }));
   };
 
   // Modified to use pre-generated content
@@ -714,6 +746,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         selectedCategory: roundConfig.category.id,
         currentAnswers: [],
         wheelSpinning: false,
+        categoryRevealed: true,
         phase: GamePhase.PLAYING,
         timeLeft: TIMER_DURATION,
         timerPaused: false,
@@ -778,6 +811,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         currentAnswers: [],
         selectedCategory: null,
         wheelSpinning: false,
+        categoryRevealed: false,
         timeLeft: TIMER_DURATION,
         timerPaused: false,
         // Each round is scored on its own, so every matchup starts level.
@@ -813,6 +847,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
       timerPaused: false,
       revealSecondsLeft: REVEAL_DURATION,
       wheelSpinning: false,
+      categoryRevealed: false,
       loading: false,
       error: null,
       contentWarning: null,
@@ -838,6 +873,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
       timerPaused: false,
       revealSecondsLeft: REVEAL_DURATION,
       wheelSpinning: false,
+      categoryRevealed: false,
       players: prev.players.map((p) => ({
         ...p,
         score: 0,
@@ -903,6 +939,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         startGame,
         selectCategory,
         beginWheelSpin,
+        revealCategory,
         submitAnswer,
         nextQuestion,
         nextRound,

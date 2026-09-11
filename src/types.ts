@@ -141,6 +141,11 @@ export interface GameState {
   autoAdvance: boolean;
   // The host is mid-spin on the category wheel; the broadcast shows suspense.
   wheelSpinning: boolean;
+  // The wheel has landed. Until it does, the round's category is kept out of
+  // the broadcast snapshot entirely — publishing it and relying on the view to
+  // hide it is how the room ends up reading the category off the projector
+  // before the host has spun for it.
+  categoryRevealed: boolean;
 
   loading: boolean;
   error: string | null;

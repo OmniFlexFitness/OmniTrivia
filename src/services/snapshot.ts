@@ -11,7 +11,7 @@ import {
   RevealDetail,
 } from "../types";
 import { CATEGORIES, TIMER_DURATION } from "../constants";
-import { activePlayerIds } from "./bracket";
+import { rosterForRound } from "./bracket";
 import { SNAPSHOT_VERSION } from "./broadcastBus";
 
 /**
@@ -166,12 +166,16 @@ export const buildSnapshot = (state: GameState): BroadcastSnapshot => {
   const isRevealing = state.phase === GamePhase.QUESTION_REVEAL;
 
   // The wheel picks from the categories this game actually loaded; fall back to
-  // the built-ins only before a game has been configured.
-  const category =
-    roundConfig?.category ??
-    (state.selectedCategory
-      ? (CATEGORIES.find((c) => c.id === state.selectedCategory) ?? null)
-      : null);
+  // the built-ins only before a game has been configured. Held back until the
+  // wheel lands: the round's category is already known the moment the round
+  // starts, and publishing it then puts the answer to the spin on the
+  // projector before the host has spun for it.
+  const category = !state.categoryRevealed
+    ? null
+    : (roundConfig?.category ??
+      (state.selectedCategory
+        ? (CATEGORIES.find((c) => c.id === state.selectedCategory) ?? null)
+        : null));
 
   return {
     version: SNAPSHOT_VERSION,
@@ -201,7 +205,7 @@ export const buildSnapshot = (state: GameState): BroadcastSnapshot => {
     revealSecondsLeft: state.revealSecondsLeft,
     autoAdvance: state.autoAdvance,
 
-    activePlayerIds: activePlayerIds(bracketRound),
+    activePlayerIds: rosterForRound(bracketRound, state.players),
     answeredPlayerIds: state.currentAnswers.map((a) => a.playerId),
     // Who was right is a spoiler until the answer is up.
     correctPlayerIds: isRevealing

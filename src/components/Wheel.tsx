@@ -18,6 +18,7 @@ const Wheel: React.FC = () => {
   const {
     selectCategory,
     beginWheelSpin,
+    revealCategory,
     isHost,
     currentRound,
     totalRounds,
@@ -156,9 +157,19 @@ const Wheel: React.FC = () => {
       setTimeout(() => {
         setIsSpinning(false);
         setWinningCategory(targetCategory);
+        // The room sees the category the moment the wheel stops, rather than
+        // sitting on the spinning screen until the host presses START ROUND.
+        revealCategory();
       }, 3000);
     },
-    [winningCategory, isSpinning, activeCategories, targetCategory, beginWheelSpin],
+    [
+      winningCategory,
+      isSpinning,
+      activeCategories,
+      targetCategory,
+      beginWheelSpin,
+      revealCategory,
+    ],
   );
 
   // Handle drag end - trigger spin if velocity threshold met

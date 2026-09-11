@@ -3,7 +3,7 @@ import { useGame } from "../context/GameContext";
 import { GamePhase, Player, QuestionType } from "../types";
 import { TIMER_DURATION } from "../constants";
 import { buildReveal, publicOptions } from "../services/snapshot";
-import { activePlayerIds, matchupForPlayer } from "../services/bracket";
+import { matchupForPlayer, rosterForRound } from "../services/bracket";
 import Button from "./Button";
 import AvatarDisplay from "./AvatarDisplay";
 import BracketView from "./BracketView";
@@ -55,14 +55,12 @@ const Panel: React.FC<{
 /** Who is in, who is out, and — once the answer is up — who got it. */
 const AnswerTracker: React.FC = () => {
   const { players, currentAnswers, bracket, currentRound, phase } = useGame();
-  const active = activePlayerIds(bracket[currentRound - 1]);
+  const active = rosterForRound(bracket[currentRound - 1], players);
   const revealing = phase === GamePhase.QUESTION_REVEAL;
 
   if (active.length === 0) {
     return (
-      <p className="text-slate-500 text-sm">
-        No one is in this round's draw yet.
-      </p>
+      <p className="text-slate-500 text-sm">No one is playing this round.</p>
     );
   }
 
@@ -442,12 +440,14 @@ const GameOverControls: React.FC = () => {
         </div>
       </div>
 
-      <BracketView
-        bracket={bracket}
-        players={players}
-        currentRound={currentRound}
-        championId={championId}
-      />
+      {bracket.length > 0 && (
+        <BracketView
+          bracket={bracket}
+          players={players}
+          currentRound={currentRound}
+          championId={championId}
+        />
+      )}
 
       <div className="grid grid-cols-2 gap-3">
         <Button
@@ -493,7 +493,7 @@ const HostControlScreen: React.FC = () => {
     phase === GamePhase.PLAYING &&
     !!hostPlayer &&
     !hostPlayer.eliminated &&
-    activePlayerIds(bracket[currentRound - 1]).includes(hostPlayer.id) &&
+    rosterForRound(bracket[currentRound - 1], players).includes(hostPlayer.id) &&
     !currentAnswers.some((a) => a.playerId === hostPlayer.id);
 
   const hostMatchup = hostPlayer
@@ -608,9 +608,11 @@ const HostControlScreen: React.FC = () => {
             <AnswerTracker />
           </Panel>
 
-          <Panel title={`Round ${currentRound} matchups`}>
-            <MatchupPanel />
-          </Panel>
+          {bracket.length > 0 && (
+            <Panel title={`Round ${currentRound} matchups`}>
+              <MatchupPanel />
+            </Panel>
+          )}
 
           <Panel title="Scores">
             <div className="space-y-1.5 max-h-64 overflow-y-auto custom-scrollbar pr-1">

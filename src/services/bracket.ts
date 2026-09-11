@@ -71,6 +71,20 @@ export const activePlayerIds = (round: BracketRound | undefined): string[] => {
   );
 };
 
+/**
+ * Who is playing this round.
+ *
+ * A game with fewer than two players has no bracket at all — there is nobody
+ * to be matched against — so everyone still in the game is playing.
+ */
+export const rosterForRound = (
+  round: BracketRound | undefined,
+  players: Player[],
+): string[] =>
+  round
+    ? activePlayerIds(round)
+    : players.filter((p) => !p.eliminated).map((p) => p.id);
+
 /** The matchup a given player is in this round, if any. */
 export const matchupForPlayer = (
   round: BracketRound | undefined,

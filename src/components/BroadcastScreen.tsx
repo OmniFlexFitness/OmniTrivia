@@ -304,11 +304,21 @@ const RoundIntroStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
         Round {snapshot.roundNumber} of {snapshot.totalRounds}
       </div>
 
-      {snapshot.wheelSpinning || !snapshot.category ? (
+      {snapshot.wheelSpinning ? (
         <div className="flex flex-col items-center gap-6">
           <div className="text-8xl animate-spin-slow">🎡</div>
           <div className="text-4xl font-black text-white animate-pulse">
             SPINNING FOR THE CATEGORY…
+          </div>
+        </div>
+      ) : !snapshot.category ? (
+        <div className="flex flex-col items-center gap-6">
+          <div className="text-8xl">🎡</div>
+          <div className="text-4xl font-black text-slate-400">
+            CATEGORY UP NEXT
+          </div>
+          <div className="text-xl font-mono uppercase tracking-widest text-slate-600">
+            Waiting on the host to spin
           </div>
         </div>
       ) : (
@@ -485,7 +495,9 @@ const QuestionStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
         <div className="bg-white text-slate-900 p-8 rounded-3xl shadow-2xl text-center border-4 border-slate-200">
           <div className="text-xs font-mono uppercase tracking-[0.3em] text-slate-500 mb-3">
             Question {snapshot.questionNumber} of {snapshot.questionsInRound}
-            {snapshot.category ? ` — ${snapshot.category.name}` : ""}
+            {snapshot.category?.name ?? snapshot.question?.category
+              ? ` — ${snapshot.category?.name ?? snapshot.question?.category}`
+              : ""}
           </div>
           <h1 className="text-4xl md:text-6xl font-black leading-tight tracking-tight">
             {snapshot.question?.text}
@@ -656,17 +668,19 @@ const RoundEndStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
         </div>
       )}
 
-      <div>
-        <div className="text-xs font-mono uppercase tracking-[0.3em] text-slate-500 mb-3">
-          Bracket
+      {snapshot.bracket.length > 0 && (
+        <div>
+          <div className="text-xs font-mono uppercase tracking-[0.3em] text-slate-500 mb-3">
+            Bracket
+          </div>
+          <BracketView
+            bracket={snapshot.bracket}
+            players={snapshot.players}
+            currentRound={snapshot.roundNumber}
+            championId={snapshot.championId}
+          />
         </div>
-        <BracketView
-          bracket={snapshot.bracket}
-          players={snapshot.players}
-          currentRound={snapshot.roundNumber}
-          championId={snapshot.championId}
-        />
-      </div>
+      )}
     </div>
   );
 };
@@ -714,16 +728,18 @@ const GameOverStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
           </div>
           <StandingsList players={snapshot.players} showRoundScore={false} />
         </div>
-        <div>
-          <div className="text-xs font-mono uppercase tracking-[0.3em] text-slate-500 mb-3">
-            How it played out
+        {snapshot.bracket.length > 0 && (
+          <div>
+            <div className="text-xs font-mono uppercase tracking-[0.3em] text-slate-500 mb-3">
+              How it played out
+            </div>
+            <BracketView
+              bracket={snapshot.bracket}
+              players={snapshot.players}
+              currentRound={snapshot.roundNumber}
+            />
           </div>
-          <BracketView
-            bracket={snapshot.bracket}
-            players={snapshot.players}
-            currentRound={snapshot.roundNumber}
-          />
-        </div>
+        )}
       </div>
     </div>
   );
