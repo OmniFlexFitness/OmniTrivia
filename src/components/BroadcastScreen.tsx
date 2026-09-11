@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   BroadcastSnapshot,
   GamePhase,
@@ -140,11 +140,16 @@ const AnswerTally: React.FC<{
           if (!player) return null;
           const isIn = answered.has(id);
           const wasRight = snapshot.correctPlayerIds.includes(id);
+          const revealing = !!snapshot.reveal;
 
           return (
             <div
               key={id}
-              className={`relative transition-all duration-300 ${isIn ? "opacity-100 scale-100" : "opacity-30 grayscale scale-95"}`}
+              className={`relative transition-all duration-300 ${
+                isIn || revealing
+                  ? "opacity-100 scale-100"
+                  : "opacity-30 grayscale scale-95"
+              }`}
               title={player.name}
             >
               <AvatarDisplay
@@ -153,16 +158,22 @@ const AnswerTally: React.FC<{
                 accessory={player.avatarAccessory}
                 size="md"
               />
-              {isIn && snapshot.reveal && (
+              {/* Running out of time is an outcome too — it is scored as a
+                  miss, so it gets a mark rather than being left blank. */}
+              {revealing && (
                 <span
                   className={`absolute -bottom-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black border-2 border-slate-900 ${
-                    wasRight ? "bg-green-500" : "bg-red-500"
+                    !isIn
+                      ? "bg-slate-600 text-slate-300"
+                      : wasRight
+                        ? "bg-green-500"
+                        : "bg-red-500"
                   }`}
                 >
-                  {wasRight ? "✓" : "✕"}
+                  {!isIn ? "–" : wasRight ? "✓" : "✕"}
                 </span>
               )}
-              {isIn && !snapshot.reveal && (
+              {isIn && !revealing && (
                 <CheckCircle2
                   size={18}
                   className="absolute -bottom-1 -right-1 text-neon-green bg-slate-900 rounded-full"
@@ -531,7 +542,7 @@ const QuestionStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
           <div className="w-48 h-48 rounded-full border-8 border-green-500 flex flex-col items-center justify-center bg-green-500/10 shadow-[0_0_40px_rgba(34,197,94,0.35)]">
             <CheckCircle2 size={56} className="text-green-400" />
             <div className="mt-2 font-mono uppercase tracking-widest text-green-400 text-sm">
-              Time's up
+              {snapshot.timeLeft > 0 ? "All in" : "Time's up"}
             </div>
           </div>
         ) : (
@@ -755,13 +766,29 @@ const BroadcastScreen: React.FC = () => {
   );
   const [hostSeenAt, setHostSeenAt] = useState(0);
   const [now, setNow] = useState(Date.now());
+  // The channel is shared by the whole origin, so a second host tab would
+  // otherwise flip this screen between two different games. Follow the first
+  // host we hear from, and only switch once it has gone quiet.
+  const latchedHost = useRef<string | null>(null);
+  const lastHeard = useRef(0);
 
   useEffect(() => {
+    const claim = (id: string | undefined): boolean => {
+      if (!id) return true; // A host from before this handshake existed.
+      const stale = Date.now() - lastHeard.current > HOST_TIMEOUT_MS;
+      if (latchedHost.current === null || stale) latchedHost.current = id;
+      if (latchedHost.current !== id) return false;
+      lastHeard.current = Date.now();
+      return true;
+    };
+
     const unsubscribe = subscribeToMessages((message) => {
       if (message.type === "snapshot") {
+        if (!claim(message.snapshot.hostId)) return;
         setSnapshot(message.snapshot);
         setHostSeenAt(Date.now());
       } else if (message.type === "host-heartbeat") {
+        if (!claim(message.hostId)) return;
         setHostSeenAt(message.at);
       }
     });

@@ -201,6 +201,7 @@ const advanceFromReveal = (prev: GameState): GameState => {
       currentAnswers: [],
       timeLeft: TIMER_DURATION,
       timerPaused: false,
+      questionDuration: TIMER_DURATION,
       revealSecondsLeft: REVEAL_DURATION,
     };
   }
@@ -264,6 +265,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     currentAnswers: [],
     timeLeft: TIMER_DURATION,
     timerPaused: false,
+    questionDuration: TIMER_DURATION,
     revealSecondsLeft: REVEAL_DURATION,
     autoAdvance: true,
     wheelSpinning: false,
@@ -276,6 +278,11 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const [broadcastConnected, setBroadcastConnected] = useState(false);
   const broadcastSeenAt = useRef(0);
+  // Identifies this host window on the shared channel. Two host tabs in one
+  // browser would otherwise both publish into the same projector.
+  const hostId = useRef(
+    globalThis.crypto?.randomUUID?.() ?? `host-${Math.random().toString(36).slice(2)}`,
+  );
   const stateRef = useRef(state);
   stateRef.current = state;
 
@@ -419,13 +426,18 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
    * ---------------------------------------------------------------- */
   useEffect(() => {
     if (!state.isHost) return;
-    publishSnapshot(buildSnapshot(state));
+    publishSnapshot(buildSnapshot(state, hostId.current));
   }, [state]);
 
   useEffect(() => {
     if (!state.isHost) return;
     const beat = setInterval(
-      () => postMessage({ type: "host-heartbeat", at: Date.now() }),
+      () =>
+        postMessage({
+          type: "host-heartbeat",
+          at: Date.now(),
+          hostId: hostId.current,
+        }),
       2000,
     );
     return () => clearInterval(beat);
@@ -445,7 +457,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
 
       // A window that just opened may have hydrated from a stale snapshot.
       if (message.type === "broadcast-hello" && stateRef.current.isHost) {
-        publishSnapshot(buildSnapshot(stateRef.current));
+        publishSnapshot(buildSnapshot(stateRef.current, hostId.current));
       }
     });
 
@@ -750,6 +762,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         phase: GamePhase.PLAYING,
         timeLeft: TIMER_DURATION,
         timerPaused: false,
+        questionDuration: TIMER_DURATION,
       };
     });
   };
@@ -767,11 +780,19 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     setState((prev) => ({ ...prev, timerPaused: !prev.timerPaused }));
 
   const addTime = (seconds: number) =>
-    setState((prev) =>
-      prev.phase === GamePhase.PLAYING
-        ? { ...prev, timeLeft: Math.max(1, prev.timeLeft + seconds) }
-        : prev,
-    );
+    setState((prev) => {
+      if (prev.phase !== GamePhase.PLAYING) return prev;
+
+      const timeLeft = Math.max(1, prev.timeLeft + seconds);
+      return {
+        ...prev,
+        timeLeft,
+        // Stretch the question's own clock with it, so the bars and the ring
+        // measure against what the room was actually given rather than sitting
+        // pinned at full while the number counts down from 25.
+        questionDuration: Math.max(prev.questionDuration, timeLeft),
+      };
+    });
 
   const toggleAutoAdvance = () =>
     setState((prev) => ({ ...prev, autoAdvance: !prev.autoAdvance }));
@@ -789,10 +810,21 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
 
       if (gameIsOver) {
         // Rounds can run out before the bracket resolves; the highest score
-        // among the players still standing takes it.
+        // among the players still standing takes it. A tie there falls to the
+        // draw, the same as a matchup does — not to whoever joined first,
+        // which is what sorting the lobby array alone would have used.
         const standing = prev.players.filter((p) => !p.eliminated);
         const pool = standing.length > 0 ? standing : prev.players;
-        const leader = [...pool].sort((a, b) => b.score - a.score)[0];
+        const draw = new Map(
+          (prev.bracket[0]
+            ? activePlayerIds(prev.bracket[0])
+            : prev.players.map((p) => p.id)
+          ).map((id, index) => [id, index]),
+        );
+        const seed = (id: string) => draw.get(id) ?? Number.MAX_SAFE_INTEGER;
+        const leader = [...pool].sort(
+          (a, b) => b.score - a.score || seed(a.id) - seed(b.id),
+        )[0];
 
         return {
           ...prev,
@@ -814,6 +846,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         categoryRevealed: false,
         timeLeft: TIMER_DURATION,
         timerPaused: false,
+        questionDuration: TIMER_DURATION,
         // Each round is scored on its own, so every matchup starts level.
         players: prev.players.map((p) => ({
           ...p,
@@ -845,6 +878,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
       currentAnswers: [],
       timeLeft: TIMER_DURATION,
       timerPaused: false,
+      questionDuration: TIMER_DURATION,
       revealSecondsLeft: REVEAL_DURATION,
       wheelSpinning: false,
       categoryRevealed: false,
@@ -871,6 +905,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
       currentAnswers: [],
       timeLeft: TIMER_DURATION,
       timerPaused: false,
+      questionDuration: TIMER_DURATION,
       revealSecondsLeft: REVEAL_DURATION,
       wheelSpinning: false,
       categoryRevealed: false,

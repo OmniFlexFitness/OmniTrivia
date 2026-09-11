@@ -10,7 +10,7 @@ import {
   QuestionType,
   RevealDetail,
 } from "../types";
-import { CATEGORIES, TIMER_DURATION } from "../constants";
+import { CATEGORIES } from "../constants";
 import { rosterForRound } from "./bracket";
 import { SNAPSHOT_VERSION } from "./broadcastBus";
 
@@ -55,9 +55,23 @@ export const seededShuffle = <T,>(items: T[], seed: number): T[] => {
   return copy;
 };
 
-/** The tile order a puzzle is shown in, on any screen. */
-export const puzzleDisplayOrder = (question: Question): string[] =>
-  seededShuffle(question.options, hashString(question.id));
+/**
+ * The tile order a puzzle is shown in, on any screen.
+ *
+ * A shuffle is free to hand back the order it was given, and for a puzzle that
+ * order is the answer — roughly one in six three-tile puzzles and half of all
+ * two-tile ones would have published it. When the draw comes back as the
+ * source order, rotate instead: still deterministic, never the answer.
+ */
+export const puzzleDisplayOrder = (question: Question): string[] => {
+  const options = question.options;
+  if (options.length < 2) return [...options];
+
+  const shuffled = seededShuffle(options, hashString(question.id));
+  const isSourceOrder = shuffled.every((item, i) => item === options[i]);
+
+  return isSourceOrder ? [...options.slice(1), options[0]] : shuffled;
+};
 
 /**
  * Options with the answer stripped out. A typed answer has none to show, a
@@ -160,7 +174,10 @@ const toPublicPlayer = (player: Player): PublicPlayer => ({
   eliminated: player.eliminated,
 });
 
-export const buildSnapshot = (state: GameState): BroadcastSnapshot => {
+export const buildSnapshot = (
+  state: GameState,
+  hostId: string,
+): BroadcastSnapshot => {
   const roundConfig = state.roundsConfig[state.currentRound - 1];
   const bracketRound = state.bracket[state.currentRound - 1];
   const isRevealing = state.phase === GamePhase.QUESTION_REVEAL;
@@ -180,6 +197,7 @@ export const buildSnapshot = (state: GameState): BroadcastSnapshot => {
   return {
     version: SNAPSHOT_VERSION,
     updatedAt: Date.now(),
+    hostId,
 
     phase: state.phase,
     gamePin: state.gamePin,
@@ -200,7 +218,7 @@ export const buildSnapshot = (state: GameState): BroadcastSnapshot => {
         : null,
 
     timeLeft: state.timeLeft,
-    timerDuration: TIMER_DURATION,
+    timerDuration: state.questionDuration,
     timerPaused: state.timerPaused,
     revealSecondsLeft: state.revealSecondsLeft,
     autoAdvance: state.autoAdvance,

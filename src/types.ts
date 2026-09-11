@@ -135,6 +135,10 @@ export interface GameState {
 
   timeLeft: number;
   timerPaused: boolean;
+  // How long the current question was given in total. Tracked rather than
+  // assumed from TIMER_DURATION because the host can add time mid-question,
+  // and every progress bar and ring measures against it.
+  questionDuration: number;
   // Seconds the answer stays up before the broadcast moves on.
   revealSecondsLeft: number;
   // When false the host has to click through every question and reveal.
@@ -218,6 +222,12 @@ export interface BroadcastSnapshot {
   /** Bumped when the snapshot shape changes so a stale window can bow out. */
   version: number;
   updatedAt: number;
+  /**
+   * Identifies the host window that published this. Two host tabs in one
+   * browser share a channel, and without this the projector would flip between
+   * their two games.
+   */
+  hostId: string;
 
   phase: GamePhase;
   gamePin: string | null;
@@ -259,6 +269,6 @@ export interface BroadcastSnapshot {
 /** Messages on the host <-> broadcast channel. */
 export type BroadcastMessage =
   | { type: "snapshot"; snapshot: BroadcastSnapshot }
-  | { type: "host-heartbeat"; at: number }
+  | { type: "host-heartbeat"; at: number; hostId: string }
   | { type: "broadcast-hello" }
   | { type: "broadcast-heartbeat"; at: number };

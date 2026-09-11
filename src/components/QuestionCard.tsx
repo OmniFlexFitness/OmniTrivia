@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Question, QuestionType } from '../types';
 import { useGame } from '../context/GameContext';
-import { TIMER_DURATION } from '../constants';
 import { isAnswerCorrect } from '../services/scoring';
 import Button from './Button';
 import { Reorder } from 'framer-motion';
@@ -12,7 +11,7 @@ const shuffleArray = <T,>(array: T[]): T[] => {
 };
 
 const QuestionCard: React.FC<{ question: Question }> = ({ question }) => {
-  const { submitAnswer, timeLeft, currentPlayerId } = useGame();
+  const { submitAnswer, timeLeft, questionDuration, currentPlayerId } = useGame();
   const [isSubmitted, setIsSubmitted] = useState(false);
 
   const isSpectator = !currentPlayerId;
@@ -43,7 +42,7 @@ const QuestionCard: React.FC<{ question: Question }> = ({ question }) => {
       <div className="w-full h-6 bg-slate-800 rounded-full mb-8 overflow-hidden border border-slate-700 shadow-inner">
         <div 
           className={`h-full transition-all duration-1000 ease-linear ${timeLeft < 5 ? 'bg-red-500 shadow-[0_0_10px_#ef4444]' : 'bg-neon-blue shadow-[0_0_10px_#00ffff]'}`}
-          style={{ width: `${(timeLeft / TIMER_DURATION) * 100}%` }}
+          style={{ width: `${Math.min(100, (timeLeft / questionDuration) * 100)}%` }}
         ></div>
       </div>
 

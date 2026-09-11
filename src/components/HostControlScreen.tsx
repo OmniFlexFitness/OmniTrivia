@@ -1,7 +1,6 @@
 import React from "react";
 import { useGame } from "../context/GameContext";
 import { GamePhase, Player, QuestionType } from "../types";
-import { TIMER_DURATION } from "../constants";
 import { buildReveal, publicOptions } from "../services/snapshot";
 import { matchupForPlayer, rosterForRound } from "../services/bracket";
 import Button from "./Button";
@@ -109,9 +108,14 @@ const AnswerTracker: React.FC = () => {
                 {player.name}
               </span>
 
-              {!record && (
+              {!record && !revealing && (
                 <span className="font-mono text-xs uppercase tracking-widest text-slate-500 animate-pulse">
                   thinking
+                </span>
+              )}
+              {!record && revealing && (
+                <span className="font-mono text-xs uppercase tracking-widest text-slate-500">
+                  no answer
                 </span>
               )}
               {record && !revealing && (
@@ -191,11 +195,15 @@ const QuestionControls: React.FC = () => {
     questionsQueue,
     timeLeft,
     timerPaused,
+    questionDuration,
     phase,
     revealSecondsLeft,
     autoAdvance,
     currentAnswers,
     currentPlayerId,
+    players,
+    bracket,
+    currentRound,
     endQuestionNow,
     toggleTimerPaused,
     addTime,
@@ -212,8 +220,15 @@ const QuestionControls: React.FC = () => {
   const type = currentQuestion.type ?? QuestionType.MULTIPLE_CHOICE;
 
   // A host who is also playing must not read the answer off their own screen
-  // before they have locked one in.
-  const hostIsPlaying = !!currentPlayerId;
+  // before they have locked one in. Once they are knocked out they are running
+  // the game rather than playing it, so the reference comes back — keying this
+  // off `currentPlayerId` alone left an eliminated host blind for the rest of
+  // the night, since they can no longer answer to unlock it.
+  const hostPlayer = players.find((p) => p.id === currentPlayerId);
+  const hostIsPlaying =
+    !!hostPlayer &&
+    !hostPlayer.eliminated &&
+    rosterForRound(bracket[currentRound - 1], players).includes(hostPlayer.id);
   const hostAnswered = currentAnswers.some((a) => a.playerId === currentPlayerId);
   const answerWithheld = hostIsPlaying && !hostAnswered && !revealing;
   const showAnswer = !answerWithheld && !answerHidden;
@@ -310,7 +325,9 @@ const QuestionControls: React.FC = () => {
           <div className="h-2 w-full bg-slate-800 rounded-full overflow-hidden mb-4">
             <div
               className={`h-full transition-all duration-1000 ease-linear ${timeLeft < 5 ? "bg-red-500" : "bg-neon-blue"}`}
-              style={{ width: `${(timeLeft / TIMER_DURATION) * 100}%` }}
+              style={{
+                width: `${Math.min(100, (timeLeft / questionDuration) * 100)}%`,
+              }}
             />
           </div>
 
