@@ -3,10 +3,11 @@ import { useGame } from '../context/GameContext';
 import { AVATARS } from '../constants';
 import Button from './Button';
 import AvatarDisplay from './AvatarDisplay';
-import { Users, Zap, Settings, UserPlus, PlayCircle } from 'lucide-react';
+import JoinCode from './JoinCode';
+import { Users, Zap, Settings, UserPlus, PlayCircle, Monitor } from 'lucide-react';
 
 const LobbyScreen: React.FC = () => {
-  const { players, startGame, isHost, totalRounds, questionsPerRound, gamePin, addBot, hostJoinAsPlayer, currentPlayerId } = useGame();
+  const { players, startGame, isHost, totalRounds, questionsPerRound, gamePin, gameName, addBot, hostJoinAsPlayer, currentPlayerId, openBroadcast, broadcastConnected } = useGame();
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [hostName, setHostName] = useState('Host');
   const [hostAvatar, setHostAvatar] = useState(AVATARS[0]);
@@ -17,15 +18,13 @@ const LobbyScreen: React.FC = () => {
     setShowJoinModal(false);
   };
 
-  const isHostJoined = !!currentPlayerId;
-
   return (
     <div className="min-h-screen bg-slate-900 p-6 flex flex-col items-center relative">
       {/* Host Join Modal */}
       {showJoinModal && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/90 backdrop-blur-sm p-4">
           <div className="bg-slate-800 border border-neon-blue p-6 rounded-2xl w-full max-w-md shadow-2xl">
-            <h3 className="text-2xl font-bold text-white mb-4">Join as Player</h3>
+            <h3 className="text-2xl font-bold text-white mb-4">Your player</h3>
             <form onSubmit={handleHostJoin} className="space-y-4">
               <div>
                 <label className="block text-sm text-slate-400 mb-1">Name</label>
@@ -63,10 +62,10 @@ const LobbyScreen: React.FC = () => {
       <header className="w-full max-w-6xl flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
         <div className="text-center md:text-left">
           <h2 className="text-2xl font-bold text-neon-blue">LOBBY <span className="text-white animate-pulse">///</span> WAITING</h2>
+          <div className="text-3xl font-black text-white mt-1">{gameName}</div>
           {gamePin && (
-            <div className="text-slate-400 mt-1 flex flex-col md:flex-row items-center gap-2">
-              <span>JOIN AT <span className="text-white font-bold">omnitrivia.game</span> WITH PIN:</span>
-              <span className="text-5xl font-mono font-black text-white tracking-widest text-neon-shadow">{gamePin}</span>
+            <div className="mt-4">
+              <JoinCode pin={gamePin} />
             </div>
           )}
         </div>
@@ -131,17 +130,31 @@ const LobbyScreen: React.FC = () => {
 
           {isHost ? (
             <div className="space-y-3 mt-auto">
-              {!isHostJoined && (
-                <Button 
-                  onClick={() => setShowJoinModal(true)} 
-                  fullWidth 
-                  variant="secondary"
-                  className="flex items-center justify-center gap-3 border-slate-600 hover:border-white"
-                >
-                  <PlayCircle size={20} />
-                  JOIN AS PLAYER
-                </Button>
-              )}
+              {/* The room sees the game through this window, so it wants to be
+                  open and dragged onto the projector before kickoff. */}
+              <Button
+                onClick={openBroadcast}
+                fullWidth
+                variant="secondary"
+                className={`flex items-center justify-center gap-3 ${
+                  broadcastConnected
+                    ? 'border-neon-green text-neon-green'
+                    : 'border-neon-pink text-neon-pink animate-pulse'
+                }`}
+              >
+                <Monitor size={20} />
+                {broadcastConnected ? 'BROADCAST LIVE' : 'OPEN BROADCAST DISPLAY'}
+              </Button>
+
+              <Button
+                onClick={() => setShowJoinModal(true)}
+                fullWidth
+                variant="secondary"
+                className="flex items-center justify-center gap-3 border-slate-600 hover:border-white"
+              >
+                <PlayCircle size={20} />
+                EDIT MY PLAYER
+              </Button>
               
               <Button 
                 onClick={addBot} 

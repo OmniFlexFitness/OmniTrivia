@@ -1,29 +1,66 @@
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+} from "react";
 import {
+  Answer,
+  AnswerRecord,
+  RevealReason,
   GameState,
   GamePhase,
   GameMode,
   Player,
   Question,
+  QuestionType,
   RoundConfig,
-  Category,
 } from "../types";
 import {
+  BOT_ACCURACY,
+  BOT_MAX_THINK_SECONDS,
+  BOT_MIN_THINK_SECONDS,
   BOT_NAMES,
   TIMER_DURATION,
+  REVEAL_DURATION,
   AVATARS,
   AVATAR_COLORS,
   CATEGORIES,
 } from "../constants";
 import { generateQuestions } from "../services/claudeService";
 import { parseImportData } from "../services/importService";
-import { isAnswerCorrect, Answer } from "../services/scoring";
+import { isAnswerCorrect } from "../services/scoring";
+import {
+  activePlayerIds,
+  answeringRoster,
+  buildFirstRound,
+  buildNextRound,
+  resolveRound,
+} from "../services/bracket";
+import { buildSnapshot } from "../services/snapshot";
+import {
+  allocatePin,
+  clearStoredSnapshot,
+  openBroadcastWindow,
+  postMessage,
+  publishSnapshot,
+  registerRoom,
+  releaseRoom,
+  subscribeToMessages,
+} from "../services/broadcastBus";
 
 interface GameContextType extends GameState {
+  /** True while a broadcast window is answering heartbeats. */
+  broadcastConnected: boolean;
   initHost: () => void;
   initJoin: () => void;
   generateGame: (rounds: number, questions: number) => Promise<void>;
   confirmGame: () => void;
+  setGameName: (name: string) => void;
+  toggleHostAnswering: () => void;
+  clearJoinError: () => void;
   updateConfig: (rounds: number, questions: number) => void;
   initImport: () => void;
   importGame: (csvData: string) => void;
@@ -39,6 +76,8 @@ interface GameContextType extends GameState {
   addBot: () => void;
   startGame: () => void;
   selectCategory: (category: string) => Promise<void>; // Kept for compatibility but modified
+  beginWheelSpin: () => void;
+  revealCategory: () => void;
   submitAnswer: (answer: Answer) => void;
   nextQuestion: () => void;
   nextRound: () => void;
@@ -48,9 +87,170 @@ interface GameContextType extends GameState {
     categoryId: string,
     questionIndex: number,
   ) => Promise<void>;
+
+  // Host controls for running a live round.
+  endQuestionNow: () => void;
+  toggleTimerPaused: () => void;
+  addTime: (seconds: number) => void;
+  toggleAutoAdvance: () => void;
+  openBroadcast: () => void;
 }
 
 const GameContext = createContext<GameContextType | undefined>(undefined);
+
+const CORRECT_BASE_POINTS = 100;
+const TIME_BONUS_PER_SECOND = 10;
+/** A broadcast window that has not checked in for this long is treated as gone. */
+const BROADCAST_TIMEOUT_MS = 6000;
+/** How long a join waits for the host of that PIN to answer before giving up. */
+const JOIN_TIMEOUT_MS = 1500;
+/** Used when the host never names the game. */
+const DEFAULT_GAME_NAME = "OmniTrivia Night";
+
+/* ------------------------------------------------------------------ *
+ * Pure transitions
+ *
+ * Every phase change a timer or an answer can trigger lives here as a
+ * state -> state function, so the interval callbacks, the host's buttons and
+ * the last player's answer all drive the game through the same code.
+ * ------------------------------------------------------------------ */
+
+/** Close the question: bank the points, then put the answer on screen. */
+const endQuestion = (prev: GameState, reason: RevealReason): GameState => {
+  if (prev.phase !== GamePhase.PLAYING) return prev;
+
+  const active = new Set(answeringRoster(prev.bracket[prev.currentRound - 1], prev.players, prev.hostAnsweringEnabled));
+  const byPlayer = new Map(prev.currentAnswers.map((a) => [a.playerId, a]));
+
+  // Points land here rather than at submit time so nothing on a shared screen
+  // can move the moment someone answers correctly.
+  const players = prev.players.map((player) => {
+    if (!active.has(player.id)) return player;
+
+    const record = byPlayer.get(player.id);
+    const isCorrect = record?.isCorrect ?? false;
+    const points = record?.points ?? 0;
+
+    return {
+      ...player,
+      score: player.score + points,
+      roundScore: player.roundScore + points,
+      lastAnswerCorrect: isCorrect,
+      streak: isCorrect ? player.streak + 1 : 0,
+    };
+  });
+
+  return {
+    ...prev,
+    players,
+    phase: GamePhase.QUESTION_REVEAL,
+    timerPaused: false,
+    revealSecondsLeft: REVEAL_DURATION,
+    revealReason: reason,
+  };
+};
+
+/**
+ * Settle the round's matchups and draw the next one. Called when the last
+ * question of a round has been revealed.
+ */
+const finishRound = (prev: GameState): GameState => {
+  const roundIndex = prev.currentRound - 1;
+  const current = prev.bracket[roundIndex];
+
+  if (!current) {
+    return { ...prev, phase: GamePhase.ROUND_END };
+  }
+
+  const { round: resolved, advancingIds } = resolveRound(current, prev.players);
+  const bracket = [...prev.bracket];
+  bracket[roundIndex] = resolved;
+
+  const wasActive = new Set(activePlayerIds(current));
+  const advancing = new Set(advancingIds);
+  const players = prev.players.map((player) =>
+    wasActive.has(player.id) && !advancing.has(player.id)
+      ? { ...player, eliminated: true }
+      : player,
+  );
+
+  // One survivor means the bracket is decided and the game is over, even if
+  // there are rounds left on the card. A bracket only exists when there were
+  // two or more players to draw, so there is no degenerate case here where a
+  // lone player is walked through byes for the rest of the night.
+  const decided = advancingIds.length <= 1;
+  const hasMoreRounds = prev.currentRound < prev.totalRounds;
+
+  if (!decided && hasMoreRounds) {
+    bracket[roundIndex + 1] = buildNextRound(
+      prev.currentRound + 1,
+      advancingIds,
+    );
+  }
+
+  return {
+    ...prev,
+    bracket,
+    players,
+    championId: decided ? (advancingIds[0] ?? null) : null,
+    phase: GamePhase.ROUND_END,
+  };
+};
+
+/** Leave the reveal: next question, or the end of the round. */
+const advanceFromReveal = (prev: GameState): GameState => {
+  if (prev.phase !== GamePhase.QUESTION_REVEAL) return prev;
+
+  const nextIndex = prev.currentQuestionIndex + 1;
+  if (nextIndex < prev.questionsQueue.length) {
+    return {
+      ...prev,
+      phase: GamePhase.PLAYING,
+      currentQuestion: prev.questionsQueue[nextIndex],
+      currentQuestionIndex: nextIndex,
+      currentAnswers: [],
+      timeLeft: TIMER_DURATION,
+      timerPaused: false,
+      questionDuration: TIMER_DURATION,
+      revealSecondsLeft: REVEAL_DURATION,
+      revealReason: null,
+    };
+  }
+
+  return finishRound(prev);
+};
+
+/** An answer a bot submits, built to be right or wrong on purpose. */
+const botAnswerFor = (question: Question, shouldBeCorrect: boolean): Answer => {
+  const options = question.options;
+
+  switch (question.type) {
+    case QuestionType.TYPE_ANSWER:
+      return shouldBeCorrect ? (options[0] ?? "") : "…";
+
+    case QuestionType.SLIDER: {
+      const [min, max, , low, high] = options.map(Number);
+      if (shouldBeCorrect) return (low + high) / 2;
+      // Miss on whichever side of the correct band is still inside the slider.
+      return low - 1 >= min ? low - 1 : Math.min(high + 1, max);
+    }
+
+    case QuestionType.PUZZLE:
+      return shouldBeCorrect || options.length < 2
+        ? [...options]
+        : [...options].reverse();
+
+    default: {
+      if (shouldBeCorrect) return question.correctIndex;
+      const wrong = options
+        .map((_, index) => index)
+        .filter((index) => index !== question.correctIndex);
+      return wrong.length
+        ? wrong[Math.floor(Math.random() * wrong.length)]
+        : question.correctIndex;
+    }
+  }
+};
 
 export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
@@ -62,6 +262,11 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     currentPlayerId: null,
     isHost: false,
     gamePin: null,
+    gameName: "",
+    clientPin: null,
+    clientPlayerId: null,
+    joining: false,
+    joinError: null,
     totalRounds: 3,
     questionsPerRound: 5,
     roundsConfig: [],
@@ -71,40 +276,317 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     questionsQueue: [],
     usedCategories: [],
     selectedCategory: null,
+    bracket: [],
+    championId: null,
+    currentAnswers: [],
     timeLeft: TIMER_DURATION,
+    timerPaused: false,
+    questionDuration: TIMER_DURATION,
+    revealSecondsLeft: REVEAL_DURATION,
+    revealReason: null,
+    autoAdvance: true,
+    hostAnsweringEnabled: true,
+    wheelSpinning: false,
+    categoryRevealed: false,
     loading: false,
     error: null,
     contentWarning: null,
     initialPin: new URLSearchParams(window.location.search).get("pin"),
   });
 
-  // Timer Logic
-  useEffect(() => {
-    let timer: any;
-    if (state.phase === GamePhase.PLAYING && state.timeLeft > 0) {
-      timer = setInterval(() => {
-        setState((prev) => ({ ...prev, timeLeft: prev.timeLeft - 1 }));
-      }, 1000);
-    } else if (state.phase === GamePhase.PLAYING && state.timeLeft === 0) {
-      handleQuestionEnd();
-    }
-    return () => clearInterval(timer);
-  }, [state.phase, state.timeLeft]);
+  const [broadcastConnected, setBroadcastConnected] = useState(false);
+  const broadcastSeenAt = useRef(0);
+  // Identifies this host window on the shared channel. Two host tabs in one
+  // browser would otherwise both publish into the same projector.
+  const hostId = useRef(
+    globalThis.crypto?.randomUUID?.() ?? `host-${Math.random().toString(36).slice(2)}`,
+  );
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
-  // Auto-add bots in Lobby for Host (Optional, kept from previous but reduced frequency)
+  /* ---------------------------------------------------------------- *
+   * Question clock
+   * ---------------------------------------------------------------- */
   useEffect(() => {
-    let botInterval: any;
+    if (state.phase !== GamePhase.PLAYING || state.timerPaused) return;
+
+    const timer = setInterval(() => {
+      setState((prev) => {
+        if (prev.phase !== GamePhase.PLAYING) return prev;
+        const timeLeft = prev.timeLeft - 1;
+        return timeLeft <= 0
+          ? endQuestion({ ...prev, timeLeft: 0 }, "time")
+          : { ...prev, timeLeft };
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [state.phase, state.timerPaused]);
+
+  /* ---------------------------------------------------------------- *
+   * Reveal clock — holds the answer up, then moves the room along
+   * ---------------------------------------------------------------- */
+  useEffect(() => {
+    if (state.phase !== GamePhase.QUESTION_REVEAL || !state.autoAdvance) return;
+
+    const timer = setInterval(() => {
+      setState((prev) => {
+        if (prev.phase !== GamePhase.QUESTION_REVEAL) return prev;
+        const revealSecondsLeft = prev.revealSecondsLeft - 1;
+        return revealSecondsLeft <= 0
+          ? advanceFromReveal({ ...prev, revealSecondsLeft: 0 })
+          : { ...prev, revealSecondsLeft };
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [state.phase, state.autoAdvance]);
+
+  // Auto-add bots in the lobby so a host testing alone still gets a bracket.
+  useEffect(() => {
     if (
-      state.isHost &&
-      state.phase === GamePhase.LOBBY &&
-      state.players.length < 3
+      !state.isHost ||
+      state.phase !== GamePhase.LOBBY ||
+      state.players.length >= 3
     ) {
-      botInterval = setInterval(() => {
-        addBot();
-      }, 3000);
+      return;
     }
+
+    const botInterval = setInterval(() => addBot(), 3000);
     return () => clearInterval(botInterval);
   }, [state.isHost, state.phase, state.players.length]);
+
+  const recordAnswer = useCallback((playerId: string, answer: Answer) => {
+    setState((prev) => {
+      if (prev.phase !== GamePhase.PLAYING || !prev.currentQuestion) return prev;
+      if (prev.currentAnswers.some((a) => a.playerId === playerId)) return prev;
+
+      const active = answeringRoster(prev.bracket[prev.currentRound - 1], prev.players, prev.hostAnsweringEnabled);
+      // Eliminated players and spectators can watch, but they cannot score.
+      if (!active.includes(playerId)) return prev;
+
+      const isCorrect = isAnswerCorrect(prev.currentQuestion, answer);
+      const record: AnswerRecord = {
+        playerId,
+        answer,
+        isCorrect,
+        points: isCorrect
+          ? CORRECT_BASE_POINTS + prev.timeLeft * TIME_BONUS_PER_SECOND
+          : 0,
+        timeLeft: prev.timeLeft,
+      };
+
+      const currentAnswers = [...prev.currentAnswers, record];
+      const answered = new Set(currentAnswers.map((a) => a.playerId));
+      const everyoneIsIn =
+        active.length > 0 && active.every((id) => answered.has(id));
+
+      const next = { ...prev, currentAnswers };
+      // The whole point of the counter on the broadcast: once the last player
+      // is in there is nothing left to wait for, so the clock stops early.
+      return everyoneIsIn ? endQuestion(next, "all-in") : next;
+    });
+  }, []);
+
+  /* ---------------------------------------------------------------- *
+   * Bots answer on a spread of timers, so the "still answering" count on
+   * the broadcast actually counts down during a question.
+   * ---------------------------------------------------------------- */
+  const botTimers = useRef<number[]>([]);
+
+  useEffect(() => {
+    botTimers.current.forEach(clearTimeout);
+    botTimers.current = [];
+
+    if (state.phase !== GamePhase.PLAYING || state.timerPaused) return;
+    const question = state.currentQuestion;
+    if (!question) return;
+
+    const active = new Set(answeringRoster(state.bracket[state.currentRound - 1], state.players, state.hostAnsweringEnabled));
+    const answered = new Set(state.currentAnswers.map((a) => a.playerId));
+    const thinking = state.players.filter(
+      (p) => p.isBot && active.has(p.id) && !answered.has(p.id),
+    );
+
+    // Leave a second on the clock so a bot never lands after time is up.
+    const latest = Math.min(state.timeLeft - 1, BOT_MAX_THINK_SECONDS);
+    const spread = Math.max(0, latest - BOT_MIN_THINK_SECONDS);
+
+    thinking.forEach((bot) => {
+      const delay = (BOT_MIN_THINK_SECONDS + Math.random() * spread) * 1000;
+      const timer = window.setTimeout(() => {
+        recordAnswer(bot.id, botAnswerFor(question, Math.random() < BOT_ACCURACY));
+      }, Math.max(500, delay));
+      botTimers.current.push(timer);
+    });
+
+    return () => {
+      botTimers.current.forEach(clearTimeout);
+      botTimers.current = [];
+    };
+    // Deliberately not keyed on currentAnswers: a rescheduling on every answer
+    // would keep resetting the bots' think time.
+  }, [
+    state.phase,
+    state.currentRound,
+    state.currentQuestionIndex,
+    state.timerPaused,
+    recordAnswer,
+  ]);
+
+  /* ---------------------------------------------------------------- *
+   * Publish to the broadcast window
+   * ---------------------------------------------------------------- */
+  useEffect(() => {
+    if (!state.isHost) return;
+    publishSnapshot(buildSnapshot(state, hostId.current));
+  }, [state]);
+
+  useEffect(() => {
+    if (!state.isHost) return;
+    const beat = setInterval(
+      () =>
+        postMessage({
+          type: "host-heartbeat",
+          at: Date.now(),
+          hostId: hostId.current,
+        }),
+      2000,
+    );
+    return () => clearInterval(beat);
+  }, [state.isHost]);
+
+  useEffect(() => {
+    const unsubscribe = subscribeToMessages((message) => {
+      if (
+        message.type !== "broadcast-hello" &&
+        message.type !== "broadcast-heartbeat"
+      ) {
+        return;
+      }
+
+      // A display latched onto another host tab is not watching this one, so
+      // its heartbeats must not light up this host's pill.
+      const watching = message.hostId;
+      if (watching && watching !== hostId.current) return;
+
+      broadcastSeenAt.current = Date.now();
+      setBroadcastConnected(true);
+
+      // A window that just opened may have hydrated from a stale snapshot.
+      if (message.type === "broadcast-hello" && stateRef.current.isHost) {
+        publishSnapshot(buildSnapshot(stateRef.current, hostId.current));
+      }
+    });
+
+    const check = setInterval(() => {
+      setBroadcastConnected(
+        Date.now() - broadcastSeenAt.current < BROADCAST_TIMEOUT_MS,
+      );
+    }, 2000);
+
+    return () => {
+      unsubscribe();
+      clearInterval(check);
+    };
+  }, []);
+
+  /* ---------------------------------------------------------------- *
+   * Hosting a room: answering for the PIN, and admitting the players
+   * who ask for it
+   * ---------------------------------------------------------------- */
+  useEffect(() => {
+    const unsubscribe = subscribeToMessages((message) => {
+      const current = stateRef.current;
+      if (!current.isHost || !current.gamePin) return;
+
+      if (message.type === "room-query") {
+        if (message.pin !== current.gamePin) return;
+        postMessage({
+          type: "room-offer",
+          pin: current.gamePin,
+          nonce: message.nonce,
+          hostId: hostId.current,
+          gameName: current.gameName,
+          // Latecomers cannot be slotted into a bracket that is already drawn.
+          open: current.phase === GamePhase.LOBBY,
+        });
+        return;
+      }
+
+      if (message.type === "player-join") {
+        if (message.pin !== current.gamePin) return;
+
+        const accepted = current.phase === GamePhase.LOBBY;
+        if (accepted) {
+          setState((prev) => {
+            if (prev.players.some((p) => p.id === message.playerId)) return prev;
+            const player: Player = {
+              id: message.playerId,
+              name: message.name,
+              avatar: message.avatar,
+              avatarColor: message.avatarColor,
+              avatarAccessory: message.avatarAccessory,
+              score: 0,
+              roundScore: 0,
+              isBot: false,
+              streak: 0,
+            };
+            return { ...prev, players: [...prev.players, player] };
+          });
+        }
+
+        postMessage({
+          type: "player-join-result",
+          clientId: message.clientId,
+          accepted,
+          reason: accepted ? undefined : "The game has already started.",
+          hostId: hostId.current,
+          gameName: current.gameName,
+          pin: current.gamePin,
+        });
+        return;
+      }
+
+      if (message.type === "player-answer") {
+        if (message.pin !== current.gamePin) return;
+        recordAnswer(message.playerId, message.answer);
+        return;
+      }
+
+      if (message.type === "player-leave") {
+        if (message.pin !== current.gamePin) return;
+        setState((prev) => ({
+          ...prev,
+          players: prev.players.filter((p) => p.id !== message.playerId),
+        }));
+      }
+    });
+
+    return unsubscribe;
+  }, [recordAnswer]);
+
+  // Keep this room's claim on its PIN fresh, and hand the PIN back when the
+  // host window goes away.
+  useEffect(() => {
+    if (!state.isHost || !state.gamePin) return;
+
+    const pin = state.gamePin;
+    const name = state.gameName;
+    const id = hostId.current;
+
+    registerRoom(pin, id, name);
+    const keepAlive = setInterval(() => registerRoom(pin, id, name), 2000);
+    const drop = () => releaseRoom(id);
+    window.addEventListener("pagehide", drop);
+
+    return () => {
+      clearInterval(keepAlive);
+      window.removeEventListener("pagehide", drop);
+    };
+  }, [state.isHost, state.gamePin, state.gameName]);
+
+
 
   const initHost = () => {
     setState((prev) => ({
@@ -233,13 +715,53 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
   };
 
   const confirmGame = () => {
-    const pin = Math.floor(1000 + Math.random() * 9000).toString();
+    // A PIN nobody else is hosting. Two rooms answering to the same code is
+    // what made joining land in a phantom lobby.
+    const pin = allocatePin();
+
+    setState((prev) => {
+      const gameName = prev.gameName.trim() || DEFAULT_GAME_NAME;
+      registerRoom(pin, hostId.current, gameName);
+
+      // The host is always seated as a player so they can run the whole game
+      // against themselves before a room is in front of them.
+      const hostPlayer: Player = {
+        id: `host-${Date.now()}`,
+        name: "Host",
+        avatar: AVATARS[0],
+        avatarColor: AVATAR_COLORS[0],
+        score: 0,
+        roundScore: 0,
+        isBot: false,
+        isHost: true,
+        streak: 0,
+      };
+
+      const alreadySeated = prev.players.some((p) => p.isHost);
+
+      return {
+        ...prev,
+        gamePin: pin,
+        gameName,
+        players: alreadySeated ? prev.players : [...prev.players, hostPlayer],
+        currentPlayerId: alreadySeated ? prev.currentPlayerId : hostPlayer.id,
+        phase: GamePhase.LOBBY,
+      };
+    });
+  };
+
+  const setGameName = (name: string) => {
+    setState((prev) => {
+      if (prev.gamePin) registerRoom(prev.gamePin, hostId.current, name);
+      return { ...prev, gameName: name };
+    });
+  };
+
+  const toggleHostAnswering = () =>
     setState((prev) => ({
       ...prev,
-      gamePin: pin,
-      phase: GamePhase.LOBBY,
+      hostAnsweringEnabled: !prev.hostAnsweringEnabled,
     }));
-  };
 
   const updateConfig = (rounds: number, questions: number) => {
     setState((prev) => ({
@@ -256,45 +778,119 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     avatarAccessory?: string,
     pin?: string,
   ) => {
-    const newPlayer: Player = {
-      id: `user-${Date.now()}`,
-      name,
-      avatar,
-      avatarColor,
-      avatarAccessory,
-      score: 0,
-      isBot: false,
-      streak: 0,
+    const code = (pin ?? "").trim();
+    if (!code) {
+      setState((prev) => ({ ...prev, joinError: "Enter the game's PIN." }));
+      return;
+    }
+
+    const clientId = `client-${Math.random().toString(36).slice(2)}`;
+    const playerId = `player-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const nonce = `q-${Math.random().toString(36).slice(2)}`;
+
+    setState((prev) => ({ ...prev, joining: true, joinError: null }));
+
+    let settled = false;
+    const finish = (update: Partial<GameState>) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeout);
+      unsubscribe();
+      setState((prev) => ({ ...prev, joining: false, ...update }));
     };
 
-    setState((prev) => ({
-      ...prev,
-      players: [...prev.players, newPlayer],
-      currentPlayerId: newPlayer.id,
-      // Without a backend there is nothing to validate the PIN against, so keep
-      // what the player typed for display rather than silently dropping it.
-      gamePin: prev.gamePin ?? pin ?? null,
-      phase: GamePhase.LOBBY,
-    }));
+    const unsubscribe = subscribeToMessages((message) => {
+      // The host that owns this PIN answers the query; anyone else stays quiet.
+      if (message.type === "room-offer" && message.nonce === nonce) {
+        if (!message.open) {
+          finish({
+            joinError: `"${message.gameName}" has already started. Ask the host to open a new game.`,
+          });
+          return;
+        }
+        postMessage({
+          type: "player-join",
+          pin: code,
+          clientId,
+          playerId,
+          name,
+          avatar,
+          avatarColor,
+          avatarAccessory,
+        });
+        return;
+      }
+
+      if (message.type === "player-join-result" && message.clientId === clientId) {
+        finish(
+          message.accepted
+            ? {
+                clientPin: message.pin,
+                clientPlayerId: playerId,
+                currentPlayerId: playerId,
+                gamePin: message.pin,
+                gameName: message.gameName,
+                isHost: false,
+                phase: GamePhase.LOBBY,
+              }
+            : { joinError: message.reason ?? "The host turned the join down." },
+        );
+      }
+    });
+
+    // Nobody hosting this PIN means there is no room to join. Saying so beats
+    // opening an empty one that looks like the host's game but is not.
+    const timeout = window.setTimeout(
+      () =>
+        finish({
+          joinError: `No game is running with PIN ${code}. Check the code on the big screen — and note that joining only works in the same browser on the host's machine until there is a server.`,
+        }),
+      JOIN_TIMEOUT_MS,
+    );
+
+    postMessage({ type: "room-query", pin: code, nonce });
   };
 
-  const hostJoinAsPlayer = (name: string, avatar: string) => {
-    const hostPlayer: Player = {
-      id: `host-${Date.now()}`,
-      name: name || "Host",
-      avatar: avatar || AVATARS[0],
-      avatarColor: AVATAR_COLORS[0],
-      score: 0,
-      isBot: false,
-      isHost: true,
-      streak: 0,
-    };
+  const clearJoinError = () =>
+    setState((prev) => ({ ...prev, joinError: null }));
 
-    setState((prev) => ({
-      ...prev,
-      players: [...prev.players, hostPlayer],
-      currentPlayerId: hostPlayer.id,
-    }));
+  /**
+   * The host already has a seat from the moment the lobby opens, so this
+   * renames it rather than handing them a second one.
+   */
+  const hostJoinAsPlayer = (name: string, avatar: string) => {
+    setState((prev) => {
+      const existing = prev.players.find((p) => p.isHost);
+      if (existing) {
+        return {
+          ...prev,
+          players: prev.players.map((p) =>
+            p.isHost
+              ? { ...p, name: name || p.name, avatar: avatar || p.avatar }
+              : p,
+          ),
+          currentPlayerId: prev.currentPlayerId ?? existing.id,
+        };
+      }
+
+      const hostPlayer: Player = {
+        id: `host-${Date.now()}`,
+        name: name || "Host",
+        avatar: avatar || AVATARS[0],
+        avatarColor: AVATAR_COLORS[0],
+        score: 0,
+        roundScore: 0,
+        isBot: false,
+        isHost: true,
+        streak: 0,
+      };
+
+      return {
+        ...prev,
+        players: [...prev.players, hostPlayer],
+        currentPlayerId: hostPlayer.id,
+      };
+    });
   };
 
   const addBot = () => {
@@ -308,6 +904,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         name: BOT_NAMES[botIndex],
         avatar: AVATARS[Math.floor(Math.random() * AVATARS.length)],
         score: 0,
+        roundScore: 0,
         isBot: true,
         streak: 0,
       };
@@ -320,155 +917,192 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
   };
 
   const startGame = () => {
-    // Start Round 1
-    const firstRound = state.roundsConfig[0];
-    if (!firstRound) return;
+    setState((prev) => {
+      if (!prev.roundsConfig[0]) return prev;
 
+      const players = prev.players.map((p) => ({
+        ...p,
+        roundScore: 0,
+        eliminated: false,
+        lastAnswerCorrect: undefined,
+      }));
+
+      return {
+        ...prev,
+        players,
+        currentRound: 1,
+        // The draw for round one is made before a single question is asked, so
+        // the broadcast can show the room who they are up against. One player
+        // on their own is not a tournament: they play the rounds as configured
+        // and nobody is eliminated.
+        bracket: players.length >= 2 ? [buildFirstRound(players)] : [],
+        championId: null,
+        currentAnswers: [],
+        wheelSpinning: false,
+        categoryRevealed: false,
+        phase: GamePhase.CATEGORY_SELECT,
+      };
+    });
+  };
+
+  /** The host started the wheel; the broadcast switches to a suspense screen. */
+  const beginWheelSpin = () => {
     setState((prev) => ({
       ...prev,
-      currentRound: 1,
-      phase: GamePhase.CATEGORY_SELECT,
-      // We don't set questions yet, we wait for the wheel spin to "select" the category visually
+      wheelSpinning: true,
+      categoryRevealed: false,
+    }));
+  };
+
+  /**
+   * The wheel has landed. This is the beat the room is watching for, and it
+   * happens when the animation ends — not later, when the host gets around to
+   * pressing START ROUND.
+   */
+  const revealCategory = () => {
+    setState((prev) => ({
+      ...prev,
+      wheelSpinning: false,
+      categoryRevealed: true,
     }));
   };
 
   // Modified to use pre-generated content
-  const selectCategory = async (categoryId: string) => {
-    // Find the config for the current round
-    // Note: The wheel calls this with the category ID it landed on.
-    // In our rigged wheel, this should match the pre-generated category.
-
-    const roundConfig = state.roundsConfig[state.currentRound - 1];
-
-    if (!roundConfig) {
-      console.error("No config for round", state.currentRound);
-      return;
-    }
-
-    setState((prev) => ({
-      ...prev,
-      loading: false,
-      currentQuestion: roundConfig.questions[0],
-      currentQuestionIndex: 0,
-      questionsQueue: roundConfig.questions,
-      selectedCategory: roundConfig.category.id,
-      phase: GamePhase.PLAYING,
-      timeLeft: TIMER_DURATION,
-    }));
-  };
-
-  const handleQuestionEnd = () => {
-    const updatedPlayers = state.players.map((p) => {
-      if (p.isBot) {
-        const isCorrect = Math.random() > 0.5;
-        const points = isCorrect ? 100 + Math.floor(Math.random() * 50) : 0;
-        return {
-          ...p,
-          score: p.score + points,
-          lastAnswerCorrect: isCorrect,
-          streak: isCorrect ? p.streak + 1 : 0,
-        };
-      } else if (p.id === state.currentPlayerId) {
-        return {
-          ...p,
-          lastAnswerCorrect: false,
-          streak: 0,
-        };
+  const selectCategory = async (_categoryId: string) => {
+    setState((prev) => {
+      const roundConfig = prev.roundsConfig[prev.currentRound - 1];
+      if (!roundConfig) {
+        console.error("No config for round", prev.currentRound);
+        return prev;
       }
-      return p;
-    });
 
-    setState((prev) => ({
-      ...prev,
-      players: updatedPlayers,
-      phase: GamePhase.ROUND_RESULT,
-    }));
+      return {
+        ...prev,
+        loading: false,
+        currentQuestion: roundConfig.questions[0],
+        currentQuestionIndex: 0,
+        questionsQueue: roundConfig.questions,
+        selectedCategory: roundConfig.category.id,
+        currentAnswers: [],
+        wheelSpinning: false,
+        categoryRevealed: true,
+        phase: GamePhase.PLAYING,
+        timeLeft: TIMER_DURATION,
+        timerPaused: false,
+        questionDuration: TIMER_DURATION,
+        revealReason: null,
+      };
+    });
   };
 
   const submitAnswer = (answer: Answer) => {
-    if (state.phase !== GamePhase.PLAYING || !state.currentQuestion) return;
+    const current = stateRef.current;
+    const playerId = current.currentPlayerId;
+    if (!playerId) return;
 
-    // If host is just watching (currentPlayerId is null), they can't submit
-    if (state.isHost && !state.currentPlayerId) return;
-
-    // Typed text, slider values and puzzle orderings are not option indices, so
-    // grading has to go through the type-aware check.
-    const isCorrect = isAnswerCorrect(state.currentQuestion, answer);
-    const timeBonus = Math.floor(state.timeLeft * 10);
-    const points = isCorrect ? 100 + timeBonus : 0;
-
-    const tempPlayers = state.players.map((p) => {
-      if (p.id === state.currentPlayerId) {
-        return {
-          ...p,
-          score: p.score + points,
-          lastAnswerCorrect: isCorrect,
-          streak: isCorrect ? p.streak + 1 : 0,
-        };
-      }
-      return p;
-    });
-
-    const finalPlayers = tempPlayers.map((p) => {
-      if (p.isBot) {
-        const botCorrect = Math.random() > 0.4;
-        const botPoints = botCorrect ? 100 + Math.floor(Math.random() * 50) : 0;
-        return {
-          ...p,
-          score: p.score + botPoints,
-          lastAnswerCorrect: botCorrect,
-          streak: botCorrect ? p.streak + 1 : 0,
-        };
-      }
-      return p;
-    });
-
-    setState((prev) => ({
-      ...prev,
-      players: finalPlayers,
-      phase: GamePhase.ROUND_RESULT,
-    }));
-  };
-
-  const nextQuestion = () => {
-    const queue = state.questionsQueue || [];
-    const nextIndex = state.currentQuestionIndex + 1;
-
-    if (nextIndex < queue.length) {
-      setState((prev) => ({
-        ...prev,
-        currentQuestion: queue[nextIndex],
-        currentQuestionIndex: nextIndex,
-        phase: GamePhase.PLAYING,
-        timeLeft: TIMER_DURATION,
-      }));
-    } else {
-      setState((prev) => ({
-        ...prev,
-        phase: GamePhase.ROUND_END,
-      }));
+    // A guest tab holds no game state — the host owns the scoring, so the
+    // answer goes to them and comes back in the next snapshot.
+    if (current.clientPin) {
+      postMessage({
+        type: "player-answer",
+        pin: current.clientPin,
+        playerId,
+        answer,
+      });
+      return;
     }
+
+    recordAnswer(playerId, answer);
   };
+
+  /** Host control: stop the clock and put the answer up now. */
+  const endQuestionNow = () => setState((prev) => endQuestion(prev, "host"));
+
+  const toggleTimerPaused = () =>
+    setState((prev) => ({ ...prev, timerPaused: !prev.timerPaused }));
+
+  const addTime = (seconds: number) =>
+    setState((prev) => {
+      if (prev.phase !== GamePhase.PLAYING) return prev;
+
+      const timeLeft = Math.max(1, prev.timeLeft + seconds);
+      return {
+        ...prev,
+        timeLeft,
+        // Stretch the question's own clock with it, so the bars and the ring
+        // measure against what the room was actually given rather than sitting
+        // pinned at full while the number counts down from 25.
+        questionDuration: Math.max(prev.questionDuration, timeLeft),
+      };
+    });
+
+  const toggleAutoAdvance = () =>
+    setState((prev) => ({ ...prev, autoAdvance: !prev.autoAdvance }));
+
+  const openBroadcast = () => {
+    openBroadcastWindow();
+  };
+
+  const nextQuestion = () => setState((prev) => advanceFromReveal(prev));
 
   const nextRound = () => {
-    if (state.currentRound < state.totalRounds) {
-      setState((prev) => ({
+    setState((prev) => {
+      const gameIsOver =
+        prev.championId !== null || prev.currentRound >= prev.totalRounds;
+
+      if (gameIsOver) {
+        // Rounds can run out before the bracket resolves; the highest score
+        // among the players still standing takes it. A tie there falls to the
+        // draw, the same as a matchup does — not to whoever joined first,
+        // which is what sorting the lobby array alone would have used.
+        const standing = prev.players.filter((p) => !p.eliminated);
+        const pool = standing.length > 0 ? standing : prev.players;
+        const draw = new Map(
+          (prev.bracket[0]
+            ? activePlayerIds(prev.bracket[0])
+            : prev.players.map((p) => p.id)
+          ).map((id, index) => [id, index]),
+        );
+        const seed = (id: string) => draw.get(id) ?? Number.MAX_SAFE_INTEGER;
+        const leader = [...pool].sort(
+          (a, b) => b.score - a.score || seed(a.id) - seed(b.id),
+        )[0];
+
+        return {
+          ...prev,
+          championId: prev.championId ?? leader?.id ?? null,
+          phase: GamePhase.GAME_OVER,
+        };
+      }
+
+      return {
         ...prev,
         currentRound: prev.currentRound + 1,
         phase: GamePhase.CATEGORY_SELECT,
         currentQuestion: null,
+        currentQuestionIndex: 0,
         questionsQueue: [],
+        currentAnswers: [],
         selectedCategory: null,
-      }));
-    } else {
-      setState((prev) => ({
-        ...prev,
-        phase: GamePhase.GAME_OVER,
-      }));
-    }
+        wheelSpinning: false,
+        categoryRevealed: false,
+        timeLeft: TIMER_DURATION,
+        timerPaused: false,
+        questionDuration: TIMER_DURATION,
+        revealReason: null,
+        // Each round is scored on its own, so every matchup starts level.
+        players: prev.players.map((p) => ({
+          ...p,
+          roundScore: 0,
+          lastAnswerCorrect: undefined,
+        })),
+      };
+    });
   };
 
   const restartGame = () => {
+    clearStoredSnapshot();
+    releaseRoom(hostId.current);
     setState((prev) => ({
       ...prev,
       phase: GamePhase.START,
@@ -481,9 +1115,23 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
       players: [],
       isHost: false,
       gamePin: null,
+      gameName: "",
+      clientPin: null,
+      clientPlayerId: null,
+      joining: false,
+      joinError: null,
       currentPlayerId: null,
       roundsConfig: [],
+      bracket: [],
+      championId: null,
+      currentAnswers: [],
       timeLeft: TIMER_DURATION,
+      timerPaused: false,
+      questionDuration: TIMER_DURATION,
+      revealSecondsLeft: REVEAL_DURATION,
+      revealReason: null,
+      wheelSpinning: false,
+      categoryRevealed: false,
       loading: false,
       error: null,
       contentWarning: null,
@@ -502,11 +1150,22 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
       questionsQueue: [],
       usedCategories: [],
       selectedCategory: null,
+      bracket: [],
+      championId: null,
+      currentAnswers: [],
       timeLeft: TIMER_DURATION,
+      timerPaused: false,
+      questionDuration: TIMER_DURATION,
+      revealSecondsLeft: REVEAL_DURATION,
+      revealReason: null,
+      wheelSpinning: false,
+      categoryRevealed: false,
       players: prev.players.map((p) => ({
         ...p,
         score: 0,
+        roundScore: 0,
         streak: 0,
+        eliminated: false,
         lastAnswerCorrect: undefined,
       })),
     }));
@@ -551,10 +1210,14 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     <GameContext.Provider
       value={{
         ...state,
+        broadcastConnected,
         initHost,
         initJoin,
         generateGame,
         confirmGame,
+        setGameName,
+        toggleHostAnswering,
+        clearJoinError,
         updateConfig,
         initImport,
         importGame,
@@ -564,12 +1227,19 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         addBot,
         startGame,
         selectCategory,
+        beginWheelSpin,
+        revealCategory,
         submitAnswer,
         nextQuestion,
         nextRound,
         restartGame,
         playAgain,
         regenerateQuestion,
+        endQuestionNow,
+        toggleTimerPaused,
+        addTime,
+        toggleAutoAdvance,
+        openBroadcast,
       }}
     >
       {children}

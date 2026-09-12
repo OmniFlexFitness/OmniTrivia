@@ -4,7 +4,8 @@ import Button from './Button';
 import { Settings, ArrowRight, Loader2, Upload, AlertTriangle } from 'lucide-react';
 
 const HostConfigScreen: React.FC = () => {
-  const { generateGame, loading, error, initImport } = useGame();
+  const { generateGame, loading, error, initImport, gameName, setGameName } =
+    useGame();
   const [rounds, setRounds] = useState(3);
   const [questions, setQuestions] = useState(5);
 
@@ -39,6 +40,22 @@ const HostConfigScreen: React.FC = () => {
         )}
 
         <div className="space-y-8">
+          <div>
+            <label className="block text-slate-400 mb-2 text-sm uppercase tracking-wider">Game Name</label>
+            <input
+              type="text"
+              value={gameName}
+              onChange={(e) => setGameName(e.target.value)}
+              placeholder="Thursday Night Trivia"
+              maxLength={60}
+              className="w-full bg-slate-900 border border-slate-600 rounded-lg p-3 text-white focus:border-neon-blue outline-none"
+            />
+            <p className="text-xs text-slate-500 mt-2">
+              What this game is called. The PIN is just the code players type to
+              get in — it is not the name of the room.
+            </p>
+          </div>
+
           <div>
             <label className="block text-slate-400 mb-2 text-sm uppercase tracking-wider">Number of Rounds</label>
             <div className="flex items-center gap-4">

@@ -90,31 +90,114 @@ a working file covering all five question types.
 
 ## Running the game
 
-1. **HOST GAME** → pick rounds and questions per round.
+1. **HOST GAME** → name the game, then pick rounds and questions per round.
+   The name is what the room sees; the PIN is only the code players type.
 2. **GENERATE & REVIEW** (or **IMPORT MY OWN QUESTIONS**). Read the review
    screen; the ↻ button on any question regenerates just that one.
-3. **APPROVE & OPEN LOBBY** → you get a PIN. **JOIN AS PLAYER** to play along,
-   **ADD BOT** for more opponents.
+3. **APPROVE & OPEN LOBBY** → you get a PIN and a QR code, and you are seated
+   as a player automatically. **OPEN BROADCAST DISPLAY**, drag that window onto
+   the projector and put it full screen. **EDIT MY PLAYER** renames your seat,
+   **ADD BOT** adds opponents.
 4. **START GAME** → **SPIN THE WHEEL** each round (or flick the wheel), then
    **START ROUND**.
-5. Answer, advance with **NEXT QUESTION**, then **SEE FINAL RESULTS**.
+5. Questions run themselves — the clock counts down, the broadcast counts the
+   room in, and the question closes early once everyone has answered. **Pause**,
+   **+10s**, **Reveal** and the **auto-advance** toggle are on the control
+   screen when you need to take the wheel.
 6. **PLAY AGAIN** replays the same questions with scores reset — it does not
    regenerate, so it costs no API calls.
+
+### Joining a game
+
+The lobby and the broadcast standby screen both show a **QR code** next to the
+PIN. It encodes this app's own URL with `?pin=` already filled in, so a scan
+lands on the join screen with the code entered — the same idea as Kahoot's join
+screen.
+
+A PIN now means something:
+
+- **Every live room gets a PIN no other live room is using.** Rooms are tracked
+  in this browser's storage, so opening a second game cannot hand out a code
+  that is already in play.
+- **Joining with a PIN nobody is hosting is refused.** It used to quietly open
+  an empty room of its own that answered to the same code, which looked like
+  the host's game and was not. The join screen now says no such game is
+  running.
+- **Joining with a real PIN puts you in that host's game** — you appear in
+  their lobby, you see their questions as they go up, and your answers are
+  scored by them.
+
+> **The catch: that only works in the same browser on the host's machine.**
+> Rooms are shared between tabs and windows through `BroadcastChannel` and
+> `localStorage`, neither of which crosses a network. A phone that scans the QR
+> code gets the app and the PIN filled in, and then cannot find the room. That
+> is the same missing piece described under "What actually works today" — it
+> needs a server holding room state, not a bigger front end.
+
+### Hosting and playing at the same time
+
+The host is always seated as a player, and the control screen runs two panes
+side by side: the controls on one, **your player view** on the other. So a
+single person can click through a whole round — reading the question, locking
+in an answer, watching the count tick over and the next question arrive —
+which is the fastest way to feel whether the pacing holds up before a room is
+in front of you.
+
+The **answering on/off** toggle on that pane decides whether you are playing:
+
+- **On** — you are in the answer count, and the answer is held back from your
+  control screen until you lock one in.
+- **Off** — you are running the show. Questions no longer wait for you, and the
+  answer reference is visible again so you can read it out.
+
+The count agrees everywhere: flipping the toggle changes the "waiting on"
+number on your screen and on the projector at the same time.
+
+### Setting up the two screens
+
+The host window and the broadcast window are different interfaces, and only the
+broadcast one is meant to be seen.
+
+- Extend your desktop rather than mirroring it, or the room watches you work.
+- The broadcast window is the same app at `?view=broadcast`, so on Windows
+  <kbd>Win</kbd>+<kbd>Shift</kbd>+<kbd>←/→</kbd> throws it onto the other
+  display, and <kbd>F11</kbd> makes it full screen.
+- The two windows talk over `BroadcastChannel`, which is same-browser and
+  same-machine only. Opening `?view=broadcast` on a phone or a second laptop
+  gets you a window that sits on "WAITING FOR THE HOST" forever — that needs the
+  backend described below.
+- The broadcast window shows **no host** in its header if the host window is
+  closed, reloaded or still on the start screen. Reopening the game from the
+  host window brings it straight back; the broadcast window does not need
+  restarting.
 
 ## What actually works today
 
 Game state lives entirely in React context (`src/context/GameContext.tsx`).
 There is no server, no socket, and no shared session. Concretely:
 
-- **Hosting works end to end** — verified through a full two-round game.
-- **Joining from another device does not.** A phone that opens the Network URL
-  and enters the PIN starts its *own* isolated game in its *own* browser tab.
-  The PIN is never validated and the host never sees that player. A `?pin=`
-  link pre-fills the field, but that is all it does.
+- **Hosting works end to end** — verified through a full two-round game,
+  bracket and all.
+- **The broadcast window works**, because it is a second window of the same
+  app on the same machine rather than a second client. The host window
+  publishes a snapshot of the game; the broadcast window renders it and can
+  never change it. Nothing about that path crosses the network.
+- **Joining works between tabs of the same browser.** A second tab that enters
+  a live PIN joins that host's game for real: the host sees the player, the
+  player sees the questions, and answers are scored by the host. Rooms are
+  registered in `localStorage` and talk over `BroadcastChannel`.
+- **Joining from another device still does not.** Neither of those mechanisms
+  crosses a network, so a phone that scans the QR code gets the app with the
+  PIN filled in and then finds no room to join — it now says so rather than
+  starting a phantom game.
 - **Other players in the lobby are bots.** `GameContext` auto-adds bots every
-  3 seconds until there are 3 players, and scores them with `Math.random()`.
+  3 seconds until there are 3 players. They answer at staggered, random times
+  during each question and are graded by the same scoring code as a person, so
+  the "answered / still answering" count on the broadcast moves the way a real
+  room would — but they are still guessing, not playing.
 
-So this is a big-screen trivia runner: one host machine, everyone answering in
-the room. Making players on other devices join the same game needs a real
-backend (a small WebSocket server holding room state keyed by PIN, with the
-client reading from it instead of local context).
+So this is a big-screen trivia runner: one host machine driving its own
+windows, everyone answering in the room. Making players on other devices join the same
+game needs a real backend (a small WebSocket server holding room state keyed by
+PIN, with the client reading from it instead of local context). That same
+server is what would let the broadcast screen live on a different machine.
