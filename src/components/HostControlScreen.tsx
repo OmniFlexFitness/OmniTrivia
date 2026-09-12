@@ -2,7 +2,11 @@ import React from "react";
 import { useGame } from "../context/GameContext";
 import { GamePhase, Player, QuestionType } from "../types";
 import { buildReveal, publicOptions } from "../services/snapshot";
-import { matchupForPlayer, rosterForRound } from "../services/bracket";
+import {
+  answeringRoster,
+  matchupForPlayer,
+  rosterForRound,
+} from "../services/bracket";
 import Button from "./Button";
 import AvatarDisplay from "./AvatarDisplay";
 import BracketView from "./BracketView";
@@ -53,8 +57,19 @@ const Panel: React.FC<{
 
 /** Who is in, who is out, and — once the answer is up — who got it. */
 const AnswerTracker: React.FC = () => {
-  const { players, currentAnswers, bracket, currentRound, phase } = useGame();
-  const active = rosterForRound(bracket[currentRound - 1], players);
+  const {
+    players,
+    currentAnswers,
+    bracket,
+    currentRound,
+    phase,
+    hostAnsweringEnabled,
+  } = useGame();
+  const active = answeringRoster(
+    bracket[currentRound - 1],
+    players,
+    hostAnsweringEnabled,
+  );
   // The answers stay on screen past the reveal, into the round and game end.
   // Anyone without a record has missed their chance by then, whichever of
   // those phases we are in.
@@ -210,6 +225,7 @@ const QuestionControls: React.FC = () => {
     players,
     bracket,
     currentRound,
+    hostAnsweringEnabled,
     endQuestionNow,
     toggleTimerPaused,
     addTime,
@@ -234,7 +250,11 @@ const QuestionControls: React.FC = () => {
   const hostIsPlaying =
     !!hostPlayer &&
     !hostPlayer.eliminated &&
-    rosterForRound(bracket[currentRound - 1], players).includes(hostPlayer.id);
+    answeringRoster(
+      bracket[currentRound - 1],
+      players,
+      hostAnsweringEnabled,
+    ).includes(hostPlayer.id);
   const hostAnswered = currentAnswers.some((a) => a.playerId === currentPlayerId);
   const answerWithheld = hostIsPlaying && !hostAnswered && !revealing;
   const showAnswer = !answerWithheld && !answerHidden;
@@ -494,6 +514,117 @@ const GameOverControls: React.FC = () => {
   );
 };
 
+/**
+ * The host's own seat at the game.
+ *
+ * The host is always a player, so this pane runs beside the controls rather
+ * than replacing them — one screen showing both jobs at once, which is what
+ * makes it possible to click through a whole round solo and watch how the
+ * question-by-question pacing actually feels.
+ */
+const HostPlayerPane: React.FC = () => {
+  const {
+    phase,
+    players,
+    currentPlayerId,
+    currentQuestion,
+    currentAnswers,
+    bracket,
+    currentRound,
+    hostAnsweringEnabled,
+    toggleHostAnswering,
+  } = useGame();
+
+  const hostPlayer = players.find((p) => p.id === currentPlayerId);
+  if (!hostPlayer) return null;
+
+  const record = currentAnswers.find((a) => a.playerId === hostPlayer.id);
+  const inRoster = rosterForRound(bracket[currentRound - 1], players).includes(
+    hostPlayer.id,
+  );
+  const matchup = matchupForPlayer(bracket[currentRound - 1], hostPlayer.id);
+  const opponentId =
+    matchup && matchup.playerAId === hostPlayer.id
+      ? matchup.playerBId
+      : matchup?.playerAId;
+  const opponent = opponentId ? players.find((p) => p.id === opponentId) : null;
+
+  const status = () => {
+    if (!hostAnsweringEnabled)
+      return "Answering is off — questions will not wait for you.";
+    if (hostPlayer.eliminated) return "You are out of the bracket.";
+    if (!inRoster) return "You are not in this round.";
+    if (phase === GamePhase.QUESTION_REVEAL)
+      return record
+        ? record.isCorrect
+          ? `Correct — +${record.points}`
+          : "Missed that one"
+        : "You let that one time out";
+    if (phase !== GamePhase.PLAYING) return "Waiting for the next question.";
+    return record ? "Locked in — waiting on the rest." : "Your turn.";
+  };
+
+  return (
+    <Panel
+      title="Your player view"
+      action={
+        <button
+          onClick={toggleHostAnswering}
+          className={`px-2 py-1 rounded border text-[10px] font-mono uppercase tracking-widest transition-colors ${
+            hostAnsweringEnabled
+              ? "border-neon-green text-neon-green bg-neon-green/10"
+              : "border-slate-600 text-slate-400 hover:text-white"
+          }`}
+          title="Take yourself in or out of the answer count"
+        >
+          answering {hostAnsweringEnabled ? "on" : "off"}
+        </button>
+      }
+    >
+      <div className="flex items-center gap-3 mb-3">
+        <AvatarDisplay
+          avatar={hostPlayer.avatar}
+          color={hostPlayer.avatarColor}
+          accessory={hostPlayer.avatarAccessory}
+          size="md"
+        />
+        <div className="flex-1 min-w-0">
+          <div className="font-bold text-white truncate">{hostPlayer.name}</div>
+          <div className="text-xs text-slate-400 truncate">
+            {opponent ? `vs ${opponent.name}` : matchup ? "Bye" : "No matchup"}
+          </div>
+        </div>
+        <div className="text-right">
+          <div className="font-mono font-bold text-neon-pink">
+            {hostPlayer.score}
+          </div>
+          <div className="text-[10px] font-mono text-neon-green">
+            +{hostPlayer.roundScore}
+          </div>
+        </div>
+      </div>
+
+      <div className="text-xs font-mono uppercase tracking-widest text-slate-500 mb-3">
+        {status()}
+      </div>
+
+      {phase === GamePhase.PLAYING &&
+        currentQuestion &&
+        hostAnsweringEnabled &&
+        inRoster &&
+        !record && (
+          <div className="bg-slate-900 border border-slate-700 rounded-xl p-3">
+            <QuestionCard
+              key={currentQuestion.id}
+              question={currentQuestion}
+              compact
+            />
+          </div>
+        )}
+    </Panel>
+  );
+};
+
 const HostControlScreen: React.FC = () => {
   const {
     phase,
@@ -505,25 +636,11 @@ const HostControlScreen: React.FC = () => {
     toggleAutoAdvance,
     openBroadcast,
     broadcastConnected,
-    currentPlayerId,
-    currentQuestion,
-    currentAnswers,
+    gameName,
     bracket,
     championId,
     loading,
   } = useGame();
-
-  const hostPlayer = players.find((p) => p.id === currentPlayerId);
-  const hostNeedsToAnswer =
-    phase === GamePhase.PLAYING &&
-    !!hostPlayer &&
-    !hostPlayer.eliminated &&
-    rosterForRound(bracket[currentRound - 1], players).includes(hostPlayer.id) &&
-    !currentAnswers.some((a) => a.playerId === hostPlayer.id);
-
-  const hostMatchup = hostPlayer
-    ? matchupForPlayer(bracket[currentRound - 1], hostPlayer.id)
-    : undefined;
 
   if (loading) {
     return (
@@ -545,6 +662,11 @@ const HostControlScreen: React.FC = () => {
           <span className="px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-xs font-mono uppercase tracking-widest text-neon-yellow">
             host control
           </span>
+          {gameName && (
+            <span className="text-sm font-bold text-slate-300 truncate max-w-[16rem]">
+              {gameName}
+            </span>
+          )}
           {gamePin && (
             <span className="text-xs font-mono text-slate-500">
               PIN {gamePin}
@@ -591,40 +713,24 @@ const HostControlScreen: React.FC = () => {
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        {/* Run controls */}
-        <div className="lg:col-span-2 space-y-5">
-          {phase === GamePhase.CATEGORY_SELECT && (
-            <div className="bg-slate-800/40 border border-slate-700 rounded-2xl p-4">
-              <Wheel />
-            </div>
-          )}
+        {/* Run controls, with the host's own player view beside them */}
+        <div className="lg:col-span-2 grid grid-cols-1 xl:grid-cols-2 gap-5 items-start">
+          <div className="space-y-5">
+            {phase === GamePhase.CATEGORY_SELECT && (
+              <div className="bg-slate-800/40 border border-slate-700 rounded-2xl p-4">
+                <Wheel />
+              </div>
+            )}
 
-          {(phase === GamePhase.PLAYING ||
-            phase === GamePhase.QUESTION_REVEAL) && <QuestionControls />}
+            {(phase === GamePhase.PLAYING ||
+              phase === GamePhase.QUESTION_REVEAL) && <QuestionControls />}
 
-          {phase === GamePhase.ROUND_END && <RoundEndControls />}
-          {phase === GamePhase.GAME_OVER && <GameOverControls />}
+            {phase === GamePhase.ROUND_END && <RoundEndControls />}
+            {phase === GamePhase.GAME_OVER && <GameOverControls />}
+          </div>
 
-          {hostNeedsToAnswer && currentQuestion && (
-            <Panel title="You are playing this round — lock in your answer">
-              {hostMatchup && (
-                <p className="text-sm text-slate-400 mb-3">
-                  You are up against{" "}
-                  <span className="text-white font-bold">
-                    {players.find(
-                      (p) =>
-                        p.id ===
-                        (hostMatchup.playerAId === hostPlayer?.id
-                          ? hostMatchup.playerBId
-                          : hostMatchup.playerAId),
-                    )?.name ?? "a bye"}
-                  </span>
-                  .
-                </p>
-              )}
-              <QuestionCard key={currentQuestion.id} question={currentQuestion} />
-            </Panel>
-          )}
+          <HostPlayerPane />
+
         </div>
 
         {/* Live read on the room */}

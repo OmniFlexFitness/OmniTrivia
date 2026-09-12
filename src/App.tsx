@@ -9,11 +9,16 @@ import ReviewScreen from './components/ReviewScreen';
 import JoinScreen from './components/JoinScreen';
 import LobbyScreen from './components/LobbyScreen';
 import GameScreen from './components/GameScreen';
+import PlayerScreen from './components/PlayerScreen';
 import HostControlScreen from './components/HostControlScreen';
 import BroadcastScreen from './components/BroadcastScreen';
 
 const AppContent: React.FC = () => {
-  const { phase, isHost } = useGame();
+  const { phase, isHost, clientPin } = useGame();
+
+  // A tab that joined someone else's room owns no game state — it renders the
+  // host's snapshot and posts answers back.
+  if (clientPin) return <PlayerScreen />;
 
   switch (phase) {
     case GamePhase.START:

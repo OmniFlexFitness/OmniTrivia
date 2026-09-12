@@ -11,7 +11,7 @@ import {
   RevealDetail,
 } from "../types";
 import { CATEGORIES } from "../constants";
-import { rosterForRound } from "./bracket";
+import { answeringRoster } from "./bracket";
 import { SNAPSHOT_VERSION } from "./broadcastBus";
 
 /**
@@ -202,6 +202,7 @@ export const buildSnapshot = (
 
     phase: state.phase,
     gamePin: state.gamePin,
+    gameName: state.gameName,
 
     roundNumber: state.currentRound,
     totalRounds: state.totalRounds,
@@ -225,7 +226,11 @@ export const buildSnapshot = (
     revealReason: state.revealReason,
     autoAdvance: state.autoAdvance,
 
-    activePlayerIds: rosterForRound(bracketRound, state.players),
+    activePlayerIds: answeringRoster(
+      bracketRound,
+      state.players,
+      state.hostAnsweringEnabled,
+    ),
     answeredPlayerIds: state.currentAnswers.map((a) => a.playerId),
     // Who was right is a spoiler until the answer is up.
     correctPlayerIds: isRevealing

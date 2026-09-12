@@ -34,17 +34,20 @@ import { parseImportData } from "../services/importService";
 import { isAnswerCorrect } from "../services/scoring";
 import {
   activePlayerIds,
+  answeringRoster,
   buildFirstRound,
   buildNextRound,
   resolveRound,
-  rosterForRound,
 } from "../services/bracket";
 import { buildSnapshot } from "../services/snapshot";
 import {
+  allocatePin,
   clearStoredSnapshot,
   openBroadcastWindow,
   postMessage,
   publishSnapshot,
+  registerRoom,
+  releaseRoom,
   subscribeToMessages,
 } from "../services/broadcastBus";
 
@@ -55,6 +58,9 @@ interface GameContextType extends GameState {
   initJoin: () => void;
   generateGame: (rounds: number, questions: number) => Promise<void>;
   confirmGame: () => void;
+  setGameName: (name: string) => void;
+  toggleHostAnswering: () => void;
+  clearJoinError: () => void;
   updateConfig: (rounds: number, questions: number) => void;
   initImport: () => void;
   importGame: (csvData: string) => void;
@@ -96,6 +102,10 @@ const CORRECT_BASE_POINTS = 100;
 const TIME_BONUS_PER_SECOND = 10;
 /** A broadcast window that has not checked in for this long is treated as gone. */
 const BROADCAST_TIMEOUT_MS = 6000;
+/** How long a join waits for the host of that PIN to answer before giving up. */
+const JOIN_TIMEOUT_MS = 1500;
+/** Used when the host never names the game. */
+const DEFAULT_GAME_NAME = "OmniTrivia Night";
 
 /* ------------------------------------------------------------------ *
  * Pure transitions
@@ -109,9 +119,7 @@ const BROADCAST_TIMEOUT_MS = 6000;
 const endQuestion = (prev: GameState, reason: RevealReason): GameState => {
   if (prev.phase !== GamePhase.PLAYING) return prev;
 
-  const active = new Set(
-    rosterForRound(prev.bracket[prev.currentRound - 1], prev.players),
-  );
+  const active = new Set(answeringRoster(prev.bracket[prev.currentRound - 1], prev.players, prev.hostAnsweringEnabled));
   const byPlayer = new Map(prev.currentAnswers.map((a) => [a.playerId, a]));
 
   // Points land here rather than at submit time so nothing on a shared screen
@@ -254,6 +262,11 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     currentPlayerId: null,
     isHost: false,
     gamePin: null,
+    gameName: "",
+    clientPin: null,
+    clientPlayerId: null,
+    joining: false,
+    joinError: null,
     totalRounds: 3,
     questionsPerRound: 5,
     roundsConfig: [],
@@ -272,6 +285,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     revealSecondsLeft: REVEAL_DURATION,
     revealReason: null,
     autoAdvance: true,
+    hostAnsweringEnabled: true,
     wheelSpinning: false,
     categoryRevealed: false,
     loading: false,
@@ -347,10 +361,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
       if (prev.phase !== GamePhase.PLAYING || !prev.currentQuestion) return prev;
       if (prev.currentAnswers.some((a) => a.playerId === playerId)) return prev;
 
-      const active = rosterForRound(
-        prev.bracket[prev.currentRound - 1],
-        prev.players,
-      );
+      const active = answeringRoster(prev.bracket[prev.currentRound - 1], prev.players, prev.hostAnsweringEnabled);
       // Eliminated players and spectators can watch, but they cannot score.
       if (!active.includes(playerId)) return prev;
 
@@ -391,9 +402,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     const question = state.currentQuestion;
     if (!question) return;
 
-    const active = new Set(
-      rosterForRound(state.bracket[state.currentRound - 1], state.players),
-    );
+    const active = new Set(answeringRoster(state.bracket[state.currentRound - 1], state.players, state.hostAnsweringEnabled));
     const answered = new Set(state.currentAnswers.map((a) => a.playerId));
     const thinking = state.players.filter(
       (p) => p.isBot && active.has(p.id) && !answered.has(p.id),
@@ -481,6 +490,103 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
       clearInterval(check);
     };
   }, []);
+
+  /* ---------------------------------------------------------------- *
+   * Hosting a room: answering for the PIN, and admitting the players
+   * who ask for it
+   * ---------------------------------------------------------------- */
+  useEffect(() => {
+    const unsubscribe = subscribeToMessages((message) => {
+      const current = stateRef.current;
+      if (!current.isHost || !current.gamePin) return;
+
+      if (message.type === "room-query") {
+        if (message.pin !== current.gamePin) return;
+        postMessage({
+          type: "room-offer",
+          pin: current.gamePin,
+          nonce: message.nonce,
+          hostId: hostId.current,
+          gameName: current.gameName,
+          // Latecomers cannot be slotted into a bracket that is already drawn.
+          open: current.phase === GamePhase.LOBBY,
+        });
+        return;
+      }
+
+      if (message.type === "player-join") {
+        if (message.pin !== current.gamePin) return;
+
+        const accepted = current.phase === GamePhase.LOBBY;
+        if (accepted) {
+          setState((prev) => {
+            if (prev.players.some((p) => p.id === message.playerId)) return prev;
+            const player: Player = {
+              id: message.playerId,
+              name: message.name,
+              avatar: message.avatar,
+              avatarColor: message.avatarColor,
+              avatarAccessory: message.avatarAccessory,
+              score: 0,
+              roundScore: 0,
+              isBot: false,
+              streak: 0,
+            };
+            return { ...prev, players: [...prev.players, player] };
+          });
+        }
+
+        postMessage({
+          type: "player-join-result",
+          clientId: message.clientId,
+          accepted,
+          reason: accepted ? undefined : "The game has already started.",
+          hostId: hostId.current,
+          gameName: current.gameName,
+          pin: current.gamePin,
+        });
+        return;
+      }
+
+      if (message.type === "player-answer") {
+        if (message.pin !== current.gamePin) return;
+        recordAnswer(message.playerId, message.answer);
+        return;
+      }
+
+      if (message.type === "player-leave") {
+        if (message.pin !== current.gamePin) return;
+        setState((prev) => ({
+          ...prev,
+          players: prev.players.filter((p) => p.id !== message.playerId),
+        }));
+      }
+    });
+
+    return unsubscribe;
+  }, [recordAnswer]);
+
+  // Keep this room's claim on its PIN fresh, and hand the PIN back when the
+  // host window goes away.
+  useEffect(() => {
+    if (!state.isHost || !state.gamePin) return;
+
+    const pin = state.gamePin;
+    const name = state.gameName;
+    const id = hostId.current;
+
+    registerRoom(pin, id, name);
+    const keepAlive = setInterval(() => registerRoom(pin, id, name), 2000);
+    const drop = () => releaseRoom(id);
+    window.addEventListener("pagehide", drop);
+
+    return () => {
+      clearInterval(keepAlive);
+      window.removeEventListener("pagehide", drop);
+    };
+  }, [state.isHost, state.gamePin, state.gameName]);
+
+
 
   const initHost = () => {
     setState((prev) => ({
@@ -609,13 +715,53 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
   };
 
   const confirmGame = () => {
-    const pin = Math.floor(1000 + Math.random() * 9000).toString();
+    // A PIN nobody else is hosting. Two rooms answering to the same code is
+    // what made joining land in a phantom lobby.
+    const pin = allocatePin();
+
+    setState((prev) => {
+      const gameName = prev.gameName.trim() || DEFAULT_GAME_NAME;
+      registerRoom(pin, hostId.current, gameName);
+
+      // The host is always seated as a player so they can run the whole game
+      // against themselves before a room is in front of them.
+      const hostPlayer: Player = {
+        id: `host-${Date.now()}`,
+        name: "Host",
+        avatar: AVATARS[0],
+        avatarColor: AVATAR_COLORS[0],
+        score: 0,
+        roundScore: 0,
+        isBot: false,
+        isHost: true,
+        streak: 0,
+      };
+
+      const alreadySeated = prev.players.some((p) => p.isHost);
+
+      return {
+        ...prev,
+        gamePin: pin,
+        gameName,
+        players: alreadySeated ? prev.players : [...prev.players, hostPlayer],
+        currentPlayerId: alreadySeated ? prev.currentPlayerId : hostPlayer.id,
+        phase: GamePhase.LOBBY,
+      };
+    });
+  };
+
+  const setGameName = (name: string) => {
+    setState((prev) => {
+      if (prev.gamePin) registerRoom(prev.gamePin, hostId.current, name);
+      return { ...prev, gameName: name };
+    });
+  };
+
+  const toggleHostAnswering = () =>
     setState((prev) => ({
       ...prev,
-      gamePin: pin,
-      phase: GamePhase.LOBBY,
+      hostAnsweringEnabled: !prev.hostAnsweringEnabled,
     }));
-  };
 
   const updateConfig = (rounds: number, questions: number) => {
     setState((prev) => ({
@@ -632,47 +778,119 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     avatarAccessory?: string,
     pin?: string,
   ) => {
-    const newPlayer: Player = {
-      id: `user-${Date.now()}`,
-      name,
-      avatar,
-      avatarColor,
-      avatarAccessory,
-      score: 0,
-      roundScore: 0,
-      isBot: false,
-      streak: 0,
+    const code = (pin ?? "").trim();
+    if (!code) {
+      setState((prev) => ({ ...prev, joinError: "Enter the game's PIN." }));
+      return;
+    }
+
+    const clientId = `client-${Math.random().toString(36).slice(2)}`;
+    const playerId = `player-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const nonce = `q-${Math.random().toString(36).slice(2)}`;
+
+    setState((prev) => ({ ...prev, joining: true, joinError: null }));
+
+    let settled = false;
+    const finish = (update: Partial<GameState>) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeout);
+      unsubscribe();
+      setState((prev) => ({ ...prev, joining: false, ...update }));
     };
 
-    setState((prev) => ({
-      ...prev,
-      players: [...prev.players, newPlayer],
-      currentPlayerId: newPlayer.id,
-      // Without a backend there is nothing to validate the PIN against, so keep
-      // what the player typed for display rather than silently dropping it.
-      gamePin: prev.gamePin ?? pin ?? null,
-      phase: GamePhase.LOBBY,
-    }));
+    const unsubscribe = subscribeToMessages((message) => {
+      // The host that owns this PIN answers the query; anyone else stays quiet.
+      if (message.type === "room-offer" && message.nonce === nonce) {
+        if (!message.open) {
+          finish({
+            joinError: `"${message.gameName}" has already started. Ask the host to open a new game.`,
+          });
+          return;
+        }
+        postMessage({
+          type: "player-join",
+          pin: code,
+          clientId,
+          playerId,
+          name,
+          avatar,
+          avatarColor,
+          avatarAccessory,
+        });
+        return;
+      }
+
+      if (message.type === "player-join-result" && message.clientId === clientId) {
+        finish(
+          message.accepted
+            ? {
+                clientPin: message.pin,
+                clientPlayerId: playerId,
+                currentPlayerId: playerId,
+                gamePin: message.pin,
+                gameName: message.gameName,
+                isHost: false,
+                phase: GamePhase.LOBBY,
+              }
+            : { joinError: message.reason ?? "The host turned the join down." },
+        );
+      }
+    });
+
+    // Nobody hosting this PIN means there is no room to join. Saying so beats
+    // opening an empty one that looks like the host's game but is not.
+    const timeout = window.setTimeout(
+      () =>
+        finish({
+          joinError: `No game is running with PIN ${code}. Check the code on the big screen — and note that joining only works in the same browser on the host's machine until there is a server.`,
+        }),
+      JOIN_TIMEOUT_MS,
+    );
+
+    postMessage({ type: "room-query", pin: code, nonce });
   };
 
-  const hostJoinAsPlayer = (name: string, avatar: string) => {
-    const hostPlayer: Player = {
-      id: `host-${Date.now()}`,
-      name: name || "Host",
-      avatar: avatar || AVATARS[0],
-      avatarColor: AVATAR_COLORS[0],
-      score: 0,
-      roundScore: 0,
-      isBot: false,
-      isHost: true,
-      streak: 0,
-    };
+  const clearJoinError = () =>
+    setState((prev) => ({ ...prev, joinError: null }));
 
-    setState((prev) => ({
-      ...prev,
-      players: [...prev.players, hostPlayer],
-      currentPlayerId: hostPlayer.id,
-    }));
+  /**
+   * The host already has a seat from the moment the lobby opens, so this
+   * renames it rather than handing them a second one.
+   */
+  const hostJoinAsPlayer = (name: string, avatar: string) => {
+    setState((prev) => {
+      const existing = prev.players.find((p) => p.isHost);
+      if (existing) {
+        return {
+          ...prev,
+          players: prev.players.map((p) =>
+            p.isHost
+              ? { ...p, name: name || p.name, avatar: avatar || p.avatar }
+              : p,
+          ),
+          currentPlayerId: prev.currentPlayerId ?? existing.id,
+        };
+      }
+
+      const hostPlayer: Player = {
+        id: `host-${Date.now()}`,
+        name: name || "Host",
+        avatar: avatar || AVATARS[0],
+        avatarColor: AVATAR_COLORS[0],
+        score: 0,
+        roundScore: 0,
+        isBot: false,
+        isHost: true,
+        streak: 0,
+      };
+
+      return {
+        ...prev,
+        players: [...prev.players, hostPlayer],
+        currentPlayerId: hostPlayer.id,
+      };
+    });
   };
 
   const addBot = () => {
@@ -778,8 +996,22 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
   };
 
   const submitAnswer = (answer: Answer) => {
-    const playerId = stateRef.current.currentPlayerId;
+    const current = stateRef.current;
+    const playerId = current.currentPlayerId;
     if (!playerId) return;
+
+    // A guest tab holds no game state — the host owns the scoring, so the
+    // answer goes to them and comes back in the next snapshot.
+    if (current.clientPin) {
+      postMessage({
+        type: "player-answer",
+        pin: current.clientPin,
+        playerId,
+        answer,
+      });
+      return;
+    }
+
     recordAnswer(playerId, answer);
   };
 
@@ -870,6 +1102,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const restartGame = () => {
     clearStoredSnapshot();
+    releaseRoom(hostId.current);
     setState((prev) => ({
       ...prev,
       phase: GamePhase.START,
@@ -882,6 +1115,11 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
       players: [],
       isHost: false,
       gamePin: null,
+      gameName: "",
+      clientPin: null,
+      clientPlayerId: null,
+      joining: false,
+      joinError: null,
       currentPlayerId: null,
       roundsConfig: [],
       bracket: [],
@@ -977,6 +1215,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         initJoin,
         generateGame,
         confirmGame,
+        setGameName,
+        toggleHostAnswering,
+        clearJoinError,
         updateConfig,
         initImport,
         importGame,

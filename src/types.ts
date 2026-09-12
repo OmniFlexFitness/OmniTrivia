@@ -118,7 +118,17 @@ export interface GameState {
   players: Player[];
   currentPlayerId: string | null;
   isHost: boolean;
+  /** The join code, and only that — the room is identified by `gameName`. */
   gamePin: string | null;
+  /** What this game is called. Set by the host, shown on every screen. */
+  gameName: string;
+
+  /* --- set only in a tab that joined someone else's room --- */
+  // The PIN this tab is playing in. Null unless we are a guest player.
+  clientPin: string | null;
+  clientPlayerId: string | null;
+  joining: boolean;
+  joinError: string | null;
 
   // Game Configuration
   totalRounds: number;
@@ -152,6 +162,9 @@ export interface GameState {
   revealSecondsLeft: number;
   // When false the host has to click through every question and reveal.
   autoAdvance: boolean;
+  // The host plays along from their own screen for testing. Turning this off
+  // takes them out of the answer count so a round does not wait on them.
+  hostAnsweringEnabled: boolean;
   // The host is mid-spin on the category wheel; the broadcast shows suspense.
   wheelSpinning: boolean;
   // The wheel has landed. Until it does, the round's category is kept out of
@@ -167,6 +180,18 @@ export interface GameState {
   contentWarning: string | null;
   // Pre-filled from a ?pin= query param so QR-code links skip manual entry.
   initialPin: string | null;
+}
+
+/**
+ * A live room, as advertised to other tabs in this browser. The registry of
+ * these is what keeps two games from picking the same PIN.
+ */
+export interface RoomRecord {
+  pin: string;
+  hostId: string;
+  gameName: string;
+  /** Refreshed on every host heartbeat; a stale entry is a closed room. */
+  updatedAt: number;
 }
 
 export interface Category {
@@ -240,6 +265,7 @@ export interface BroadcastSnapshot {
 
   phase: GamePhase;
   gamePin: string | null;
+  gameName: string;
 
   roundNumber: number;
   totalRounds: number;
@@ -280,6 +306,40 @@ export interface BroadcastSnapshot {
 export type BroadcastMessage =
   | { type: "snapshot"; snapshot: BroadcastSnapshot }
   | { type: "host-heartbeat"; at: number; hostId: string }
+  /* --- joining a room by PIN --- */
+  // "Is anyone hosting this PIN?" A host that owns it answers with room-offer;
+  // silence means there is no such room, which is what stops a typo from
+  // conjuring an empty room of its own.
+  | { type: "room-query"; pin: string; nonce: string }
+  | {
+      type: "room-offer";
+      pin: string;
+      nonce: string;
+      hostId: string;
+      gameName: string;
+      open: boolean;
+    }
+  | {
+      type: "player-join";
+      pin: string;
+      clientId: string;
+      playerId: string;
+      name: string;
+      avatar: string;
+      avatarColor?: string;
+      avatarAccessory?: string;
+    }
+  | {
+      type: "player-join-result";
+      clientId: string;
+      accepted: boolean;
+      reason?: string;
+      hostId: string;
+      gameName: string;
+      pin: string;
+    }
+  | { type: "player-answer"; pin: string; playerId: string; answer: Answer }
+  | { type: "player-leave"; pin: string; playerId: string }
   // `hostId` names the host this display is following, so a host that is not
   // being watched does not light up its BROADCAST LIVE pill. Null while the
   // display has not latched onto anyone yet.

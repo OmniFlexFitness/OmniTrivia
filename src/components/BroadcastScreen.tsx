@@ -13,6 +13,7 @@ import {
 } from "../services/broadcastBus";
 import AvatarDisplay from "./AvatarDisplay";
 import BracketView, { MatchupCard } from "./BracketView";
+import JoinCode from "./JoinCode";
 import {
   CheckCircle2,
   Crown,
@@ -266,12 +267,15 @@ const StandbyStage: React.FC<{ snapshot: BroadcastSnapshot | null }> = ({
 
     {snapshot?.gamePin ? (
       <>
+        {snapshot.gameName && (
+          <div className="text-4xl md:text-5xl font-black text-white">
+            {snapshot.gameName}
+          </div>
+        )}
         <div className="text-2xl text-slate-400 font-mono uppercase tracking-widest">
-          Game PIN
+          Scan to join, or type the PIN
         </div>
-        <div className="text-8xl md:text-9xl font-mono font-black tracking-[0.2em] text-white text-neon-shadow">
-          {snapshot.gamePin}
-        </div>
+        <JoinCode pin={snapshot.gamePin} size="lg" />
         <div className="flex items-center gap-3 text-2xl text-slate-300">
           <Users className="text-neon-pink" />
           {snapshot.players.length} in the room
@@ -860,6 +864,11 @@ const BroadcastScreen: React.FC = () => {
           {snapshot && snapshot.roundNumber > 0 && (
             <span>
               Round {snapshot.roundNumber}/{snapshot.totalRounds}
+            </span>
+          )}
+          {snapshot?.gameName && (
+            <span className="text-slate-300 normal-case tracking-normal font-sans font-bold">
+              {snapshot.gameName}
             </span>
           )}
           {snapshot?.gamePin && (

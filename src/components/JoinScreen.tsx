@@ -3,10 +3,10 @@ import { useGame } from '../context/GameContext';
 import { AVATARS, AVATAR_COLORS, AVATAR_ACCESSORIES } from '../constants';
 import Button from './Button';
 import AvatarDisplay from './AvatarDisplay';
-import { Gamepad2, ArrowLeft, Palette, Smile, Glasses } from 'lucide-react';
+import { Gamepad2, ArrowLeft, Palette, Smile, Glasses, AlertTriangle, Loader2 } from 'lucide-react';
 
 const JoinScreen: React.FC = () => {
-  const { joinGame, isHost, restartGame, initialPin } = useGame();
+  const { joinGame, isHost, restartGame, initialPin, joining, joinError, clearJoinError } = useGame();
   const [name, setName] = useState('');
   const [pin, setPin] = useState(initialPin || '');
   
@@ -18,9 +18,15 @@ const JoinScreen: React.FC = () => {
 
   const handleJoin = (e: React.FormEvent) => {
     e.preventDefault();
+    if (joining) return;
     if (name.trim() && (isHost || pin.length === 4)) {
       joinGame(name, selectedAvatar, selectedColor, selectedAccessory, pin);
     }
+  };
+
+  const handlePinChange = (value: string) => {
+    setPin(value.replace(/\D/g, '').slice(0, 4));
+    if (joinError) clearJoinError();
   };
 
   return (
@@ -36,6 +42,13 @@ const JoinScreen: React.FC = () => {
           <h1 className="text-2xl font-black text-white tracking-tighter mb-4">
             {isHost ? 'HOST PROFILE' : 'PLAYER ENTRY'}
           </h1>
+
+          {joinError && (
+            <div className="w-full bg-red-900/50 border border-red-500 text-red-200 p-3 rounded-lg mb-4 flex items-start gap-2 text-sm">
+              <AlertTriangle size={18} className="shrink-0 mt-0.5" />
+              <span>{joinError}</span>
+            </div>
+          )}
           
           {/* Avatar Preview */}
           <div className="mb-2 animate-bounce-short">
@@ -56,7 +69,7 @@ const JoinScreen: React.FC = () => {
                 maxLength={4}
                 placeholder="GAME PIN"
                 value={pin}
-                onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
+                onChange={(e) => handlePinChange(e.target.value)}
                 className="w-full bg-slate-900/50 border border-slate-600 rounded-xl px-4 py-3 text-center text-xl tracking-[0.5em] font-mono focus:border-neon-blue focus:ring-1 focus:ring-neon-blue outline-none transition-all"
               />
             </div>
@@ -161,10 +174,11 @@ const JoinScreen: React.FC = () => {
             type="submit" 
             variant="neon" 
             fullWidth 
-            disabled={!name || (!isHost && pin.length !== 4)}
-            className="shrink-0"
+            disabled={!name || joining || (!isHost && pin.length !== 4)}
+            className="shrink-0 flex items-center justify-center gap-2"
           >
-            {isHost ? 'ENTER LOBBY' : 'JOIN GAME'}
+            {joining && <Loader2 size={18} className="animate-spin" />}
+            {joining ? 'LOOKING FOR THAT GAME…' : isHost ? 'ENTER LOBBY' : 'JOIN GAME'}
           </Button>
         </form>
       </div>

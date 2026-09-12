@@ -85,6 +85,27 @@ export const rosterForRound = (
     ? activePlayerIds(round)
     : players.filter((p) => !p.eliminated).map((p) => p.id);
 
+/**
+ * Who this question is actually waiting on.
+ *
+ * The host always holds a seat so they can test the game from their own
+ * screen, but a host who has switched answering off is running the show, not
+ * playing it. Every count of the room — the engine's auto-advance, the host's
+ * tracker and the projector's tally — has to agree on that, so they all come
+ * through here.
+ */
+export const answeringRoster = (
+  round: BracketRound | undefined,
+  players: Player[],
+  hostAnswering: boolean,
+): string[] => {
+  const roster = rosterForRound(round, players);
+  if (hostAnswering) return roster;
+
+  const hostPlayerId = players.find((p) => p.isHost)?.id;
+  return roster.filter((id) => id !== hostPlayerId);
+};
+
 /** The matchup a given player is in this round, if any. */
 export const matchupForPlayer = (
   round: BracketRound | undefined,
