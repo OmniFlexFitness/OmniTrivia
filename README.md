@@ -178,15 +178,32 @@ two windows are talking.
 > display. A different device cannot be the broadcast screen; that needs the
 > backend described under "What this is not".
 
+### Joining by PIN
+
+Every live room gets a PIN no other live room is using, and joining with a PIN
+nobody is hosting is refused rather than opening an empty room of its own. A
+PIN that does resolve puts that player in the host's game: they appear in the
+lobby, see each question as it goes up, and their answers are scored by the
+host.
+
+That works between tabs and windows of **the same browser on the host's
+machine**, which is as far as `BroadcastChannel` and `localStorage` reach. A
+phone that scans the QR code gets the app with the PIN filled in and then finds
+no room to join — see "What this is not".
+
 ## Hosting a game
 
-1. **HOST GAME** → choose rounds and questions per round.
+1. **HOST GAME** → name the game, then choose rounds and questions per round.
+   The name is what the room sees; the PIN is only the code players type.
 2. **GENERATE & REVIEW**, or **IMPORT MY OWN QUESTIONS**. Read the review
    screen — the ↻ on any question regenerates just that one.
-3. **APPROVE & OPEN LOBBY** → you get a PIN. **OPEN BROADCAST DISPLAY** and
-   move it to the big screen. **JOIN AS PLAYER** to play along, **ADD BOT** for
-   more opponents.
-4. **START GAME** → **SPIN THE WHEEL** each round, then **START ROUND**.
+3. **APPROVE & OPEN LOBBY** → you get a PIN and a QR code, and you are seated
+   as a player automatically. **OPEN BROADCAST DISPLAY** and move it to the big
+   screen. **EDIT MY PLAYER** renames your seat, **ADD BOT** adds opponents.
+4. **START GAME** → **SPIN THE WHEEL** each round, then **START ROUND**. Your
+   own player view sits beside the controls, with an **answering on/off**
+   toggle: off takes you out of the answer count so questions stop waiting on
+   you, and brings the answer reference back for reading aloud.
 5. Each question runs itself: the clock counts down, the broadcast counts
    players in, and the question closes as soon as the last one has answered.
    The answer goes up, then the next question follows. **Pause**, **+10s**,
