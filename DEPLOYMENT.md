@@ -1,47 +1,274 @@
 # OmniTrivia Deployment Guide
 
-This guide provides step-by-step instructions to deploy the OmniTrivia application to Google Cloud Run, making it accessible via a public URL.
+**Live site: https://trivia.omniflexfitness.com**
 
-## Prerequisites
+OmniTrivia is a **static client-side bundle** — React compiled by Vite into
+plain HTML, JS and CSS. There is no server, no database and no API to run, so
+it is published to **GitHub Pages** straight from this repository, and
+`trivia.omniflexfitness.com` is pointed at it. Every push to `master` rebuilds
+and republishes the site automatically.
 
-1.  **Google Cloud Project:** You need a Google Cloud project with billing enabled.
-2.  **`gcloud` CLI:** Install and initialize the [Google Cloud CLI](https://cloud.google.com/sdk/docs/install).
-3.  **Docker:** Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) on your local machine.
-4.  **Enabled APIs:** Ensure the following APIs are enabled in your Google Cloud project. You can enable them with the `gcloud` command below or via the Cloud Console.
-    *   Cloud Build API (`cloudbuild.googleapis.com`)
-    *   Artifact Registry API (`artifactregistry.googleapis.com`)
-    *   Cloud Run API (`run.googleapis.com`)
+The container path (Cloud Run, Docker, a VPS) is still supported and documented
+at the end of this guide, but nothing in this app needs it today.
 
-## A Note on Security (CMEK)
+---
 
-While using Vertex AI Studio, you may see a "Save prompt" dialog with an option for "Customer-managed encryption key (CMEK)".
+## 1. How the deployment works
 
-*   **This setting is for saving your development prompts within Vertex AI Studio and does NOT affect your application's deployment or runtime security.**
-*   CMEK is an advanced security feature for meeting strict compliance requirements.
-*   **For this project, you do not need CMEK.** Google's default encryption is sufficient. Leave the CMEK box unchecked to avoid unnecessary complexity.
+| Piece | Where it lives | What it does |
+| --- | --- | --- |
+| **Build + publish** | `.github/workflows/deploy.yml` | On every push to `master`: `npm ci`, `npm run build` (`tsc` then `vite build`), then upload `dist/` to GitHub Pages. Pull requests build but do not deploy. |
+| **Hosting** | GitHub Pages, this repository | Serves `dist/` over GitHub's CDN with a free, auto-renewing TLS certificate. |
+| **Domain** | Cloudflare DNS for `omniflexfitness.com` | `trivia` is a `CNAME` to `omniflexfitness.github.io`. |
+| **Asset paths** | `base: "./"` in `vite.config.ts` | Relative URLs, so the same build works at the custom domain root *and* at the `omniflexfitness.github.io/OmniTrivia/` fallback URL. |
 
-The deployment steps below are the correct procedure for getting your application live.
+**Deploy time** is roughly 60–90 seconds from push to live.
 
-## Deployment Steps
+### Why GitHub Pages and not Cloud Run
 
-### Step 1: Configure Your Environment
+- The app is **static**. Cloud Run's job here would be an nginx container
+  handing back the same files Pages hands back for free.
+- **No bill.** Pages is free on public repositories; Cloud Run needs billing
+  enabled on a GCP project.
+- **Already wired.** The DNS record exists, the domain is already verified
+  against the OmniFlexFitness org, and this repository already holds the
+  custom-domain claim.
+- **One moving part.** Push to `master`, the site updates. No Docker build, no
+  Artifact Registry, no revisions to prune.
 
-Open your terminal and set your project ID and a preferred region.
+Reach for Cloud Run when the app grows a **backend** — the moment you want real
+cross-device multiplayer or a server-side Anthropic proxy, Pages stops being
+enough. See [§6](#6-alternative-container-deployment-cloud-run--docker).
+
+---
+
+## 2. One-time setup
+
+Everything below is done **once**, in the browser, by a repository admin. It
+cannot be scripted from CI: enabling Pages and setting a custom domain need
+admin rights that the workflow's built-in token deliberately does not have.
+
+### Step 2.1 — Merge the deployment workflow to `master`
+
+The workflow only counts once it is on the default branch.
+
+### Step 2.2 — Point Pages at GitHub Actions
+
+1. Go to **Settings → Pages** in this repository.
+2. Under **Build and deployment → Source**, select **GitHub Actions**.
+
+> [!IMPORTANT]
+> This repository previously published from the **`gh-pages` branch**, which is
+> why the live site has been showing a standalone "diploma wheel" page from
+> April 2026 instead of this app. Switching the source to GitHub Actions is what
+> retires that old deploy.
+
+### Step 2.3 — Confirm the custom domain
+
+Still on **Settings → Pages**, under **Custom domain**, the value should read:
+
+```
+trivia.omniflexfitness.com
+```
+
+It is already set. Leave it alone unless the certificate is missing — see
+[§4](#4-fixing-https).
+
+### Step 2.4 — Retire the stale `gh-pages` branch (optional, recommended)
+
+Once Actions is the publishing source, the branch is dead weight and a source of
+confusion about what is actually live:
 
 ```bash
-# Replace [YOUR_PROJECT_ID] with your actual Google Cloud project ID
-export PROJECT_ID="[YOUR_PROJECT_ID]"
+git push origin --delete gh-pages
+```
 
-# Set a region for your resources
+### Step 2.5 — Run the first deploy
+
+Either push any commit to `master`, or trigger it by hand:
+
+**Actions → Deploy to GitHub Pages → Run workflow → Branch: master → Run workflow**
+
+### Step 2.6 — Turn on Enforce HTTPS
+
+Back on **Settings → Pages**, tick **Enforce HTTPS**. The checkbox is greyed out
+until GitHub has issued the certificate for the domain, which usually takes a
+few minutes and can take up to 24 hours.
+
+---
+
+## 3. DNS — what is already in place
+
+DNS for `omniflexfitness.com` is hosted at **Cloudflare** (`amir.ns.cloudflare.com`,
+`coraline.ns.cloudflare.com`). The record that makes the subdomain work:
+
+| Type | Name | Content | Proxy status | TTL |
+| --- | --- | --- | --- | --- |
+| `CNAME` | `trivia` | `omniflexfitness.github.io` | **DNS only** (grey cloud) | Auto |
+
+Two more things are already true and worth knowing so you do not undo them:
+
+- **Domain verification.** A `TXT` record at
+  `_github-pages-challenge-omniflexfitness` verifies `omniflexfitness.com`
+  against the GitHub org, which stops anyone else from claiming a subdomain of
+  yours on Pages. Do not delete it.
+- **No CAA records** on the zone, so nothing blocks GitHub from issuing a
+  Let's Encrypt certificate.
+
+> [!WARNING]
+> **Keep the `trivia` record on "DNS only" (grey cloud).** If you flip it to
+> Proxied (orange cloud), Cloudflare answers with its own IPs, GitHub can no
+> longer validate the domain or renew the certificate, and **Enforce HTTPS**
+> breaks. The apex `omniflexfitness.com` and `www` records point at **Shopify**
+> and are untouched by any of this.
+
+Verify DNS from any machine:
+
+```bash
+dig +short trivia.omniflexfitness.com
+```
+
+Expect `omniflexfitness.github.io` followed by four `185.199.10x.153` addresses.
+
+---
+
+## 4. Fixing HTTPS
+
+As of this writing the site answers on **HTTP** and the TLS certificate it
+serves does not cover `trivia.omniflexfitness.com`, which means GitHub has never
+issued one for the domain. The fix, once the Actions deploy is live:
+
+1. **Settings → Pages → Custom domain**: clear the field, **Save**.
+2. Re-enter `trivia.omniflexfitness.com`, **Save**.
+3. Wait for **"DNS check successful"** to appear under the field.
+4. Wait for the certificate — minutes usually, up to 24 hours at worst.
+5. Tick **Enforce HTTPS**.
+
+Check it from the terminal:
+
+```bash
+curl -sSI https://trivia.omniflexfitness.com | head -n 5
+```
+
+A healthy response has `HTTP/2 200` and `server: GitHub.com`, with no TLS
+warning. To confirm you are looking at *this* app and not the old page:
+
+```bash
+curl -sS https://trivia.omniflexfitness.com | grep -o '<title>[^<]*</title>'
+```
+
+Expect `<title>OmniTrivia</title>`.
+
+---
+
+## 5. Operating the site
+
+### Shipping a change
+
+```bash
+git push origin master
+```
+
+Watch it in the **Actions** tab. The run has two jobs, `build` and `deploy`; the
+deploy job posts the live URL when it finishes.
+
+### Rolling back
+
+Reverting is the deterministic option, because the next deploy always mirrors
+`master`:
+
+```bash
+git revert <bad-commit-sha>
+git push origin master
+```
+
+For a faster undo, open the last known-good run in **Actions** and choose
+**Re-run all jobs** — but the next push to `master` will publish `master` again,
+so land the revert either way.
+
+### Cache behaviour
+
+Pages serves HTML with `Cache-Control: max-age=600`. A browser that loaded the
+site in the last ten minutes can keep showing the previous build; a hard refresh
+(`Ctrl`+`Shift`+`R`) picks it up immediately. Hashed JS and CSS filenames mean
+there is never a stale-asset mismatch.
+
+### What deploying does **not** change
+
+- **No cross-device multiplayer.** Game state lives in the host's browser and
+  syncs between windows via `BroadcastChannel` and `localStorage`. A public URL
+  means phones can *load* the app; it does not make them join the host's room.
+  That needs a backend. See "What this is not" in the README.
+- **Tailwind loads at runtime** from `cdn.tailwindcss.com` (see `index.html`).
+  Venue Wi-Fi that blocks CDNs will render the app unstyled.
+- **The repository is public**, so the deployed bundle, its sourcemaps and
+  `questions.csv` are all readable by anyone. Keep an unreleased question set in
+  a local CSV file, not in the repo.
+
+---
+
+### The Anthropic API key is deliberately absent
+
+The build in CI runs **without** `VITE_ANTHROPIC_API_KEY`, on purpose.
+
+> [!WARNING]
+> Vite inlines every `VITE_*` variable into the JavaScript it ships. A key baked
+> into a public site is readable by anyone who opens DevTools, and they can spend
+> against your Anthropic account until you notice.
+
+So the deployed site is the **import-your-own-questions** path: **HOST GAME →
+IMPORT MY OWN QUESTIONS**, feeding it a CSV (see `QUESTION_FORMAT.md`).
+Generation stays on your machine, where `npm run dev` reads the key from a local
+`.env` that is never committed.
+
+If you accept the exposure anyway — say, a throwaway key with a low monthly
+spend cap set in the Anthropic Console — add the repository secret
+`VITE_ANTHROPIC_API_KEY` under **Settings → Secrets and variables → Actions**,
+then add this to the `Build` step in `.github/workflows/deploy.yml`:
+
+```yaml
+      - name: Build
+        run: npm run build
+        env:
+          VITE_ANTHROPIC_API_KEY: ${{ secrets.VITE_ANTHROPIC_API_KEY }}
+```
+
+The recommendation stands: don't. Import a CSV instead.
+
+---
+
+## 6. Alternative: container deployment (Cloud Run / Docker)
+
+Use this when the app gains a backend, or when you need a private deployment
+behind authentication. The `Dockerfile` is a two-stage build — Node 22 compiles
+the bundle, nginx 1.25 serves `dist/` on port `8080` using
+`nginx/omnitrivia.conf`.
+
+### Local container
+
+```bash
+docker build -t omnitrivia:latest .
+docker run -d -p 8080:8080 --name omnitrivia omnitrivia:latest
+```
+
+The app is then at `http://localhost:8080`.
+
+### Google Cloud Run
+
+Prerequisites: a GCP project with billing enabled, the `gcloud` CLI installed
+and authenticated (`gcloud auth login`).
+
+**1. Set project and region**
+
+```bash
+export PROJECT_ID="[YOUR_PROJECT_ID]"
 export REGION="us-central1"
 
 gcloud config set project $PROJECT_ID
 gcloud config set compute/region $REGION
 ```
 
-### Step 2: Enable Required Services
-
-Run this command to ensure all necessary APIs are enabled for your project.
+**2. Enable the APIs**
 
 ```bash
 gcloud services enable \
@@ -50,9 +277,7 @@ gcloud services enable \
   cloudbuild.googleapis.com
 ```
 
-### Step 3: Create a Docker Repository
-
-We need a place to store our container image. We'll use Artifact Registry.
+**3. Create an image repository**
 
 ```bash
 gcloud artifacts repositories create omnitrivia-repo \
@@ -61,28 +286,17 @@ gcloud artifacts repositories create omnitrivia-repo \
   --description="Docker repository for OmniTrivia app"
 ```
 
-### Step 4: Build and Push the Container Image
-
-This command uses Cloud Build to build your Docker image and push it to the Artifact Registry repository you just created. It reads the `Dockerfile` in your project directory.
-
-Make sure you are in the root directory of the application (where the `Dockerfile` is located).
+**4. Build and push the image**
 
 ```bash
 gcloud builds submit \
   --tag ${REGION}-docker.pkg.dev/${PROJECT_ID}/omnitrivia-repo/omnitrivia-app:latest
 ```
 
-The `Dockerfile` is a multi-stage build: it runs `npm run build` and serves the
-resulting `dist/` from nginx. To bake in an Anthropic key, pass it as a build
-arg (`--build-arg VITE_ANTHROPIC_API_KEY=...`) — note that Vite inlines it into
-the public JS bundle, so anyone who loads the deployed site can read it. Give
-the key a low spend limit, or deploy without one and import questions instead.
+To bake in an Anthropic key, pass `--build-arg VITE_ANTHROPIC_API_KEY=...` —
+subject to the same warning as above: it ends up in the public bundle.
 
-This process might take a few minutes. Cloud Build will package your application files into a container image and store it securely.
-
-### Step 5: Deploy to Cloud Run
-
-Now, deploy the container image to Cloud Run. This will create a managed, serverless service that runs your application.
+**5. Deploy the service**
 
 ```bash
 gcloud run deploy omnitrivia-app \
@@ -93,27 +307,50 @@ gcloud run deploy omnitrivia-app \
   --port=8080
 ```
 
-*   `--allow-unauthenticated`: This makes your service publicly accessible.
-*   `--port=8080`: This tells Cloud Run that your container is listening on port 8080 (as configured in the `Dockerfile`).
+The command prints a Service URL.
 
-After the deployment is complete, the command will output a **Service URL**. This is the public URL for your trivia game!
+**6. Map the domain (only if you move off Pages)**
 
-### Step 6: (Optional) Set Up a Custom Domain
+```bash
+gcloud beta run domain-mappings create \
+  --service=omnitrivia-app \
+  --domain=trivia.omniflexfitness.com \
+  --region=$REGION
+```
 
-To use `trivia.omniflexfitness.com`, you need to map it to your Cloud Run service.
+Cloud Run prints the DNS records to create. Replace the existing `trivia`
+`CNAME` in Cloudflare with them — the subdomain can point at Pages or at Cloud
+Run, never both. Also remove the custom domain from **Settings → Pages** first,
+so the two are not fighting over the same hostname.
 
-1.  **Navigate to Cloud Run:** In the Google Cloud Console, go to the Cloud Run section and select your `omnitrivia-app` service.
-2.  **Manage Custom Domains:** Click on "Manage custom domains" and then "ADD MAPPING".
-3.  **Select Domain:** Choose the option to map a new domain. You will be prompted to verify that you own `omniflexfitness.com` (usually by adding a TXT record to your DNS). Follow the instructions provided.
-4.  **Enter Subdomain:** Enter `trivia` as the subdomain.
-5.  **Update DNS Records:** Google will provide you with A and AAAA records. Go to your domain registrar (where you bought `omniflexfitness.com`) and update the DNS settings for the `trivia` subdomain to point to the IP addresses provided by Google.
-6.  **Wait for Propagation:** It may take some time (from a few minutes to several hours) for the DNS changes to propagate and for the SSL certificate to be provisioned.
+**Operations**
 
-## Connecting from a Phone
+```bash
+# Live logs
+gcloud run services logs tail omnitrivia-app --region=$REGION
 
-Once your app is deployed and accessible at `https://trivia.omniflexfitness.com`:
+# Roll back to the previous revision
+gcloud run services rollback omnitrivia-app --region=$REGION
+```
 
-1.  **Host a Game:** Use a web browser on your computer to navigate to the URL and start hosting a game.
-2.  **Go to the Lobby:** Proceed until you are in the game lobby.
-3.  **Scan the QR Code:** The lobby screen will display a QR code. Open the camera app on your phone and point it at the QR code.
-4.  **Join:** Your phone's browser will open a link like `https://trivia.omniflexfitness.com/?pin=1234`. The game PIN will be pre-filled, and you can proceed to enter your name and join the game.
+> **On CMEK:** Vertex AI Studio may offer a "Customer-managed encryption key"
+> option when saving prompts. It applies to saved prompts, not to this
+> deployment, and this project does not need it.
+
+---
+
+## 7. Key takeaways
+
+- **`trivia.omniflexfitness.com` is served by GitHub Pages from this
+  repository**, rebuilt by `.github/workflows/deploy.yml` on every push to
+  `master`.
+- **Three admin clicks finish the setup**: Pages source → *GitHub Actions*,
+  confirm the custom domain, tick *Enforce HTTPS* once the certificate lands.
+- **DNS is already correct** and must stay **DNS only / grey cloud** in
+  Cloudflare. The Shopify storefront on the apex domain is unaffected.
+- **The old `gh-pages` branch is what has been serving the stale page.** Switching
+  the source retires it; deleting the branch prevents future confusion.
+- **No API key ships in the deployed build.** Hosts import a CSV; question
+  generation stays local.
+- **Public hosting does not add multiplayer.** Cross-device rooms need a backend,
+  which is the point at which the Cloud Run path in §6 becomes worth taking.

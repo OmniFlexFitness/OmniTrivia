@@ -64,6 +64,12 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
 
   return {
+    // Relative asset URLs, so the same build works at the root of
+    // trivia.omniflexfitness.com and at the /OmniTrivia/ project-page URL
+    // GitHub Pages falls back to while the custom domain is unset. Nothing in
+    // the app routes on the path — the PIN and the broadcast view are query
+    // params read off `window.location` — so there is no absolute path to keep.
+    base: "./",
     plugins: [react(), warnOnExposedKey(env.VITE_ANTHROPIC_API_KEY)],
     server: {
       // Bind to every interface so phones/laptops on the same Wi-Fi can reach

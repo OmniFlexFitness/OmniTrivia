@@ -1,0 +1,65 @@
+# Builds the app and publishes it to GitHub Pages at trivia.omniflexfitness.com.
+#
+# The custom domain is set in the repository's Pages settings, not here: a
+# CNAME file in the build output is ignored when Pages publishes from a
+# workflow. Settings > Pages must have Source = "GitHub Actions" for this to
+# run at all — see DEPLOYMENT.md for the one-time setup.
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [master]
+  # Build pull requests too, so a broken build is caught before it reaches the
+  # live site. Only master deploys.
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Let a running deploy finish rather than cancelling it half-published.
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # No VITE_ANTHROPIC_API_KEY here, deliberately. Vite inlines VITE_* vars
+      # into the public JS bundle, so a key passed at this step is readable by
+      # anyone who loads the site. The deployed app is the import-your-own-
+      # questions path; generation stays on the host's machine.
+      - name: Build
+        run: npm run build
+
+      # Pages serves its own 404 page for unknown paths. Hand those to the app
+      # instead, so a mistyped URL still lands on the game.
+      - name: Add SPA fallback
+        run: cp dist/index.html dist/404.html
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

@@ -7,6 +7,9 @@ Crack-style category wheel.
 Questions come from one of two places: written by you and imported from a CSV or
 Google Sheet, or generated on the spot by Claude.
 
+Live at **https://trivia.omniflexfitness.com** — deployed from `master` on every
+push. See [DEPLOYMENT.md](DEPLOYMENT.md).
+
 ## Local Runbook
 
 This guide covers everything needed to run OmniTrivia locally, configure displays for hosting, and troubleshoot local network, firewall, or port issues.
@@ -368,7 +371,14 @@ than any device you point at the URL.
 
 ## Remote Runbook
 
-This guide covers deploying OmniTrivia remotely as a containerized web application to **Google Cloud Run** or any Docker/container platform.
+The live site is **https://trivia.omniflexfitness.com**, published to **GitHub
+Pages** from this repository by `.github/workflows/deploy.yml` on every push to
+`master`. The app is a static bundle, so that is all the hosting it needs — the
+full runbook, including the one-time Pages settings and the Cloudflare DNS
+record, is in **[DEPLOYMENT.md](DEPLOYMENT.md)**.
+
+The rest of this section covers the **container alternative** — Google Cloud Run
+or any Docker host — which is worth taking once the app grows a backend.
 
 ### 1. Architecture Overview
 
@@ -492,6 +502,11 @@ Service URL: https://omnitrivia-app-xxxxxxxxxx-xx.a.run.app
 ```
 
 ### 4. Custom Domain & Managed SSL
+
+`trivia.omniflexfitness.com` currently points at GitHub Pages. A hostname can
+only answer from one place, so if you move it here, first remove the custom
+domain under **Settings → Pages** and replace the Cloudflare `CNAME` with the
+records Cloud Run gives you.
 
 To map a custom domain (such as `trivia.omniflexfitness.com`):
 
