@@ -9,3 +9,7 @@ dist/
 .firebaserc
 *-debug.log
 .firebase/
+
+# Cloudflare Worker local secrets
+worker/.dev.vars
+.wrangler/

@@ -2,8 +2,21 @@ import Anthropic from "@anthropic-ai/sdk";
 import * as z from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { Question, QuestionType } from "../types";
+import { currentIdToken } from "./remoteRoom";
 
 const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY || "";
+
+/**
+ * A server that holds the Anthropic key so this bundle does not have to.
+ *
+ * Set, every request goes there instead of to Anthropic: the browser proves
+ * who it is with its Firebase ID token, and the proxy adds the real key on the
+ * far side. That is what lets the deployed site generate questions at all —
+ * a key inlined here would be readable by everyone who loads the page.
+ *
+ * See worker/ for the proxy and MULTIPLAYER.md for setting it up.
+ */
+const proxyUrl = (import.meta.env.VITE_ANTHROPIC_PROXY_URL || "").replace(/\/+$/, "");
 
 /**
  * Identity-linked keys are rejected unless the request names the workspace it
@@ -21,21 +34,46 @@ const REQUEST_TIMEOUT_MS = 90000;
 const MODEL = "claude-opus-5";
 
 /**
- * The key is inlined into the bundle Vite serves, so it is readable by anyone
- * who loads the app. `dangerouslyAllowBrowser` is required to acknowledge that;
- * without it the SDK refuses to construct. See LOCAL_PLAY.md for the safer
- * alternatives (restricted key, loopback-only play, or importing questions and
- * running with no key at all).
+ * How this talks to Claude, in preference order.
+ *
+ * With a proxy configured the key is on the server and nothing sensitive is in
+ * this bundle. Without one, a key set here is inlined by Vite and readable by
+ * anyone who loads the app — fine for `npm run dev` on your own machine, not
+ * for a public site. `dangerouslyAllowBrowser` acknowledges that; without it
+ * the SDK refuses to construct at all. See LOCAL_PLAY.md for the alternatives.
  */
-const client = apiKey
+/**
+ * Adds this device's identity to every proxied request.
+ *
+ * The token is fetched per call rather than held: Firebase refreshes it as it
+ * nears expiry, and a host who set up a game an hour before the room filled up
+ * would otherwise be turned away by their own proxy.
+ */
+const proxyFetch: typeof fetch = async (input, init) => {
+  const token = await currentIdToken();
+  const headers = new Headers(init?.headers);
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  return fetch(input, { ...init, headers });
+};
+
+const client = proxyUrl
   ? new Anthropic({
-      apiKey,
+      // The proxy supplies the real key; the SDK only requires that this is
+      // set at all, and it is never sent anywhere that could use it.
+      apiKey: "proxied",
+      baseURL: proxyUrl,
+      fetch: proxyFetch,
       dangerouslyAllowBrowser: true,
-      ...(workspaceId
-        ? { defaultHeaders: { "anthropic-workspace-id": workspaceId } }
-        : {}),
     })
-  : null;
+  : apiKey
+    ? new Anthropic({
+        apiKey,
+        dangerouslyAllowBrowser: true,
+        ...(workspaceId
+          ? { defaultHeaders: { "anthropic-workspace-id": workspaceId } }
+          : {}),
+      })
+    : null;
 
 // The model fills this shape directly — no JSON hidden in markdown fences, and
 // no hand-rolled parsing of a free-text response.

@@ -23,7 +23,11 @@
         "generate-questions": "node scripts/generate-questions.mjs",
         "emulators": "firebase-tools emulators:start --only database,auth --project omnitrivia-local",
         "check-room-rules": "node scripts/check-room-rules.mjs",
-        "check-room-join": "node scripts/check-room-join.mjs"
+        "check-room-join": "node scripts/check-room-join.mjs",
+        "worker:dev": "wrangler dev --config worker/wrangler.toml --port 8787 --local",
+        "worker:deploy": "wrangler deploy --config worker/wrangler.toml",
+        "check-proxy-auth": "node scripts/check-proxy-auth.mjs",
+        "check-proxy-gates": "node scripts/check-proxy-gates.mjs"
     },
     "dependencies": {
         "@anthropic-ai/sdk": "^0.122.0",

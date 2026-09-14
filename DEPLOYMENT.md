@@ -22,6 +22,7 @@ at the end of this guide, but nothing in this app needs it today.
 | **Domain** | Cloudflare DNS for `omniflexfitness.com` | `trivia` is a `CNAME` to `omniflexfitness.github.io`. |
 | **Asset paths** | `base: "./"` in `vite.config.ts` | Relative URLs, so the same build works at the custom domain root *and* at the `omniflexfitness.github.io/OmniTrivia/` fallback URL. |
 | **Multiplayer** | `vars.VITE_FIREBASE_*` repository variables | Read at build time so phones can join rooms. Absent, the build is single-browser and the run logs a warning. [MULTIPLAYER.md](MULTIPLAYER.md) |
+| **Question generation** | `vars.VITE_ANTHROPIC_PROXY_URL` + the Worker in `worker/` | Lets the live site generate questions while the Anthropic key stays on Cloudflare. Absent, hosts import a CSV. [worker/README.md](worker/README.md) |
 
 **Deploy time** is roughly 60–90 seconds from push to live.
 
@@ -37,11 +38,11 @@ at the end of this guide, but nothing in this app needs it today.
 - **One moving part.** Push to `master`, the site updates. No Docker build, no
   Artifact Registry, no revisions to prune.
 
-Reach for Cloud Run when the app grows a **server of its own** — a server-side
-Anthropic proxy, say, so question generation can run on the deployed site
-without publishing a key. Cross-device play does not need one: phones join
-through Firebase from the static site (see [MULTIPLAYER.md](MULTIPLAYER.md)).
-See [§6](#6-alternative-container-deployment-cloud-run--docker).
+Neither of the things that sound like they need a server actually do. Phones
+join through Firebase ([MULTIPLAYER.md](MULTIPLAYER.md)), and question
+generation goes through a Cloudflare Worker ([worker/README.md](worker/README.md))
+— both reached from a static site. Cloud Run is there for whatever comes after
+that; see [§6](#6-alternative-container-deployment-cloud-run--docker).
 
 ---
 
@@ -210,7 +211,7 @@ there is never a stale-asset mismatch.
 
 ---
 
-### The Anthropic API key is deliberately absent
+### The Anthropic API key never reaches the browser
 
 The build in CI runs **without** `VITE_ANTHROPIC_API_KEY`, on purpose.
 
@@ -219,24 +220,21 @@ The build in CI runs **without** `VITE_ANTHROPIC_API_KEY`, on purpose.
 > into a public site is readable by anyone who opens DevTools, and they can spend
 > against your Anthropic account until you notice.
 
-So the deployed site is the **import-your-own-questions** path: **HOST GAME →
-IMPORT MY OWN QUESTIONS**, feeding it a CSV (see `QUESTION_FORMAT.md`).
-Generation stays on your machine, where `npm run dev` reads the key from a local
-`.env` that is never committed.
+There are two ways to live with that, and both are supported:
 
-If you accept the exposure anyway — say, a throwaway key with a low monthly
-spend cap set in the Anthropic Console — add the repository secret
-`VITE_ANTHROPIC_API_KEY` under **Settings → Secrets and variables → Actions**,
-then add this to the `Build` step in `.github/workflows/deploy.yml`:
+**Generate on the server.** A small Cloudflare Worker holds the key and the
+browser asks it, proving who it is with the Firebase sign-in the game already
+does. Set `VITE_ANTHROPIC_PROXY_URL` and the deployed site generates questions
+with no key in the bundle at all — see **[worker/README.md](worker/README.md)**.
 
-```yaml
-      - name: Build
-        run: npm run build
-        env:
-          VITE_ANTHROPIC_API_KEY: ${{ secrets.VITE_ANTHROPIC_API_KEY }}
-```
+**Generate before the night and import a CSV.** No proxy, no key anywhere near
+the site: run `node scripts/generate-questions.mjs --out kava-night.csv` on your
+own machine and use **HOST GAME → IMPORT MY OWN QUESTIONS** at the venue. This
+also lets you read the questions before a room does.
 
-The recommendation stands: don't. Import a CSV instead.
+What is *not* supported is inlining the key into a public build. If you do it
+anyway, use a throwaway key with a low monthly spend cap in the Anthropic
+Console and expect to rotate it.
 
 ---
 
@@ -353,7 +351,8 @@ gcloud run services rollback omnitrivia-app --region=$REGION
   Cloudflare. The Shopify storefront on the apex domain is unaffected.
 - **The old `gh-pages` branch is what has been serving the stale page.** Switching
   the source retires it; deleting the branch prevents future confusion.
-- **No API key ships in the deployed build.** Hosts import a CSV; question
-  generation stays local.
+- **No API key ships in the deployed build.** Generation either runs through the
+  proxy in `worker/`, which holds the key server-side, or happens beforehand on
+  your own machine with a CSV imported at the venue.
 - **Hosting and multiplayer are two different jobs.** This guide gets the app
   on the domain; [MULTIPLAYER.md](MULTIPLAYER.md) is what lets the room join it.

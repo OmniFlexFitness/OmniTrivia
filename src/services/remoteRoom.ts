@@ -85,6 +85,8 @@ type Sdk = {
   db: Db;
   uid: string;
   api: typeof import("firebase/database");
+  /** Kept so a caller can ask for a fresh ID token to prove who it is. */
+  user: import("firebase/auth").User;
 };
 
 let sdkPromise: Promise<Sdk> | null = null;
@@ -114,7 +116,7 @@ const loadSdk = async (): Promise<Sdk> => {
   // close the room. Players get a uid of their own and can do neither.
   const credential = session.currentUser ?? (await auth.signInAnonymously(session)).user;
 
-  return { db, uid: credential.uid, api };
+  return { db, uid: credential.uid, api, user: credential };
 };
 
 const sdk = (): Promise<Sdk> => {
@@ -459,6 +461,24 @@ export const currentUid = async (): Promise<string | null> => {
   if (!remoteEnabled()) return null;
   try {
     return (await sdk()).uid;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * A fresh Firebase ID token for this device, or null when there is no Firebase.
+ *
+ * This is what the question-generation proxy checks before it spends anything:
+ * the token is signed by Google for this project, so the proxy can tell a
+ * device that signed into this game from anyone else who found the URL. The
+ * SDK refreshes it when it is close to expiring, so it is asked for per call
+ * rather than held onto.
+ */
+export const currentIdToken = async (): Promise<string | null> => {
+  if (!remoteEnabled()) return null;
+  try {
+    return await (await sdk()).user.getIdToken();
   } catch {
     return null;
   }

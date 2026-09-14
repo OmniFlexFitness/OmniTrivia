@@ -5,6 +5,12 @@ interface ImportMetaEnv {
   readonly VITE_ANTHROPIC_WORKSPACE_ID: string;
 
   /**
+   * A server that holds the Anthropic key, so the deployed site can generate
+   * questions without shipping one. See `worker/`.
+   */
+  readonly VITE_ANTHROPIC_PROXY_URL: string;
+
+  /**
    * Firebase, which is what lets phones in the room join the host's game.
    * Absent, the app still runs — same-browser play only. These are public
    * values by design: a Firebase web config identifies the project, and the

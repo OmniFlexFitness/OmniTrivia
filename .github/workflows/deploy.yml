@@ -56,6 +56,10 @@ jobs:
           VITE_FIREBASE_DATABASE_URL: ${{ vars.VITE_FIREBASE_DATABASE_URL }}
           VITE_FIREBASE_PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID }}
           VITE_FIREBASE_APP_ID: ${{ vars.VITE_FIREBASE_APP_ID }}
+          # The generation proxy's URL — also public, and also useless without
+          # a Firebase sign-in it accepts. The Anthropic key it fronts lives in
+          # Cloudflare, set with `wrangler secret put`, and never comes here.
+          VITE_ANTHROPIC_PROXY_URL: ${{ vars.VITE_ANTHROPIC_PROXY_URL }}
 
       # A site that quietly lost its multiplayer is hard to spot from a green
       # tick, so the run says which one it just published.
