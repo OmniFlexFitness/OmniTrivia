@@ -20,10 +20,14 @@
         "precheck-key": "node scripts/check-deps.mjs",
         "check-key": "node scripts/check-key.mjs",
         "pregenerate-questions": "node scripts/check-deps.mjs",
-        "generate-questions": "node scripts/generate-questions.mjs"
+        "generate-questions": "node scripts/generate-questions.mjs",
+        "emulators": "firebase-tools emulators:start --only database,auth --project omnitrivia-local",
+        "check-room-rules": "node scripts/check-room-rules.mjs",
+        "check-room-join": "node scripts/check-room-join.mjs"
     },
     "dependencies": {
         "@anthropic-ai/sdk": "^0.122.0",
+        "firebase": "^12.19.0",
         "framer-motion": "^10.16.16",
         "lucide-react": "^0.303.0",
         "react": "^18.2.0",

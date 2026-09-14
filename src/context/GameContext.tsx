@@ -40,6 +40,7 @@ import {
   resolveRound,
 } from "../services/bracket";
 import { buildSnapshot } from "../services/snapshot";
+import { clearSeat, readSeat, saveSeat } from "../services/seat";
 import {
   allocatePin,
   clearStoredSnapshot,
@@ -48,6 +49,10 @@ import {
   publishSnapshot,
   registerRoom,
   releaseRoom,
+  attachRoomChannel,
+  detachRoomChannel,
+  canReachOtherDevices,
+  roomChannelReady,
   subscribeToMessages,
 } from "../services/broadcastBus";
 
@@ -102,8 +107,13 @@ const CORRECT_BASE_POINTS = 100;
 const TIME_BONUS_PER_SECOND = 10;
 /** A broadcast window that has not checked in for this long is treated as gone. */
 const BROADCAST_TIMEOUT_MS = 6000;
-/** How long a join waits for the host of that PIN to answer before giving up. */
+/**
+ * How long a join waits for the host of that PIN to answer before giving up.
+ * A host in the same browser answers in microseconds; one across the room
+ * answers over someone's phone network, so the wait is not the same wait.
+ */
 const JOIN_TIMEOUT_MS = 1500;
+const REMOTE_JOIN_TIMEOUT_MS = 6000;
 /** Used when the host never names the game. */
 const DEFAULT_GAME_NAME = "OmniTrivia Night";
 
@@ -517,7 +527,11 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
       if (message.type === "player-join") {
         if (message.pin !== current.gamePin) return;
 
-        const accepted = current.phase === GamePhase.LOBBY;
+        // A player already in this room is coming back, not arriving late —
+        // a phone that locked its screen or reloaded. Turning them away would
+        // strand their seat and their score for the rest of the game.
+        const returning = current.players.some((p) => p.id === message.playerId);
+        const accepted = current.phase === GamePhase.LOBBY || returning;
         if (accepted) {
           setState((prev) => {
             if (prev.players.some((p) => p.id === message.playerId)) return prev;
@@ -575,9 +589,15 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     const name = state.gameName;
     const id = hostId.current;
 
-    registerRoom(pin, id, name);
-    const keepAlive = setInterval(() => registerRoom(pin, id, name), 2000);
-    const drop = () => releaseRoom(id);
+    // `open` is read fresh on every beat rather than keyed into this effect,
+    // so the room's advertised state follows the game without the heartbeat
+    // being torn down and rebuilt at every phase change.
+    const beat = () =>
+      registerRoom(pin, id, name, stateRef.current.phase === GamePhase.LOBBY);
+
+    beat();
+    const keepAlive = setInterval(beat, 2000);
+    const drop = () => releaseRoom(id, pin);
     window.addEventListener("pagehide", drop);
 
     return () => {
@@ -714,15 +734,23 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   };
 
-  const confirmGame = () => {
-    // A PIN nobody else is hosting. Two rooms answering to the same code is
-    // what made joining land in a phantom lobby.
-    const pin = allocatePin();
+  const confirmGame = async () => {
+    // A PIN nobody else is hosting — in this browser or, once Firebase is
+    // configured, in any room live anywhere. Two rooms answering to the same
+    // code is what made joining land in a phantom lobby.
+    const pin = await allocatePin();
+
+    // Start carrying the room before the lobby renders its QR code, so a
+    // phone that scans it immediately finds a host already listening.
+    await attachRoomChannel(pin, true);
+
+    // Claim the PIN now rather than on the first heartbeat: until the room is
+    // registered another host could allocate the same code, and a snapshot
+    // published into an unclaimed room is a room with no owner.
+    const gameName = stateRef.current.gameName.trim() || DEFAULT_GAME_NAME;
+    registerRoom(pin, hostId.current, gameName, true);
 
     setState((prev) => {
-      const gameName = prev.gameName.trim() || DEFAULT_GAME_NAME;
-      registerRoom(pin, hostId.current, gameName);
-
       // The host is always seated as a player so they can run the whole game
       // against themselves before a room is in front of them.
       const hostPlayer: Player = {
@@ -752,7 +780,14 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const setGameName = (name: string) => {
     setState((prev) => {
-      if (prev.gamePin) registerRoom(prev.gamePin, hostId.current, name);
+      if (prev.gamePin) {
+        registerRoom(
+          prev.gamePin,
+          hostId.current,
+          name,
+          prev.phase === GamePhase.LOBBY,
+        );
+      }
       return { ...prev, gameName: name };
     });
   };
@@ -771,24 +806,66 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     }));
   };
 
-  const joinGame = (
-    name: string,
-    avatar: string,
-    avatarColor?: string,
-    avatarAccessory?: string,
-    pin?: string,
-  ) => {
-    const code = (pin ?? "").trim();
+  /**
+   * Ask whoever hosts `pin` for a seat.
+   *
+   * `playerId` is set when this device already held one, so a phone coming
+   * back from a lock screen rejoins as itself rather than as a stranger with
+   * no score. `silent` keeps such an attempt off the join screen: if the room
+   * has moved on, the player should get the ordinary join form, not an error
+   * about a game nobody told them they had left.
+   */
+  const attemptJoin = async (params: {
+    name: string;
+    avatar: string;
+    avatarColor?: string;
+    avatarAccessory?: string;
+    pin: string;
+    playerId?: string;
+    silent?: boolean;
+  }): Promise<void> => {
+    const code = params.pin.trim();
     if (!code) {
       setState((prev) => ({ ...prev, joinError: "Enter the game's PIN." }));
       return;
     }
 
     const clientId = `client-${Math.random().toString(36).slice(2)}`;
-    const playerId = `player-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const playerId =
+      params.playerId ??
+      `player-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const nonce = `q-${Math.random().toString(36).slice(2)}`;
 
-    setState((prev) => ({ ...prev, joining: true, joinError: null }));
+    setState((prev) => ({ ...prev, joining: !params.silent, joinError: null }));
+
+    // The question has to go out on the same channel the host is listening
+    // to, so this room is carried before anything is asked of it.
+    await attachRoomChannel(code, false);
+
+    const remote = canReachOtherDevices();
+
+    // A silent rejoin can lose a race with the player simply joining by hand
+    // while it was waiting. When that happens it must not tidy up after the
+    // winner: the seat it would clear and the channel it would detach now
+    // belong to a player who is already in the game.
+    const overtaken = () => Boolean(params.silent && stateRef.current.clientPin);
+
+    const giveUp = (joinError: string | null) => {
+      if (overtaken()) return;
+      void detachRoomChannel();
+      setState((prev) => ({ ...prev, joining: false, joinError }));
+    };
+
+    // A phone with no working connection and a PIN nobody is hosting fail the
+    // same way from the inside, and they are not the same problem.
+    if (remote && !(await roomChannelReady())) {
+      giveUp(
+        params.silent
+          ? null
+          : "Could not reach the game server. Check this device's internet connection, then try the PIN again.",
+      );
+      return;
+    }
 
     let settled = false;
     const finish = (update: Partial<GameState>) => {
@@ -802,7 +879,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     const unsubscribe = subscribeToMessages((message) => {
       // The host that owns this PIN answers the query; anyone else stays quiet.
       if (message.type === "room-offer" && message.nonce === nonce) {
-        if (!message.open) {
+        // A returning player is admitted whatever the phase, so a closed lobby
+        // is only a dead end for someone who never had a seat.
+        if (!message.open && !params.playerId) {
           finish({
             joinError: `"${message.gameName}" has already started. Ask the host to open a new game.`,
           });
@@ -813,43 +892,109 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
           pin: code,
           clientId,
           playerId,
-          name,
-          avatar,
-          avatarColor,
-          avatarAccessory,
+          name: params.name,
+          avatar: params.avatar,
+          avatarColor: params.avatarColor,
+          avatarAccessory: params.avatarAccessory,
         });
         return;
       }
 
       if (message.type === "player-join-result" && message.clientId === clientId) {
-        finish(
-          message.accepted
-            ? {
-                clientPin: message.pin,
-                clientPlayerId: playerId,
-                currentPlayerId: playerId,
-                gamePin: message.pin,
-                gameName: message.gameName,
-                isHost: false,
-                phase: GamePhase.LOBBY,
-              }
-            : { joinError: message.reason ?? "The host turned the join down." },
-        );
+        if (!message.accepted) {
+          if (overtaken()) return;
+          // Whatever seat this device thought it held is not a seat any more.
+          clearSeat();
+          finish({
+            joinError: params.silent
+              ? null
+              : (message.reason ?? "The host turned the join down."),
+          });
+          return;
+        }
+
+        // Remembered so a reload lands back in this seat rather than opening
+        // a second one beside it.
+        saveSeat({
+          pin: message.pin,
+          playerId,
+          name: params.name,
+          avatar: params.avatar,
+          avatarColor: params.avatarColor,
+          avatarAccessory: params.avatarAccessory,
+        });
+
+        finish({
+          clientPin: message.pin,
+          clientPlayerId: playerId,
+          currentPlayerId: playerId,
+          gamePin: message.pin,
+          gameName: message.gameName,
+          isHost: false,
+          phase: GamePhase.LOBBY,
+        });
       }
     });
 
     // Nobody hosting this PIN means there is no room to join. Saying so beats
     // opening an empty one that looks like the host's game but is not.
     const timeout = window.setTimeout(
-      () =>
+      () => {
+        if (overtaken()) return;
+        if (params.silent) clearSeat();
         finish({
-          joinError: `No game is running with PIN ${code}. Check the code on the big screen — and note that joining only works in the same browser on the host's machine until there is a server.`,
-        }),
-      JOIN_TIMEOUT_MS,
+          joinError: params.silent
+            ? null
+            : remote
+              ? `No game is running with PIN ${code}. Check the code on the big screen.`
+              : `No game is running with PIN ${code}. Check the code on the big screen — and note that joining only works in the same browser on the host's machine until this build has a server.`,
+        });
+        if (params.silent) void detachRoomChannel();
+      },
+      remote ? REMOTE_JOIN_TIMEOUT_MS : JOIN_TIMEOUT_MS,
     );
 
     postMessage({ type: "room-query", pin: code, nonce });
   };
+
+  const joinGame = (
+    name: string,
+    avatar: string,
+    avatarColor?: string,
+    avatarAccessory?: string,
+    pin?: string,
+  ) => {
+    void attemptJoin({
+      name,
+      avatar,
+      avatarColor,
+      avatarAccessory,
+      pin: pin ?? "",
+    });
+  };
+
+  /**
+   * A device that already holds a seat in the room its link names takes that
+   * seat back on load. This is what a phone does after its screen locks and
+   * the browser reloads the page underneath it.
+   */
+  useEffect(() => {
+    const pin = stateRef.current.initialPin;
+    const seat = readSeat(pin);
+    if (!pin || !seat) return;
+
+    void attemptJoin({
+      name: seat.name,
+      avatar: seat.avatar,
+      avatarColor: seat.avatarColor,
+      avatarAccessory: seat.avatarAccessory,
+      pin,
+      playerId: seat.playerId,
+      silent: true,
+    });
+    // Mount only: rejoining is something that happens as the page comes up.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const clearJoinError = () =>
     setState((prev) => ({ ...prev, joinError: null }));
@@ -1102,7 +1247,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const restartGame = () => {
     clearStoredSnapshot();
-    releaseRoom(hostId.current);
+    clearSeat();
+    releaseRoom(hostId.current, stateRef.current.gamePin);
+    void detachRoomChannel();
     setState((prev) => ({
       ...prev,
       phase: GamePhase.START,

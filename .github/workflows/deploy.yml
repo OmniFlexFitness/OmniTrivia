@@ -37,12 +37,35 @@ jobs:
 
       - run: npm ci
 
-      # No VITE_ANTHROPIC_API_KEY here, deliberately. Vite inlines VITE_* vars
-      # into the public JS bundle, so a key passed at this step is readable by
-      # anyone who loads the site. The deployed app is the import-your-own-
-      # questions path; generation stays on the host's machine.
+      # The Firebase web config is what lets phones join the host's game. It
+      # is public by design — it names the project, and the rules in
+      # firebase/database.rules.json are what protect a room — so it lives in
+      # repository *variables* rather than secrets. Absent, the site still
+      # builds and runs, with joining limited to one browser.
+      #
+      # No VITE_ANTHROPIC_API_KEY here, deliberately: that one IS a secret,
+      # Vite inlines VITE_* vars into the public bundle, and a key passed at
+      # this step would be readable by anyone who loads the site. The deployed
+      # app is the import-your-own-questions path; generation stays on the
+      # host's machine.
       - name: Build
         run: npm run build
+        env:
+          VITE_FIREBASE_API_KEY: ${{ vars.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_DATABASE_URL: ${{ vars.VITE_FIREBASE_DATABASE_URL }}
+          VITE_FIREBASE_PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_APP_ID: ${{ vars.VITE_FIREBASE_APP_ID }}
+
+      # A site that quietly lost its multiplayer is hard to spot from a green
+      # tick, so the run says which one it just published.
+      - name: Report what was built
+        run: |
+          if [ -n "${{ vars.VITE_FIREBASE_DATABASE_URL }}" ]; then
+            echo "::notice::Multiplayer is on — phones can join rooms on this build."
+          else
+            echo "::warning::No Firebase variables set, so this build is single-browser only. See MULTIPLAYER.md."
+          fi
 
       # Pages serves its own 404 page for unknown paths. Hand those to the app
       # instead, so a mistyped URL still lands on the game.

@@ -21,6 +21,7 @@ at the end of this guide, but nothing in this app needs it today.
 | **Hosting** | GitHub Pages, this repository | Serves `dist/` over GitHub's CDN with a free, auto-renewing TLS certificate. |
 | **Domain** | Cloudflare DNS for `omniflexfitness.com` | `trivia` is a `CNAME` to `omniflexfitness.github.io`. |
 | **Asset paths** | `base: "./"` in `vite.config.ts` | Relative URLs, so the same build works at the custom domain root *and* at the `omniflexfitness.github.io/OmniTrivia/` fallback URL. |
+| **Multiplayer** | `vars.VITE_FIREBASE_*` repository variables | Read at build time so phones can join rooms. Absent, the build is single-browser and the run logs a warning. [MULTIPLAYER.md](MULTIPLAYER.md) |
 
 **Deploy time** is roughly 60–90 seconds from push to live.
 
@@ -36,9 +37,11 @@ at the end of this guide, but nothing in this app needs it today.
 - **One moving part.** Push to `master`, the site updates. No Docker build, no
   Artifact Registry, no revisions to prune.
 
-Reach for Cloud Run when the app grows a **backend** — the moment you want real
-cross-device multiplayer or a server-side Anthropic proxy, Pages stops being
-enough. See [§6](#6-alternative-container-deployment-cloud-run--docker).
+Reach for Cloud Run when the app grows a **server of its own** — a server-side
+Anthropic proxy, say, so question generation can run on the deployed site
+without publishing a key. Cross-device play does not need one: phones join
+through Firebase from the static site (see [MULTIPLAYER.md](MULTIPLAYER.md)).
+See [§6](#6-alternative-container-deployment-cloud-run--docker).
 
 ---
 
@@ -195,10 +198,10 @@ there is never a stale-asset mismatch.
 
 ### What deploying does **not** change
 
-- **No cross-device multiplayer.** Game state lives in the host's browser and
-  syncs between windows via `BroadcastChannel` and `localStorage`. A public URL
-  means phones can *load* the app; it does not make them join the host's room.
-  That needs a backend. See "What this is not" in the README.
+- **Multiplayer needs its own setup.** Hosting the site lets phones *load* the
+  app; joining a room needs the Firebase configuration in
+  [MULTIPLAYER.md](MULTIPLAYER.md), which is a separate ten-minute job. Without
+  it the deployed site plays the way it always did — one browser, one machine.
 - **Tailwind loads at runtime** from `cdn.tailwindcss.com` (see `index.html`).
   Venue Wi-Fi that blocks CDNs will render the app unstyled.
 - **The repository is public**, so the deployed bundle, its sourcemaps and
@@ -352,5 +355,5 @@ gcloud run services rollback omnitrivia-app --region=$REGION
   the source retires it; deleting the branch prevents future confusion.
 - **No API key ships in the deployed build.** Hosts import a CSV; question
   generation stays local.
-- **Public hosting does not add multiplayer.** Cross-device rooms need a backend,
-  which is the point at which the Cloud Run path in §6 becomes worth taking.
+- **Hosting and multiplayer are two different jobs.** This guide gets the app
+  on the domain; [MULTIPLAYER.md](MULTIPLAYER.md) is what lets the room join it.
