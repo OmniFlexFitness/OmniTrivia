@@ -68,9 +68,14 @@ npm run worker:login
 npm run worker:deploy
 ```
 
-The Worker answers at **https://trivia-api.omniflexfitness.com**, set by the
-`[[routes]]` block in `wrangler.toml`. Cloudflare creates the DNS record on the
-first deploy, because `omniflexfitness.com` is already in the same account.
+The Worker answers at **https://play.omniflexfitness.com** and
+**https://trivia-api.omniflexfitness.com** — two names for one Worker, set by
+the `[[routes]]` blocks in `wrangler.toml`. Cloudflare creates each DNS record
+on deploy, because `omniflexfitness.com` is already in the same account.
+
+`VITE_ANTHROPIC_PROXY_URL` may name either; they are interchangeable. Note that
+this spends `play.` on the proxy, so it is not available for the game itself —
+the game stays on `trivia.omniflexfitness.com`.
 
 A Worker with no route and no workers.dev subdomain has no address at all, and
 wrangler refuses to deploy it:
@@ -123,7 +128,7 @@ Add a repository **variable** (Settings → Secrets and variables → Actions �
 
 | Name | Value |
 | --- | --- |
-| `VITE_ANTHROPIC_PROXY_URL` | `https://trivia-api.omniflexfitness.com` |
+| `VITE_ANTHROPIC_PROXY_URL` | `https://play.omniflexfitness.com` (or `https://trivia-api.omniflexfitness.com`) |
 
 The URL is not a secret — it is useless without a Firebase sign-in this proxy
 accepts — and a variable can be read back later, which a secret cannot. The

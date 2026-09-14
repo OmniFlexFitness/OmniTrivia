@@ -17,6 +17,13 @@ compatibility_date = "2026-09-01"
 pattern = "trivia-api.omniflexfitness.com"
 custom_domain = true
 
+# A shorter second address for the same Worker. Both are equivalent — a Worker
+# can answer on as many names as it is given — so VITE_ANTHROPIC_PROXY_URL may
+# name either, and changing between them is a redeploy of the site, not of this.
+[[routes]]
+pattern = "play.omniflexfitness.com"
+custom_domain = true
+
 [vars]
 # Not secret: the project whose Firebase sign-ins this proxy trusts, and the
 # sites allowed to call it. The key is a secret and is set with `wrangler
