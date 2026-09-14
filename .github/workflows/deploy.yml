@@ -51,33 +51,44 @@ jobs:
       - name: Build
         run: npm run build
         env:
-          VITE_FIREBASE_API_KEY: ${{ vars.VITE_FIREBASE_API_KEY }}
-          VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.VITE_FIREBASE_AUTH_DOMAIN }}
-          VITE_FIREBASE_DATABASE_URL: ${{ vars.VITE_FIREBASE_DATABASE_URL }}
-          VITE_FIREBASE_PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID }}
-          VITE_FIREBASE_APP_ID: ${{ vars.VITE_FIREBASE_APP_ID }}
+          # Variables are the right home for these — they are public values, and
+          # a variable can be read back when you are checking your own work.
+          # Secrets are accepted too: GitHub offers that tab first, putting a
+          # non-secret there is a harmless mistake, and a build that silently
+          # ignores six correctly-entered values is not a harmless one.
+          VITE_FIREBASE_API_KEY: ${{ vars.VITE_FIREBASE_API_KEY || secrets.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.VITE_FIREBASE_AUTH_DOMAIN || secrets.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_DATABASE_URL: ${{ vars.VITE_FIREBASE_DATABASE_URL || secrets.VITE_FIREBASE_DATABASE_URL }}
+          VITE_FIREBASE_PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID || secrets.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_APP_ID: ${{ vars.VITE_FIREBASE_APP_ID || secrets.VITE_FIREBASE_APP_ID }}
           # The generation proxy's URL — also public, and also useless without
           # a Firebase sign-in it accepts. The Anthropic key it fronts lives in
           # Cloudflare, set with `wrangler secret put`, and never comes here.
-          VITE_ANTHROPIC_PROXY_URL: ${{ vars.VITE_ANTHROPIC_PROXY_URL }}
+          VITE_ANTHROPIC_PROXY_URL: ${{ vars.VITE_ANTHROPIC_PROXY_URL || secrets.VITE_ANTHROPIC_PROXY_URL }}
 
       # A site that quietly lost its multiplayer is hard to spot from a green
       # tick, so the run says which one it just published.
       - name: Report what was built
+        # Read through the environment rather than pasting values into the
+        # script: a value that happens to contain shell syntax is then data,
+        # not code, and secrets can be tested the same way as variables.
+        env:
+          FIREBASE_DB: ${{ vars.VITE_FIREBASE_DATABASE_URL || secrets.VITE_FIREBASE_DATABASE_URL }}
+          PROXY_URL: ${{ vars.VITE_ANTHROPIC_PROXY_URL || secrets.VITE_ANTHROPIC_PROXY_URL }}
         run: |
-          if [ -n "${{ vars.VITE_FIREBASE_DATABASE_URL }}" ]; then
+          if [ -n "$FIREBASE_DB" ]; then
             echo "::notice::Multiplayer is on — phones can join rooms on this build."
           else
-            echo "::warning::No Firebase variables set, so this build is single-browser only. See MULTIPLAYER.md."
+            echo "::warning::No Firebase configuration found, so this build is single-browser only. Set the five VITE_FIREBASE_* values as repository variables (or secrets). See MULTIPLAYER.md."
           fi
 
           # Generation through the proxy is gated on the caller proving who it
           # is, and that proof is the Firebase sign-in above — so a proxy URL
           # without Firebase is a proxy that refuses every request.
-          if [ -z "${{ vars.VITE_ANTHROPIC_PROXY_URL }}" ]; then
+          if [ -z "$PROXY_URL" ]; then
             echo "::warning::No generation proxy set, so hosts on this build import questions from CSV. See worker/README.md."
-          elif [ -z "${{ vars.VITE_FIREBASE_DATABASE_URL }}" ]; then
-            echo "::error::A generation proxy is set but Firebase is not, so every generation will be refused by the proxy. Set the VITE_FIREBASE_* variables too."
+          elif [ -z "$FIREBASE_DB" ]; then
+            echo "::error::A generation proxy is set but Firebase is not, so every generation will be refused by the proxy. Set the VITE_FIREBASE_* values too."
           else
             echo "::notice::Question generation is on, through the proxy."
           fi

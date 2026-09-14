@@ -114,7 +114,9 @@ Deployed builds read the config from **repository variables**, not secrets,
 because it is public either way and variables are easier to see and edit.
 
 **GitHub → Settings → Secrets and variables → Actions → Variables tab → New
-repository variable**, five times:
+repository variable**, five times. (The Secrets tab works too — the workflow
+reads either — but a variable can be read back when you are checking your own
+work, and a secret cannot.)
 
 | Name | Value |
 | --- | --- |
