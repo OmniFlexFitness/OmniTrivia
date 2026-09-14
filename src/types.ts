@@ -180,6 +180,9 @@ export interface GameState {
   contentWarning: string | null;
   // Pre-filled from a ?pin= query param so QR-code links skip manual entry.
   initialPin: string | null;
+  // Set when the room was opened but could not be carried to other devices, so
+  // the host learns that phones cannot join *before* the room tries to.
+  roomWarning: string | null;
 }
 
 /**

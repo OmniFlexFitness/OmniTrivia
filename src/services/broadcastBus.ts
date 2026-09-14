@@ -1,6 +1,7 @@
 import { BroadcastMessage, BroadcastSnapshot, RoomRecord } from "../types";
 import {
   attachRoom,
+  currentUid,
   detachRoom,
   publishRemote,
   registerRemoteRoom,
@@ -9,6 +10,17 @@ import {
   remotePinTaken,
   whenConnected,
 } from "./remoteRoom";
+import type { MessageMeta } from "./remoteRoom";
+
+/**
+ * A message, and who the database says sent it. `meta` is absent for anything
+ * that came over the local bus: those senders are windows of this browser,
+ * which is as far as an unverified message could ever have travelled anyway.
+ */
+export type MessageHandler = (
+  message: BroadcastMessage,
+  meta?: MessageMeta,
+) => void;
 
 /**
  * Transport between the windows of a game, and between its devices.
@@ -79,10 +91,10 @@ export const openBroadcastWindow = (): Window | null => {
  * listeners; this is how a message that arrived from another device reaches
  * the same handlers without pretending to be a local event.
  */
-const handlers = new Set<(message: BroadcastMessage) => void>();
+const handlers = new Set<MessageHandler>();
 
-const deliverRemote = (message: BroadcastMessage): void => {
-  handlers.forEach((handler) => handler(message));
+const deliverRemote = (message: BroadcastMessage, meta: MessageMeta): void => {
+  handlers.forEach((handler) => handler(message, meta));
 };
 
 /**
@@ -95,7 +107,7 @@ const deliverRemote = (message: BroadcastMessage): void => {
 export const attachRoomChannel = (
   pin: string,
   asHost: boolean,
-): Promise<void> => attachRoom(pin, { asHost, handler: deliverRemote });
+): Promise<boolean> => attachRoom(pin, { asHost, handler: deliverRemote });
 
 export const detachRoomChannel = (): Promise<void> => detachRoom();
 
@@ -108,6 +120,9 @@ export const canReachOtherDevices = remoteEnabled;
  */
 export const roomChannelReady = (): Promise<boolean> =>
   remoteEnabled() ? whenConnected() : Promise.resolve(true);
+
+/** This device's signed-in identity, or null when it has none. */
+export const deviceIdentity = currentUid;
 
 export const postMessage = (message: BroadcastMessage): void => {
   // Out to the room first: a phone waiting on an answer should not be held up
@@ -165,9 +180,7 @@ export const clearStoredSnapshot = (): void => {
  * Subscribe to messages from the other windows of this browser and from the
  * other devices in the room. Returns an unsubscribe fn.
  */
-export const subscribeToMessages = (
-  handler: (message: BroadcastMessage) => void,
-): (() => void) => {
+export const subscribeToMessages = (handler: MessageHandler): (() => void) => {
   const bus = getChannel();
   handlers.add(handler);
 

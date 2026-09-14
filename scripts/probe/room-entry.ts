@@ -8,6 +8,8 @@
  */
 import "./dom-stub";
 import type { BroadcastSnapshot } from "../../src/types";
+import { maySpeakFor, seatHeldByAnother } from "../../src/services/seats";
+import type { SeatBindings } from "../../src/services/seats";
 import {
   attachRoomChannel,
   canReachOtherDevices,
@@ -59,7 +61,10 @@ const runHost = async () => {
   await attachRoomChannel(pin, true);
   registerRoom(pin, "host-window-1", "Probe Game", true);
 
-  subscribeToMessages((message) => {
+  // The same binding the game keeps, exercised here against real devices.
+  const seats: SeatBindings = new Map();
+
+  subscribeToMessages((message, meta) => {
     if (message.type === "room-query" && message.pin === pin) {
       say(`HOST_SAW_QUERY ${message.nonce}`);
       postMessage({
@@ -74,6 +79,21 @@ const runHost = async () => {
     }
 
     if (message.type === "player-join" && message.pin === pin) {
+      if (seatHeldByAnother(seats, message.playerId, meta)) {
+        say(`HOST_REFUSED_SEAT ${message.playerId}`);
+        postMessage({
+          type: "player-join-result",
+          clientId: message.clientId,
+          accepted: false,
+          reason: "That seat is being played on another device.",
+          hostId: "host-window-1",
+          gameName: "Probe Game",
+          pin,
+        });
+        return;
+      }
+
+      if (meta) seats.set(message.playerId, meta.uid);
       say(`HOST_SAW_JOIN ${message.name}`);
       postMessage({
         type: "player-join-result",
@@ -87,6 +107,10 @@ const runHost = async () => {
     }
 
     if (message.type === "player-answer" && message.pin === pin) {
+      if (!maySpeakFor(seats, message.playerId, meta)) {
+        say(`HOST_IGNORED_ANSWER ${message.playerId}`);
+        return;
+      }
       say(`HOST_SAW_ANSWER ${JSON.stringify(message.answer)}`);
     }
   });
@@ -151,4 +175,31 @@ const runPlayer = async () => {
   }, 12000);
 };
 
-void (role === "host" ? runHost() : runPlayer());
+/**
+ * A third device that never joined, answering as the player who did. It knows
+ * the PIN and the player id — both are on any snapshot it can read — and that
+ * is exactly what must not be enough.
+ */
+const runImpostor = async () => {
+  await attachRoomChannel(pin, false);
+  await roomChannelReady();
+
+  postMessage({
+    type: "player-answer",
+    pin,
+    playerId: "probe-player",
+    answer: 99,
+  });
+
+  setTimeout(() => {
+    void detachRoomChannel();
+    say("IMPOSTOR_DONE");
+    process.exit(0);
+  }, 4000);
+};
+
+void (role === "host"
+  ? runHost()
+  : role === "impostor"
+    ? runImpostor()
+    : runPlayer());

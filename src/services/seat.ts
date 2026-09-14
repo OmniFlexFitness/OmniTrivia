@@ -16,6 +16,12 @@ const SEAT_TTL_MS = 6 * 60 * 60 * 1000;
 export interface Seat {
   pin: string;
   playerId: string;
+  /**
+   * The signed-in identity that claimed this seat. The host binds a seat to a
+   * device, so a browser whose anonymous identity has been reset no longer
+   * holds this one — better to join fresh than to be refused on arrival.
+   */
+  uid?: string;
   name: string;
   avatar: string;
   avatarColor?: string;
@@ -34,8 +40,12 @@ export const saveSeat = (seat: Omit<Seat, "at">): void => {
   }
 };
 
-/** The seat held in `pin`, if this device holds one and it has not gone stale. */
-export const readSeat = (pin: string | null): Seat | null => {
+/**
+ * The seat held in `pin`, if this device still holds one and it has not gone
+ * stale. `uid` is the identity this device signs in as now; a seat claimed
+ * under a different one belongs to a browser state that no longer exists.
+ */
+export const readSeat = (pin: string | null, uid?: string | null): Seat | null => {
   if (!pin) return null;
   try {
     const raw = window.localStorage.getItem(SEAT_KEY);
@@ -44,6 +54,7 @@ export const readSeat = (pin: string | null): Seat | null => {
     const seat = JSON.parse(raw) as Seat;
     if (seat?.pin !== pin || typeof seat.at !== "number") return null;
     if (Date.now() - seat.at > SEAT_TTL_MS) return null;
+    if (seat.uid && uid && seat.uid !== uid) return null;
 
     return seat;
   } catch {

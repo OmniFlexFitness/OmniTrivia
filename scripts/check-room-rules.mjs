@@ -93,8 +93,9 @@ const denied = async (promise) => {
   }
 };
 
-const envelope = (from, payload) => ({
-  from,
+const envelope = (device, payload) => ({
+  from: device.id,
+  uid: device.uid,
   at: serverTimestamp(),
   payload: JSON.stringify(payload),
 });
@@ -227,7 +228,7 @@ const main = async () => {
 
   await set(
     ref(host.db, `rooms/${PIN}/snapshot`),
-    envelope(host.id, { type: "snapshot", snapshot }),
+    envelope(host, { type: "snapshot", snapshot }),
   );
 
   const stored = await get(ref(player.db, `rooms/${PIN}/snapshot`));
@@ -245,7 +246,7 @@ const main = async () => {
     await denied(
       set(
         ref(player.db, `rooms/${PIN}/snapshot`),
-        envelope(player.id, { type: "snapshot", snapshot }),
+        envelope(player, { type: "snapshot", snapshot }),
       ),
     ),
   );
@@ -268,7 +269,7 @@ const main = async () => {
 
   await push(
     busRef,
-    envelope(player.id, { type: "room-query", pin: PIN, nonce: "n1" }),
+    envelope(player, { type: "room-query", pin: PIN, nonce: "n1" }),
   );
   ok("a player may ask for a seat", true);
 
@@ -287,7 +288,7 @@ const main = async () => {
     await denied(
       set(
         ref(intruder.db, `rooms/${PIN}/bus/${messageKey}`),
-        envelope(intruder.id, { type: "room-query", pin: PIN, nonce: "tampered" }),
+        envelope(intruder, { type: "room-query", pin: PIN, nonce: "tampered" }),
       ),
     ),
   );
@@ -303,7 +304,32 @@ const main = async () => {
 
   ok(
     "a message with no payload is rejected",
-    await denied(push(busRef, { from: player.id, at: serverTimestamp() })),
+    await denied(push(busRef, { from: player.id, uid: player.uid, at: serverTimestamp() })),
+  );
+
+  // The host reads `uid` to decide who may answer for whom, so a message that
+  // could name someone else's identity would undo the whole seat binding.
+  ok(
+    "a message cannot claim to come from another device",
+    await denied(
+      push(busRef, {
+        from: player.id,
+        uid: host.uid,
+        at: serverTimestamp(),
+        payload: JSON.stringify({ type: "player-answer", pin: PIN, playerId: "x", answer: 1 }),
+      }),
+    ),
+  );
+
+  ok(
+    "a message with no uid is rejected",
+    await denied(
+      push(busRef, {
+        from: player.id,
+        at: serverTimestamp(),
+        payload: JSON.stringify({ type: "room-query", pin: PIN, nonce: "n2" }),
+      }),
+    ),
   );
 
   ok(

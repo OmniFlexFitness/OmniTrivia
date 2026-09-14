@@ -30,7 +30,7 @@
         },
         "snapshot": {
           ".write": "auth != null && root.child('rooms').child($pin).child('meta').child('hostUid').val() === auth.uid",
-          ".validate": "newData.hasChildren(['from', 'at', 'payload'])",
+          ".validate": "newData.hasChildren(['from', 'uid', 'at', 'payload'])",
           "from": {
             ".validate": "newData.isString() && newData.val().length <= 128"
           },
@@ -42,13 +42,16 @@
           },
           "$other": {
             ".validate": false
+          },
+          "uid": {
+            ".validate": "newData.val() === auth.uid"
           }
         },
         "bus": {
           ".indexOn": "at",
           "$message": {
             ".write": "auth != null && (!data.exists() || root.child('rooms').child($pin).child('meta').child('hostUid').val() === auth.uid)",
-            ".validate": "newData.hasChildren(['from', 'at', 'payload'])",
+            ".validate": "newData.hasChildren(['from', 'uid', 'at', 'payload'])",
             "from": {
               ".validate": "newData.isString() && newData.val().length <= 128"
             },
@@ -60,6 +63,9 @@
             },
             "$other": {
               ".validate": false
+            },
+            "uid": {
+              ".validate": "newData.val() === auth.uid"
             }
           }
         },

@@ -47,7 +47,7 @@ await build({
 });
 
 const bundle = join(outDir, "room-entry.mjs");
-const lines = { host: [], player: [] };
+const lines = { host: [], player: [], impostor: [] };
 
 const run = (role) =>
   new Promise((resolve) => {
@@ -86,10 +86,15 @@ console.log(`\nTwo devices, PIN ${PIN}\n`);
 const host = await run("host");
 await new Promise((resolve) => setTimeout(resolve, 500));
 const player = await run("player");
-await new Promise((resolve) => setTimeout(resolve, 9000));
+await new Promise((resolve) => setTimeout(resolve, 5000));
+
+// Only once a real player holds the seat is there anything to steal.
+const impostor = await run("impostor");
+await new Promise((resolve) => setTimeout(resolve, 6000));
 
 host.child.kill();
 player.child.kill();
+impostor.child.kill();
 
 const hostSaid = lines.host.join("\n");
 const playerSaid = lines.player.join("\n");
@@ -104,6 +109,16 @@ ok("the player is told it is in", playerSaid.includes("PLAYER_JOINED accepted=tr
 ok("the player renders the host's snapshot", playerSaid.includes("PLAYER_SAW_SNAPSHOT Probe Game"), playerSaid);
 ok("the answer reaches the host", hostSaid.includes("HOST_SAW_ANSWER 2"), hostSaid);
 ok("no device hears its own messages back", !playerSaid.includes("PLAYER_SAW_OFFER open=true\nPLAYER_SAW_OFFER"));
+ok(
+  "an answer from a device that holds no seat is ignored",
+  hostSaid.includes("HOST_IGNORED_ANSWER probe-player"),
+  hostSaid,
+);
+ok(
+  "and the impostor's answer is not counted",
+  !hostSaid.includes("HOST_SAW_ANSWER 99"),
+  hostSaid,
+);
 
 console.log(failures ? `\n${failures} FAILED\n` : "\nall checks passed\n");
 process.exit(failures ? 1 : 0);

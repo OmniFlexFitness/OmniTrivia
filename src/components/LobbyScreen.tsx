@@ -7,7 +7,7 @@ import JoinCode from './JoinCode';
 import { Users, Zap, Settings, UserPlus, PlayCircle, Monitor } from 'lucide-react';
 
 const LobbyScreen: React.FC = () => {
-  const { players, startGame, isHost, totalRounds, questionsPerRound, gamePin, gameName, addBot, hostJoinAsPlayer, currentPlayerId, openBroadcast, broadcastConnected } = useGame();
+  const { players, startGame, isHost, totalRounds, questionsPerRound, gamePin, gameName, addBot, hostJoinAsPlayer, currentPlayerId, openBroadcast, broadcastConnected, roomWarning } = useGame();
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [hostName, setHostName] = useState('Host');
   const [hostAvatar, setHostAvatar] = useState(AVATARS[0]);
@@ -67,6 +67,14 @@ const LobbyScreen: React.FC = () => {
             <div className="mt-4">
               <JoinCode pin={gamePin} />
             </div>
+          )}
+          {/* The QR code promises that scanning it joins the game. When the
+              room never reached the network it does not, and the host needs to
+              know that here rather than from a table of confused players. */}
+          {roomWarning && (
+            <p className="mt-3 max-w-md text-sm text-amber-300 border border-amber-500/40 bg-amber-500/10 rounded-lg px-3 py-2">
+              {roomWarning}
+            </p>
           )}
         </div>
         <div className="flex items-center gap-2 bg-slate-800 px-6 py-3 rounded-full border border-slate-700 shadow-lg">

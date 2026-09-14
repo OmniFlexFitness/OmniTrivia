@@ -41,6 +41,8 @@ import {
 } from "../services/bracket";
 import { buildSnapshot } from "../services/snapshot";
 import { clearSeat, readSeat, saveSeat } from "../services/seat";
+import { maySpeakFor, seatHeldByAnother } from "../services/seats";
+import type { SeatBindings } from "../services/seats";
 import {
   allocatePin,
   clearStoredSnapshot,
@@ -52,6 +54,7 @@ import {
   attachRoomChannel,
   detachRoomChannel,
   canReachOtherDevices,
+  deviceIdentity,
   roomChannelReady,
   subscribeToMessages,
 } from "../services/broadcastBus";
@@ -302,6 +305,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     error: null,
     contentWarning: null,
     initialPin: new URLSearchParams(window.location.search).get("pin"),
+    roomWarning: null,
   });
 
   const [broadcastConnected, setBroadcastConnected] = useState(false);
@@ -313,6 +317,17 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
   );
   const stateRef = useRef(state);
   stateRef.current = state;
+
+  /**
+   * Which signed-in device holds each seat, for players who joined from one.
+   *
+   * A message carries the player id it claims to speak for, and player ids are
+   * on every snapshot the room can read. The database's own idea of who sent a
+   * message is the part that cannot be forged, so seats are bound to it on the
+   * way in and every later message is checked against that binding — otherwise
+   * anyone who knows the PIN could answer, or quit, as somebody else.
+   */
+  const seatUids = useRef<SeatBindings>(new Map());
 
   /* ---------------------------------------------------------------- *
    * Question clock
@@ -506,9 +521,12 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
    * who ask for it
    * ---------------------------------------------------------------- */
   useEffect(() => {
-    const unsubscribe = subscribeToMessages((message) => {
+    const unsubscribe = subscribeToMessages((message, meta) => {
       const current = stateRef.current;
       if (!current.isHost || !current.gamePin) return;
+
+      const speaksFor = (playerId: string): boolean =>
+        maySpeakFor(seatUids.current, playerId, meta);
 
       if (message.type === "room-query") {
         if (message.pin !== current.gamePin) return;
@@ -531,7 +549,20 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         // a phone that locked its screen or reloaded. Turning them away would
         // strand their seat and their score for the rest of the game.
         const returning = current.players.some((p) => p.id === message.playerId);
-        const accepted = current.phase === GamePhase.LOBBY || returning;
+
+        // ...unless a different device is asking for that seat, in which case
+        // the one holding it is the one who keeps it.
+        const seatTaken = seatHeldByAnother(
+          seatUids.current,
+          message.playerId,
+          meta,
+        );
+
+        const accepted =
+          !seatTaken && (current.phase === GamePhase.LOBBY || returning);
+
+        if (accepted && meta) seatUids.current.set(message.playerId, meta.uid);
+
         if (accepted) {
           setState((prev) => {
             if (prev.players.some((p) => p.id === message.playerId)) return prev;
@@ -554,7 +585,11 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
           type: "player-join-result",
           clientId: message.clientId,
           accepted,
-          reason: accepted ? undefined : "The game has already started.",
+          reason: accepted
+            ? undefined
+            : seatTaken
+              ? "That seat is being played on another device."
+              : "The game has already started.",
           hostId: hostId.current,
           gameName: current.gameName,
           pin: current.gamePin,
@@ -564,12 +599,15 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
 
       if (message.type === "player-answer") {
         if (message.pin !== current.gamePin) return;
+        if (!speaksFor(message.playerId)) return;
         recordAnswer(message.playerId, message.answer);
         return;
       }
 
       if (message.type === "player-leave") {
         if (message.pin !== current.gamePin) return;
+        if (!speaksFor(message.playerId)) return;
+        seatUids.current.delete(message.playerId);
         setState((prev) => ({
           ...prev,
           players: prev.players.filter((p) => p.id !== message.playerId),
@@ -742,7 +780,17 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
 
     // Start carrying the room before the lobby renders its QR code, so a
     // phone that scans it immediately finds a host already listening.
-    await attachRoomChannel(pin, true);
+    //
+    // This never throws and never hangs for long: a build configured for
+    // multiplayer that cannot reach Firebase — sign-in disabled in the
+    // console, a venue's Wi-Fi captive portal — still opens the room locally,
+    // because the alternative is a host stuck on the review screen with a
+    // dead button and a room waiting on them.
+    const attached = await attachRoomChannel(pin, true);
+    const roomWarning =
+      canReachOtherDevices() && !attached
+        ? "Could not reach the multiplayer server, so phones cannot join this game. The host screen and the broadcast display still work."
+        : null;
 
     // Claim the PIN now rather than on the first heartbeat: until the room is
     // registered another host could allocate the same code, and a snapshot
@@ -771,6 +819,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         ...prev,
         gamePin: pin,
         gameName,
+        roomWarning,
         players: alreadySeated ? prev.players : [...prev.players, hostPlayer],
         currentPlayerId: alreadySeated ? prev.currentPlayerId : hostPlayer.id,
         phase: GamePhase.LOBBY,
@@ -840,7 +889,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
 
     // The question has to go out on the same channel the host is listening
     // to, so this room is carried before anything is asked of it.
-    await attachRoomChannel(code, false);
+    const attached = await attachRoomChannel(code, false);
 
     const remote = canReachOtherDevices();
 
@@ -858,7 +907,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
 
     // A phone with no working connection and a PIN nobody is hosting fail the
     // same way from the inside, and they are not the same problem.
-    if (remote && !(await roomChannelReady())) {
+    if (remote && (!attached || !(await roomChannelReady()))) {
       giveUp(
         params.silent
           ? null
@@ -915,14 +964,17 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
 
         // Remembered so a reload lands back in this seat rather than opening
         // a second one beside it.
-        saveSeat({
-          pin: message.pin,
-          playerId,
-          name: params.name,
-          avatar: params.avatar,
-          avatarColor: params.avatarColor,
-          avatarAccessory: params.avatarAccessory,
-        });
+        void deviceIdentity().then((uid) =>
+          saveSeat({
+            pin: message.pin,
+            playerId,
+            name: params.name,
+            avatar: params.avatar,
+            avatarColor: params.avatarColor,
+            avatarAccessory: params.avatarAccessory,
+            uid: uid ?? undefined,
+          }),
+        );
 
         finish({
           clientPin: message.pin,
@@ -980,18 +1032,25 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
    */
   useEffect(() => {
     const pin = stateRef.current.initialPin;
-    const seat = readSeat(pin);
-    if (!pin || !seat) return;
+    if (!pin) return;
 
-    void attemptJoin({
-      name: seat.name,
-      avatar: seat.avatar,
-      avatarColor: seat.avatarColor,
-      avatarAccessory: seat.avatarAccessory,
-      pin,
-      playerId: seat.playerId,
-      silent: true,
-    });
+    void (async () => {
+      // The seat has to match the identity this browser signs in as now: the
+      // host binds seats to devices, so one claimed under an identity that has
+      // since been cleared would be refused rather than restored.
+      const seat = readSeat(pin, await deviceIdentity());
+      if (!seat) return;
+
+      await attemptJoin({
+        name: seat.name,
+        avatar: seat.avatar,
+        avatarColor: seat.avatarColor,
+        avatarAccessory: seat.avatarAccessory,
+        pin,
+        playerId: seat.playerId,
+        silent: true,
+      });
+    })();
     // Mount only: rejoining is something that happens as the page comes up.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1248,6 +1307,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
   const restartGame = () => {
     clearStoredSnapshot();
     clearSeat();
+    seatUids.current.clear();
     releaseRoom(hostId.current, stateRef.current.gamePin);
     void detachRoomChannel();
     setState((prev) => ({
@@ -1268,6 +1328,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
       joining: false,
       joinError: null,
       currentPlayerId: null,
+      roomWarning: null,
       roundsConfig: [],
       bracket: [],
       championId: null,

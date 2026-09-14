@@ -60,6 +60,9 @@ export const ROOM_TTL_MS = 20000;
 /** How long to wait for the database connection before giving up on it. */
 const CONNECT_TIMEOUT_MS = 8000;
 
+/** How long to wait for a room to be carried before playing without one. */
+const ATTACH_TIMEOUT_MS = 10000;
+
 /** Messages older than this are cleaned up by the host that owns the room. */
 const BUS_TTL_MS = 60000;
 
@@ -115,7 +118,15 @@ const loadSdk = async (): Promise<Sdk> => {
 };
 
 const sdk = (): Promise<Sdk> => {
-  if (!sdkPromise) sdkPromise = loadSdk();
+  if (!sdkPromise) {
+    // A rejected promise cached here would fail every later attempt too, so a
+    // network blip while the lobby was opening would follow the host around
+    // for the rest of the night. Clear it and let the next call try again.
+    sdkPromise = loadSdk().catch((error) => {
+      sdkPromise = null;
+      throw error;
+    });
+  }
   return sdkPromise;
 };
 
@@ -126,7 +137,16 @@ const sdk = (): Promise<Sdk> => {
 export const whenConnected = async (
   timeoutMs = CONNECT_TIMEOUT_MS,
 ): Promise<boolean> => {
-  const { db, api } = await sdk();
+  let db: Db;
+  let api: Sdk["api"];
+  try {
+    ({ db, api } = await sdk());
+  } catch {
+    // Signing in failed — most often Anonymous sign-in left disabled in the
+    // Firebase console. Unreachable is unreachable either way.
+    return false;
+  }
+
 
   // `.info/connected` is maintained by the client, not stored on the server:
   // a `get()` against it is sent as a real query and comes back "Invalid token
@@ -174,13 +194,31 @@ type Attachment = {
 
 let attachment: Attachment | null = null;
 
-type Envelope = { from?: string; at?: number; payload?: string };
+type Envelope = { from?: string; uid?: string; at?: number; payload?: string };
 
-const decode = (value: unknown): BroadcastMessage | null => {
+/**
+ * Who sent a message, as the database knows them rather than as the message
+ * claims. `uid` is written into the envelope and pinned to the real signed-in
+ * user by the rules, so it cannot be spoofed the way anything inside the
+ * payload can. Absent for anything that came over the local bus, where every
+ * sender is a window of the host's own browser.
+ */
+export interface MessageMeta {
+  uid: string;
+}
+
+const decode = (
+  value: unknown,
+): { message: BroadcastMessage; meta: MessageMeta } | null => {
   const envelope = value as Envelope | null;
   if (!envelope?.payload || envelope.from === deviceId) return null;
+  if (!envelope.uid) return null;
+
   try {
-    return JSON.parse(envelope.payload) as BroadcastMessage;
+    return {
+      message: JSON.parse(envelope.payload) as BroadcastMessage,
+      meta: { uid: envelope.uid },
+    };
   } catch {
     // Something else wrote here, or wrote it badly. Not ours to interpret.
     return null;
@@ -195,13 +233,39 @@ const decode = (value: unknown): BroadcastMessage | null => {
  */
 export const attachRoom = async (
   pin: string,
-  options: { asHost: boolean; handler: (message: BroadcastMessage) => void },
-): Promise<void> => {
-  if (!remoteEnabled()) return;
-  if (attachment?.pin === pin && attachment.asHost === options.asHost) return;
+  options: {
+    asHost: boolean;
+    handler: (message: BroadcastMessage, meta: MessageMeta) => void;
+  },
+): Promise<boolean> => {
+  if (!remoteEnabled()) return false;
+  if (attachment?.pin === pin && attachment.asHost === options.asHost) return true;
 
   await detachRoom();
 
+  // Everything past here can fail or hang: sign-in is refused when Anonymous
+  // auth was never enabled, and a first read over a bad connection can sit
+  // there indefinitely. Neither may take the local game down with it, so the
+  // whole attachment is timeboxed and its failure is just a `false`.
+  try {
+    return await Promise.race([
+      openRoom(pin, options),
+      new Promise<boolean>((resolve) =>
+        setTimeout(() => resolve(false), ATTACH_TIMEOUT_MS),
+      ),
+    ]);
+  } catch {
+    return false;
+  }
+};
+
+const openRoom = async (
+  pin: string,
+  options: {
+    asHost: boolean;
+    handler: (message: BroadcastMessage, meta: MessageMeta) => void;
+  },
+): Promise<boolean> => {
   const { db, api } = await sdk();
   const room = api.ref(db, `rooms/${pin}`);
   const busRef = api.child(room, "bus");
@@ -222,8 +286,8 @@ export const attachRoom = async (
 
   listeners.push(
     api.onChildAdded(stream, (child) => {
-      const message = decode(child.val());
-      if (message) options.handler(message);
+      const decoded = decode(child.val());
+      if (decoded) options.handler(decoded.message, decoded.meta);
     }),
   );
 
@@ -232,8 +296,10 @@ export const attachRoom = async (
   if (!options.asHost) {
     listeners.push(
       api.onValue(api.child(room, "snapshot"), (snap) => {
-        const message = decode(snap.val());
-        if (message?.type === "snapshot") options.handler(message);
+        const decoded = decode(snap.val());
+        if (decoded?.message.type === "snapshot") {
+          options.handler(decoded.message, decoded.meta);
+        }
       }),
     );
   }
@@ -256,6 +322,8 @@ export const attachRoom = async (
       void pruneBus(pin);
     }, 30000);
   }
+
+  return true;
 };
 
 export const detachRoom = async (): Promise<void> => {
@@ -297,9 +365,12 @@ export const publishRemote = (message: BroadcastMessage): void => {
 
   void (async () => {
     try {
-      const { db, api } = await sdk();
+      const { db, api, uid } = await sdk();
       const envelope = {
         from: deviceId,
+        // Pinned to the signed-in user by the rules, so a message cannot claim
+        // to come from someone it did not come from.
+        uid,
         at: api.serverTimestamp(),
         payload: JSON.stringify(message),
       };
@@ -377,6 +448,19 @@ export const registerRemoteRoom = async (
     });
   } catch {
     // The local room still works; the next heartbeat tries again.
+  }
+};
+
+/**
+ * This device's signed-in identity, once it has one. Used to tell a seat this
+ * browser still holds from one it claimed under an identity since replaced.
+ */
+export const currentUid = async (): Promise<string | null> => {
+  if (!remoteEnabled()) return null;
+  try {
+    return (await sdk()).uid;
+  } catch {
+    return null;
   }
 };
 
