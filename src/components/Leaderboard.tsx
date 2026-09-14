@@ -1,40 +1,20 @@
 import React from 'react';
 import { useGame } from '../context/GameContext';
-import { GamePhase, Question, QuestionType } from '../types';
+import { GamePhase } from '../types';
 import Button from './Button';
 import AvatarDisplay from './AvatarDisplay';
 import { ArrowRight, Flame, RotateCw, Trophy } from 'lucide-react';
 
-const renderCorrectAnswer = (question: Question) => {
-    switch (question.type) {
-        case QuestionType.SLIDER:
-            const [min, max, step, correctLow, correctHigh] = question.options.map(Number);
-            return <p className="text-green-400 font-bold text-lg">Correct Range: {correctLow} - {correctHigh}</p>;
-        case QuestionType.TYPE_ANSWER:
-            return <p className="text-green-400 font-bold text-lg">Answer: {question.options[0]}</p>;
-        case QuestionType.PUZZLE:
-            return (
-                <div className="text-center">
-                    <p className="text-slate-400 text-sm mb-1">Correct Order:</p>
-                    <div className="flex flex-wrap justify-center gap-2">
-                        {question.options.map((item, index) => (
-                            <React.Fragment key={index}>
-                                <span className="font-bold text-green-400">{item}</span>
-                                {index < question.options.length - 1 && <span className="text-slate-500">→</span>}
-                            </React.Fragment>
-                        ))}
-                    </div>
-                </div>
-            );
-        case QuestionType.MULTIPLE_CHOICE:
-        case QuestionType.TRUE_FALSE:
-        default:
-            return <p className="text-green-400 font-bold text-lg">{question.options[question.correctIndex]}</p>;
-    }
-};
+/**
+ * Standings between rounds and at the end of the night.
+ *
+ * There is no mid-question leaderboard any more: every matchup reveals its own
+ * answers on its own screen, so this only ever shows at the end of a round or
+ * the end of the game.
+ */
 
 const Leaderboard: React.FC = () => {
-  const { players, currentQuestion, nextQuestion, nextRound, playAgain, phase, isHost, currentRound, totalRounds } = useGame();
+  const { players, nextRound, playAgain, phase, isHost, currentRound, totalRounds } = useGame();
 
   // Sort players by score
   const sortedPlayers = [...players].sort((a, b) => b.score - a.score);
@@ -43,38 +23,24 @@ const Leaderboard: React.FC = () => {
   const isGameOver = phase === GamePhase.GAME_OVER;
 
   const handleAction = () => {
-    if (isGameOver) {
-      playAgain(); // Replay the same questions with fresh scores
-    } else if (isRoundEnd) {
-      nextRound();
-    } else {
-      nextQuestion();
-    }
+    // Replay the same questions with fresh scores, or draw the next round.
+    if (isGameOver) playAgain();
+    else nextRound();
   };
 
   const isFinalRound = currentRound >= totalRounds;
 
   const getButtonText = () => {
     if (isGameOver) return 'PLAY AGAIN';
-    if (isRoundEnd) {
-      return isFinalRound ? 'SEE FINAL RESULTS' : `START ROUND ${currentRound + 1}`;
-    }
-    return 'NEXT QUESTION';
+    return isFinalRound ? 'SEE FINAL RESULTS' : `START ROUND ${currentRound + 1}`;
   };
 
   return (
     <div className="w-full max-w-2xl mx-auto flex flex-col h-full">
       <div className="text-center mb-6">
         <h2 className="text-3xl font-bold text-white mb-2">
-          {isGameOver ? 'FINAL STANDINGS' : (isRoundEnd ? 'ROUND COMPLETE' : 'LEADERBOARD')}
+          {isGameOver ? 'FINAL STANDINGS' : 'ROUND COMPLETE'}
         </h2>
-        
-        {currentQuestion && !isGameOver && !isRoundEnd && (
-          <div className="bg-slate-800/50 p-4 rounded-lg border border-slate-700 inline-block max-w-lg">
-            <p className="text-slate-400 text-sm mb-1">Correct Answer:</p>
-            {renderCorrectAnswer(currentQuestion)}
-          </div>
-        )}
 
         {isRoundEnd && !isGameOver && (
            <div className="text-neon-blue font-mono text-xl animate-pulse">
@@ -113,11 +79,6 @@ const Leaderboard: React.FC = () => {
                   </div>
                 )}
               </div>
-              {!isRoundEnd && !isGameOver && (
-                <div className="text-xs text-slate-500">
-                  {player.lastAnswerCorrect ? <span className="text-green-500">Correct!</span> : <span className="text-red-500">Missed it</span>}
-                </div>
-              )}
             </div>
             <div className="text-2xl font-mono font-bold text-neon-pink">
               {player.score}
