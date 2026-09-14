@@ -45,12 +45,26 @@ host to log into.
 
 ## Setup
 
+### 0. Node 22 or newer
+
+Wrangler needs it, and refuses to start on anything older:
+
+```
+Wrangler requires at least Node.js v22.0.0. You are using v20.19.2.
+```
+
+Check with `node --version`. On Windows the simplest fix is the current LTS
+installer from https://nodejs.org, which replaces the old version in place.
+Nothing else in this project needs the upgrade — the app builds fine on 20 —
+so this is only for deploying the Worker.
+
 ### 1. Deploy the Worker
 
-From the repository root:
+Every command below is run **from the repository root**, on a checkout that
+contains this directory:
 
 ```bash
-npx wrangler@latest login
+npm run worker:login
 npm run worker:deploy
 ```
 
@@ -63,10 +77,11 @@ This is the **only** place the Anthropic key goes. It is read from your
 terminal, stored encrypted by Cloudflare, and never written to the repository:
 
 ```bash
-npx wrangler@latest secret put ANTHROPIC_API_KEY --config worker/wrangler.toml
+npm run worker:secret
 ```
 
-Paste the key at the prompt — the same one in your local `.env`.
+Paste the key at the prompt — the same one in your local `.env`. It is not
+echoed, and it does not appear in your shell history.
 
 > [!TIP]
 > Use a **dedicated key with a monthly spend limit** set in the Anthropic
@@ -118,6 +133,8 @@ the DNS record itself.
 npm run worker:dev          # Worker at http://127.0.0.1:8787
 ```
 
+(Node 22+, as above.)
+
 `http://localhost:5173` is already in the allowlist, so a dev server can use it.
 Point the app at it by setting this in `.env`:
 
@@ -158,7 +175,7 @@ step — step 4 above.
 ## Operating it
 
 ```bash
-npx wrangler@latest tail --config worker/wrangler.toml
+npm run worker:tail
 ```
 
 Rejected tokens log their reason (`expired`, `wrong audience`, …); callers are

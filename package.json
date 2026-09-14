@@ -24,8 +24,11 @@
         "emulators": "firebase-tools emulators:start --only database,auth --project omnitrivia-local",
         "check-room-rules": "node scripts/check-room-rules.mjs",
         "check-room-join": "node scripts/check-room-join.mjs",
-        "worker:dev": "wrangler dev --config worker/wrangler.toml --port 8787 --local",
-        "worker:deploy": "wrangler deploy --config worker/wrangler.toml",
+        "worker:dev": "npx --yes wrangler@latest dev --config worker/wrangler.toml --port 8787 --local",
+        "worker:deploy": "npx --yes wrangler@latest deploy --config worker/wrangler.toml",
+        "worker:login": "npx --yes wrangler@latest login",
+        "worker:secret": "npx --yes wrangler@latest secret put ANTHROPIC_API_KEY --config worker/wrangler.toml",
+        "worker:tail": "npx --yes wrangler@latest tail --config worker/wrangler.toml",
         "check-proxy-auth": "node scripts/check-proxy-auth.mjs",
         "check-proxy-gates": "node scripts/check-proxy-gates.mjs"
     },
