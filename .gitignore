@@ -4,3 +4,12 @@ dist/
 .env.local
 *.local
 *.tsbuildinfo
+
+# Firebase emulator scratch
+.firebaserc
+*-debug.log
+.firebase/
+
+# Cloudflare Worker local secrets
+worker/.dev.vars
+.wrangler/

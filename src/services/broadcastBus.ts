@@ -1,14 +1,40 @@
 import { BroadcastMessage, BroadcastSnapshot, RoomRecord } from "../types";
+import {
+  attachRoom,
+  currentUid,
+  detachRoom,
+  publishRemote,
+  registerRemoteRoom,
+  releaseRemoteRoom,
+  remoteEnabled,
+  remotePinTaken,
+  whenConnected,
+} from "./remoteRoom";
+import type { MessageMeta } from "./remoteRoom";
 
 /**
- * Transport between the host window and the broadcast window.
+ * A message, and who the database says sent it. `meta` is absent for anything
+ * that came over the local bus: those senders are windows of this browser,
+ * which is as far as an unverified message could ever have travelled anyway.
+ */
+export type MessageHandler = (
+  message: BroadcastMessage,
+  meta?: MessageMeta,
+) => void;
+
+/**
+ * Transport between the windows of a game, and between its devices.
  *
- * There is no server, so the two windows talk over BroadcastChannel — which
- * means they must be the same browser on the same machine (a laptop with the
- * projector as a second display). Every snapshot is also mirrored into
+ * Windows of one browser talk over BroadcastChannel — the host desk and the
+ * projector on a second display. Every snapshot is also mirrored into
  * localStorage so a broadcast window opened mid-game paints immediately
  * instead of waiting for the next state change, and so browsers without
  * BroadcastChannel still sync through `storage` events.
+ *
+ * Neither of those leaves the machine, so when a room is attached (see
+ * `attachRoomChannel`) the same messages are mirrored through Firebase in
+ * `remoteRoom`, and anything arriving from there is handed to the same
+ * subscribers. Callers do not know or care which path a message took.
  */
 
 const CHANNEL_NAME = "omnitrivia-broadcast";
@@ -60,7 +86,49 @@ export const openBroadcastWindow = (): Window | null => {
   return win;
 };
 
+/**
+ * Every live subscriber. The local paths below deliver through their own
+ * listeners; this is how a message that arrived from another device reaches
+ * the same handlers without pretending to be a local event.
+ */
+const handlers = new Set<MessageHandler>();
+
+const deliverRemote = (message: BroadcastMessage, meta: MessageMeta): void => {
+  handlers.forEach((handler) => handler(message, meta));
+};
+
+/**
+ * Start carrying this room's traffic to and from other devices. The host
+ * claims the PIN; a player only listens and sends.
+ *
+ * Without Firebase configured this resolves immediately and changes nothing,
+ * which is what keeps a build with no backend working exactly as before.
+ */
+export const attachRoomChannel = (
+  pin: string,
+  asHost: boolean,
+): Promise<boolean> => attachRoom(pin, { asHost, handler: deliverRemote });
+
+export const detachRoomChannel = (): Promise<void> => detachRoom();
+
+/** Whether this build can reach other devices at all. */
+export const canReachOtherDevices = remoteEnabled;
+
+/**
+ * Resolves true once the room channel can carry a message. Always true when
+ * there is no room channel, because the local bus needs no connecting.
+ */
+export const roomChannelReady = (): Promise<boolean> =>
+  remoteEnabled() ? whenConnected() : Promise.resolve(true);
+
+/** This device's signed-in identity, or null when it has none. */
+export const deviceIdentity = currentUid;
+
 export const postMessage = (message: BroadcastMessage): void => {
+  // Out to the room first: a phone waiting on an answer should not be held up
+  // by whatever the local listeners do with it.
+  publishRemote(message);
+
   const bus = getChannel();
   if (bus) {
     bus.postMessage(message);
@@ -108,11 +176,13 @@ export const clearStoredSnapshot = (): void => {
   }
 };
 
-/** Subscribe to messages from the other window. Returns an unsubscribe fn. */
-export const subscribeToMessages = (
-  handler: (message: BroadcastMessage) => void,
-): (() => void) => {
+/**
+ * Subscribe to messages from the other windows of this browser and from the
+ * other devices in the room. Returns an unsubscribe fn.
+ */
+export const subscribeToMessages = (handler: MessageHandler): (() => void) => {
   const bus = getChannel();
+  handlers.add(handler);
 
   const onChannel = (event: MessageEvent) =>
     handler(event.data as BroadcastMessage);
@@ -137,6 +207,7 @@ export const subscribeToMessages = (
   window.addEventListener("storage", onStorage);
 
   return () => {
+    handlers.delete(handler);
     bus?.removeEventListener("message", onChannel);
     window.removeEventListener("storage", onStorage);
   };
@@ -150,8 +221,9 @@ export const subscribeToMessages = (
  * pick one that is taken, and a tab joining with a PIN nobody is hosting is
  * told so instead of quietly starting a room of its own.
  *
- * The registry is per-browser, which is exactly as far as a room can reach
- * without a server — so it covers every collision that is actually possible.
+ * With Firebase configured a room is also published under its PIN there, so
+ * the same rules hold across devices: a PIN in use by a host on another
+ * machine is taken, and a phone that types one nobody is hosting is told so.
  * ------------------------------------------------------------------ */
 
 /** Live rooms, with expired entries dropped. */
@@ -178,19 +250,28 @@ const writeRooms = (rooms: RoomRecord[]): void => {
   }
 };
 
-/** Claim or refresh this host's room. Called on open and on every heartbeat. */
+/**
+ * Claim or refresh this host's room. Called on open and on every heartbeat.
+ *
+ * `open` says whether the lobby is still admitting players. It is advisory —
+ * the host answers every join itself — but it lets a phone be told the game
+ * has started without waiting on a round trip.
+ */
 export const registerRoom = (
   pin: string,
   hostId: string,
   gameName: string,
+  open = true,
 ): void => {
   const others = readRooms().filter((room) => room.hostId !== hostId);
   writeRooms([...others, { pin, hostId, gameName, updatedAt: Date.now() }]);
+  void registerRemoteRoom(pin, hostId, gameName, open);
 };
 
 /** Give the PIN back when a host closes its game. */
-export const releaseRoom = (hostId: string): void => {
+export const releaseRoom = (hostId: string, pin?: string | null): void => {
   writeRooms(readRooms().filter((room) => room.hostId !== hostId));
+  if (pin) void releaseRemoteRoom(pin);
 };
 
 export const isPinTaken = (pin: string): boolean =>
@@ -203,12 +284,21 @@ export const isPinTaken = (pin: string): boolean =>
  * the last resort is a random one rather than an infinite loop — a duplicate
  * beats a hang, and 9000 concurrent rooms in one browser is not a real case.
  */
-export const allocatePin = (): string => {
+export const allocatePin = async (): Promise<string> => {
   const taken = new Set(readRooms().map((room) => room.pin));
+
   for (let attempt = 0; attempt < 200; attempt++) {
     const pin = Math.floor(1000 + Math.random() * 9000).toString();
-    if (!taken.has(pin)) return pin;
+    if (taken.has(pin)) continue;
+
+    // Only the first few candidates are worth a round trip to the database.
+    // Past that a collision is vanishingly unlikely and a host waiting to
+    // start a game is not.
+    if (attempt < 5 && (await remotePinTaken(pin))) continue;
+
+    return pin;
   }
+
   return Math.floor(1000 + Math.random() * 9000).toString();
 };
 

@@ -20,10 +20,21 @@
         "precheck-key": "node scripts/check-deps.mjs",
         "check-key": "node scripts/check-key.mjs",
         "pregenerate-questions": "node scripts/check-deps.mjs",
-        "generate-questions": "node scripts/generate-questions.mjs"
+        "generate-questions": "node scripts/generate-questions.mjs",
+        "emulators": "firebase-tools emulators:start --only database,auth --project omnitrivia-local",
+        "check-room-rules": "node scripts/check-room-rules.mjs",
+        "check-room-join": "node scripts/check-room-join.mjs",
+        "worker:dev": "npx --yes wrangler@latest dev --config worker/wrangler.toml --port 8787 --local",
+        "worker:deploy": "npx --yes wrangler@latest deploy --config worker/wrangler.toml",
+        "worker:login": "npx --yes wrangler@latest login",
+        "worker:secret": "npx --yes wrangler@latest secret put ANTHROPIC_API_KEY --config worker/wrangler.toml",
+        "worker:tail": "npx --yes wrangler@latest tail --config worker/wrangler.toml",
+        "check-proxy-auth": "node scripts/check-proxy-auth.mjs",
+        "check-proxy-gates": "node scripts/check-proxy-gates.mjs"
     },
     "dependencies": {
         "@anthropic-ai/sdk": "^0.122.0",
+        "firebase": "^12.19.0",
         "framer-motion": "^10.16.16",
         "lucide-react": "^0.303.0",
         "react": "^18.2.0",

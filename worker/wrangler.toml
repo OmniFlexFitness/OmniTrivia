@@ -1,0 +1,27 @@
+# The question-generation proxy. Deploy from this directory:
+#
+#   cd worker
+#   npx wrangler@latest secret put ANTHROPIC_API_KEY     # once, and never in git
+#   npx wrangler@latest deploy
+#
+name = "omnitrivia-generate"
+main = "src/index.ts"
+compatibility_date = "2026-09-01"
+
+[vars]
+# Not secret: the project whose Firebase sign-ins this proxy trusts, and the
+# sites allowed to call it. The key is a secret and is set with `wrangler
+# secret put`, never here.
+FIREBASE_PROJECT_ID = "omnitrivia-c3a93"
+ALLOWED_ORIGINS = "https://trivia.omniflexfitness.com,http://localhost:5173"
+
+# One device, twenty generations a minute — far past hosting a game, far short
+# of a useful amount of someone else's Anthropic balance. If wrangler rejects
+# this block, delete it: the Worker checks for the binding before using it.
+[[ratelimits]]
+name = "GENERATION_LIMIT"
+namespace_id = "1001"
+
+  [ratelimits.simple]
+  limit = 20
+  period = 60

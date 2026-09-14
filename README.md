@@ -8,7 +8,8 @@ Questions come from one of two places: written by you and imported from a CSV or
 Google Sheet, or generated on the spot by Claude.
 
 Live at **https://trivia.omniflexfitness.com** — deployed from `master` on every
-push. See [DEPLOYMENT.md](DEPLOYMENT.md).
+push. See [DEPLOYMENT.md](DEPLOYMENT.md) for hosting and
+[MULTIPLAYER.md](MULTIPLAYER.md) for letting phones in the room join the game.
 
 ## Local Runbook
 
@@ -319,10 +320,15 @@ PIN that does resolve puts that player in the host's game: they appear in the
 lobby, see each question as it goes up, and their answers are scored by the
 host.
 
-That works between tabs and windows of **the same browser on the host's
-machine**, which is as far as `BroadcastChannel` and `localStorage` reach. A
-phone that scans the QR code gets the app with the PIN filled in and then finds
-no room to join — see "What this is not".
+With **[multiplayer configured](MULTIPLAYER.md)**, that works from any device:
+a phone scans the QR code, lands on the join screen with the PIN already in it,
+and takes a seat in the host's game. A phone that reloads or locks its screen
+comes back to the same seat rather than opening a second one.
+
+Without it, joining reaches only the tabs and windows of **the same browser on
+the host's machine**, which is as far as `BroadcastChannel` and `localStorage`
+go, and a phone that scans the code is told so plainly instead of being dropped
+into a room of its own.
 
 ## Hosting a game
 
@@ -391,16 +397,21 @@ whichever comes first.
 
 ## What this is not
 
-**There is no multiplayer.** Game state lives entirely in the browser tab that
-is hosting. A phone that opens the Network URL and types the PIN starts its
-*own* separate game — the PIN is not checked against anything, and the host
-never sees that player. The other names in your lobby are bots.
+**The host's browser is still the whole game.** Players on their phones join a
+room, answer questions and are scored, but everything that decides any of that
+lives in the hosting tab — Firebase only carries messages between devices. Two
+things follow from that:
 
-So: the broadcast screen everyone looks at, people answering out loud or on the
-host machine. Getting players onto their own phones needs a backend holding
-room state keyed by PIN, which does not exist yet — and the same gap is why the
-broadcast window has to be a second display on the host's own machine rather
-than any device you point at the URL.
+- **If the host's window closes, the game is gone.** There is no state on the
+  server to recover it from.
+- **The broadcast screen is still a second window of the host's own browser**,
+  synced over `BroadcastChannel`. A projector on the host machine, not a device
+  you point at the URL.
+
+**Multiplayer is off until it is set up.** With no Firebase configuration the
+app runs exactly as it always did: joining works between windows of one
+browser, and a phone that types the PIN is told there is no room it can reach.
+[MULTIPLAYER.md](MULTIPLAYER.md) is the ten-minute setup.
 
 ## Remote Runbook
 
