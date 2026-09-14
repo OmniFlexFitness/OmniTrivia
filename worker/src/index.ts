@@ -22,6 +22,13 @@ import { verifyFirebaseToken } from "./firebaseToken";
 export interface Env {
   /** Set with: npx wrangler secret put ANTHROPIC_API_KEY */
   ANTHROPIC_API_KEY: string;
+  /**
+   * Only needed when ANTHROPIC_API_KEY is not scoped to a workspace — an
+   * org-level key, which Anthropic refuses with a 400 unless the request names
+   * the workspace to bill. A key created inside a workspace needs none of this;
+   * see worker/README.md, which recommends that instead.
+   */
+  ANTHROPIC_WORKSPACE_ID?: string;
   /** The Firebase project whose tokens are accepted. */
   FIREBASE_PROJECT_ID: string;
   /** Comma-separated origins allowed to call this. */
@@ -144,6 +151,9 @@ export default {
     // The caller's x-api-key — a placeholder, since it has no real one — is
     // dropped rather than forwarded. This is the only key that goes upstream.
     headers.set("x-api-key", env.ANTHROPIC_API_KEY);
+    if (env.ANTHROPIC_WORKSPACE_ID) {
+      headers.set("anthropic-workspace-id", env.ANTHROPIC_WORKSPACE_ID);
+    }
 
     const upstream = await fetch(ANTHROPIC_URL, {
       method: "POST",
