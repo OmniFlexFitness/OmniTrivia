@@ -68,17 +68,36 @@ npm run worker:login
 npm run worker:deploy
 ```
 
-Wrangler prints the deployed URL on success, something like
-`https://omnitrivia-generate.<your-subdomain>.workers.dev`, where the subdomain
-is your Cloudflare account's, chosen the first time you deploy a Worker.
+The Worker answers at **https://trivia-api.omniflexfitness.com**, set by the
+`[[routes]]` block in `wrangler.toml`. Cloudflare creates the DNS record on the
+first deploy, because `omniflexfitness.com` is already in the same account.
+
+A Worker with no route and no workers.dev subdomain has no address at all, and
+wrangler refuses to deploy it:
+
+```
+X [ERROR] You can either deploy your worker to one or more routes by specifying
+  them in your wrangler.toml file, or register a workers.dev subdomain here
+```
+
+If the zone turns out to live in a different Cloudflare account, delete the
+`[[routes]]` block and register a workers.dev subdomain instead — it is free,
+it is a one-time account setting, and wrangler offers it during the deploy.
+The URL then becomes `https://omnitrivia-generate.<your-subdomain>.workers.dev`.
 
 > [!WARNING]
-> **Do not guess this URL.** Take it from the deploy output, or from the
-> Cloudflare dashboard under **Workers & Pages → omnitrivia-generate**. A
-> guessed hostname resolves — every `*.workers.dev` name does — and answers
-> `404` with a Cloudflare error code, which reads like a broken Worker rather
-> than one that was never deployed. `curl <url>/health` returning `ok` is how
-> you tell the difference.
+> **Confirm the URL rather than assuming it.** `curl <url>/health` returning
+> `ok` is the only thing that proves a Worker is really serving there. A
+> `*.workers.dev` hostname that nobody deployed to still resolves — every one
+> does — and answers `404` with a Cloudflare error code, which reads like a
+> broken Worker rather than one that never existed.
+
+> [!NOTE]
+> **`secret put` on its own does not deploy anything.** Offered a Worker name
+> it cannot find, wrangler creates an empty one — literally
+> `export default { fetch() {} }` — purely to hold the secret. That is a Worker
+> with your key and none of this code, and it has no URL. Deploy first; the
+> secret survives every later deploy.
 
 ### 2. Put the key in Cloudflare
 
@@ -104,7 +123,7 @@ Add a repository **variable** (Settings → Secrets and variables → Actions �
 
 | Name | Value |
 | --- | --- |
-| `VITE_ANTHROPIC_PROXY_URL` | the URL wrangler printed |
+| `VITE_ANTHROPIC_PROXY_URL` | `https://trivia-api.omniflexfitness.com` |
 
 The URL is not a secret — it is useless without a Firebase sign-in this proxy
 accepts — and a variable can be read back later, which a secret cannot. The
@@ -123,7 +142,7 @@ too; it is just harder to check afterwards.
 Is it deployed, and does the key exist on it?
 
 ```bash
-curl https://omnitrivia-generate.<your-subdomain>.workers.dev/health
+curl https://trivia-api.omniflexfitness.com/health
 npx wrangler@latest secret list --config worker/wrangler.toml
 ```
 
@@ -133,27 +152,12 @@ only; Cloudflare never shows the value back, not even to you.
 Then the gates, against the live Worker:
 
 ```bash
-PROXY_URL=https://omnitrivia-generate.<your-subdomain>.workers.dev npm run check-proxy-gates
+PROXY_URL=https://trivia-api.omniflexfitness.com npm run check-proxy-gates
 ```
 
 Every check there is a refusal, so it costs nothing to run against the live
 Worker. Then open the site, host a game, and use **GENERATE & REVIEW** — the
 first real generation is the last step, and it is the one that spends money.
-
-### Optional: a custom domain
-
-`omniflexfitness.com` is already on Cloudflare, so the Worker can answer on
-`trivia-api.omniflexfitness.com` instead of a `workers.dev` URL. Add to
-`worker/wrangler.toml`:
-
-```toml
-[[routes]]
-pattern = "trivia-api.omniflexfitness.com"
-custom_domain = true
-```
-
-Redeploy, then update `VITE_ANTHROPIC_PROXY_URL` to match. Cloudflare creates
-the DNS record itself.
 
 ---
 
