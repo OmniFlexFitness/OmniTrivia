@@ -71,6 +71,17 @@ jobs:
             echo "::warning::No Firebase variables set, so this build is single-browser only. See MULTIPLAYER.md."
           fi
 
+          # Generation through the proxy is gated on the caller proving who it
+          # is, and that proof is the Firebase sign-in above — so a proxy URL
+          # without Firebase is a proxy that refuses every request.
+          if [ -z "${{ vars.VITE_ANTHROPIC_PROXY_URL }}" ]; then
+            echo "::warning::No generation proxy set, so hosts on this build import questions from CSV. See worker/README.md."
+          elif [ -z "${{ vars.VITE_FIREBASE_DATABASE_URL }}" ]; then
+            echo "::error::A generation proxy is set but Firebase is not, so every generation will be refused by the proxy. Set the VITE_FIREBASE_* variables too."
+          else
+            echo "::notice::Question generation is on, through the proxy."
+          fi
+
       # Pages serves its own 404 page for unknown paths. Hand those to the app
       # instead, so a mistyped URL still lands on the game.
       - name: Add SPA fallback
