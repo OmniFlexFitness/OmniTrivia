@@ -8,6 +8,15 @@ name = "omnitrivia-generate"
 main = "src/index.ts"
 compatibility_date = "2026-09-01"
 
+# Where the Worker answers. Without one of these it has no address at all:
+# wrangler refuses to deploy and offers to register a workers.dev subdomain
+# instead. omniflexfitness.com is already on Cloudflare, so it can answer on
+# its own name and Cloudflare creates the DNS record itself — no workers.dev
+# subdomain, and an API on the brand rather than on a shared one.
+[[routes]]
+pattern = "trivia-api.omniflexfitness.com"
+custom_domain = true
+
 [vars]
 # Not secret: the project whose Firebase sign-ins this proxy trusts, and the
 # sites allowed to call it. The key is a secret and is set with `wrangler
