@@ -51,8 +51,21 @@ const MODEL = "claude-opus-5";
  */
 const proxyFetch: typeof fetch = async (input, init) => {
   const token = await currentIdToken();
+
+  // The proxy will not spend anything for a caller it cannot identify, and the
+  // identity is the Firebase sign-in the rest of the app already does. Without
+  // it every request comes back 401 and the host sees placeholder questions
+  // with nothing explaining why — so say it here, where the reason is known.
+  if (!token) {
+    throw new Error(
+      "Question generation goes through a proxy that needs this site's Firebase " +
+        "sign-in, and Firebase is not configured in this build. Set the " +
+        "VITE_FIREBASE_* repository variables (see MULTIPLAYER.md) and deploy again.",
+    );
+  }
+
   const headers = new Headers(init?.headers);
-  if (token) headers.set("Authorization", `Bearer ${token}`);
+  headers.set("Authorization", `Bearer ${token}`);
   return fetch(input, { ...init, headers });
 };
 

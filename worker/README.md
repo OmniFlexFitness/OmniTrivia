@@ -100,7 +100,26 @@ Variables), then re-run the deploy workflow:
 The URL is not a secret — it is useless without a Firebase sign-in this proxy
 accepts.
 
+> [!IMPORTANT]
+> **Firebase has to be configured too.** The proof a caller offers this proxy
+> *is* the anonymous Firebase sign-in from [MULTIPLAYER.md](../MULTIPLAYER.md),
+> so a build with a proxy URL and no `VITE_FIREBASE_*` variables has no token to
+> send, and every generation is refused. The deploy workflow now fails loudly on
+> that combination rather than letting it look like a broken proxy.
+
 ### 4. Check it
+
+Is it deployed, and does the key exist on it?
+
+```bash
+curl https://omnitrivia-generate.<your-subdomain>.workers.dev/health
+npx wrangler@latest secret list --config worker/wrangler.toml
+```
+
+`ok` from the first, and `ANTHROPIC_API_KEY` listed by the second — the name
+only; Cloudflare never shows the value back, not even to you.
+
+Then the gates, against the live Worker:
 
 ```bash
 PROXY_URL=https://omnitrivia-generate.<your-subdomain>.workers.dev npm run check-proxy-gates
