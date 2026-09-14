@@ -6,7 +6,8 @@ dist/
 *.tsbuildinfo
 
 # Firebase emulator scratch
-.firebaserc
+# (.firebaserc is committed: it only names the project, which is public, and
+#  committing it is what lets `npm run rules:deploy` work without `use --add`.)
 *-debug.log
 .firebase/
 

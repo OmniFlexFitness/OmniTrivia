@@ -116,6 +116,28 @@ npm run worker:secret
 Paste the key at the prompt — the same one in your local `.env`. It is not
 echoed, and it does not appear in your shell history.
 
+> [!IMPORTANT]
+> **Use a key created inside a workspace.** Anthropic refuses a request made
+> with an org-level key unless it names a workspace to bill:
+>
+> ```
+> This API key is not scoped to a workspace, so this request must include the
+> anthropic-workspace-id header with the ID of the workspace to use.
+> ```
+>
+> That is a `400` arriving *after* every gate here has passed, so it reads like
+> a broken proxy rather than the wrong sort of key. In the Anthropic Console,
+> create the key from within a workspace (Default is fine) and run
+> `npm run worker:secret` again — a secret change takes effect immediately, with
+> no redeploy.
+>
+> If you must keep an org-level key, name the workspace instead and redeploy:
+>
+> ```bash
+> npx wrangler@latest secret put ANTHROPIC_WORKSPACE_ID --config worker/wrangler.toml
+> npm run worker:deploy
+> ```
+
 > [!TIP]
 > Use a **dedicated key with a monthly spend limit** set in the Anthropic
 > Console rather than your everyday one. Nothing here can leak it, but a
@@ -161,8 +183,19 @@ PROXY_URL=https://trivia-api.omniflexfitness.com npm run check-proxy-gates
 ```
 
 Every check there is a refusal, so it costs nothing to run against the live
-Worker. Then open the site, host a game, and use **GENERATE & REVIEW** — the
-first real generation is the last step, and it is the one that spends money.
+Worker — but for the same reason it never touches the key. This does:
+
+```bash
+npm run check-live
+```
+
+It signs into the real Firebase project, sends the Worker a real token and a
+deliberately malformed body, and reads what comes back. Anthropic validates the
+key before the body, so a complaint about the body means the key is good, and a
+complaint about the key names which way it is wrong. Still free.
+
+Then open the site, host a game, and use **GENERATE & REVIEW** — the first real
+generation is the last step, and it is the one that spends money.
 
 ---
 
@@ -199,6 +232,7 @@ straight from `.env`, which is fine on your own machine.
 npm run check-proxy-auth     # 13 checks: the token gate, including forgeries
 npm run worker:dev           # then, in another terminal:
 npm run check-proxy-gates    # 12 checks: origin, method, path, missing tokens
+npm run check-live           # the deployed site, the real project, the real key
 ```
 
 `check-proxy-auth` mints its own RSA key pair, so it can produce the tokens a
@@ -207,7 +241,8 @@ payload swapped after signing — and every one has to be refused.
 
 **What no test here covers:** a successful generation. That needs a real
 Firebase token and a real key, and it spends real money, so it stays a human
-step — step 4 above.
+step — step 4 above. `check-live` gets as close as free allows: it proves
+Anthropic accepted the key and objected only to the body.
 
 ---
 

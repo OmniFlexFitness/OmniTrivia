@@ -189,6 +189,8 @@ npm run preview
 | `npm run check-deps` | Verify Node and dependencies without starting a server |
 | `npm run generate-questions` | Write a question CSV with Claude from Node, keeping the key off the browser |
 | `npm run check-key` | Diagnose why AI generation is returning placeholders |
+| `npm run check-live` | Check the *deployed* site: sign-in, published rules, and the proxy's key |
+| `npm run rules:deploy` | Publish `firebase/database.rules.json` to the live database |
 
 ## Questions
 

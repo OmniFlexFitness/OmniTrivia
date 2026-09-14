@@ -167,6 +167,20 @@ Expect `<title>OmniTrivia</title>`.
 
 ## 5. Operating the site
 
+### Is it actually working?
+
+```bash
+npm run check-live
+```
+
+A green workflow run means the *site* deployed. It says nothing about the two
+services the site depends on, and both can be wrong in ways that look identical
+from the browser — a database still in locked mode, Authentication never
+switched on, a key Cloudflare holds but Anthropic will not bill. This signs in
+against the real project, claims and releases a real room, and puts a real
+token through the real proxy. It generates nothing, so it is free to run as
+often as you like.
+
 ### Shipping a change
 
 ```bash

@@ -85,17 +85,33 @@ Keep that tab open — those five values are the next two steps.
 
 ## 3. Publish the rules
 
+> [!CAUTION]
+> **This step is not optional, and skipping it looks like a broken app rather
+> than a missed step.** A new database starts in locked mode, refusing every
+> read and write no matter who is asking — so the console shows a healthy
+> database, sign-in succeeds, and phones still cannot join anything. Nothing in
+> the app can tell you this; `npm run check-live` can.
+
 The rules live in `firebase/database.rules.json` and are what stop a stranger
 who guesses a PIN from taking over a live game. From the repo root:
 
 ```bash
-npx firebase-tools@latest login
-npx firebase-tools@latest use --add          # pick the project you just made
-npx firebase-tools@latest deploy --only database
+npm run rules:login
+npm run rules:deploy
 ```
 
-Confirm in the console under **Realtime Database → Rules** that what you see
-matches the file.
+`.firebaserc` already names the project, so there is nothing to pick.
+
+**Or skip the CLI entirely**: open **Realtime Database → Rules** in the console,
+paste the contents of `firebase/database.rules.json` over what is there, and
+click **Publish**. Same result, no Node version to fight.
+
+Either way, confirm under **Realtime Database → Rules** that what you see
+matches the file, then prove it from outside:
+
+```bash
+npm run check-live
+```
 
 What the rules enforce, each one verified by `npm run check-room-rules`:
 
@@ -141,6 +157,15 @@ they can also *join* it.
 ## 6. Checking it works
 
 ### On the deployed site
+
+```bash
+npm run check-live
+```
+
+This one signs in against the real project, claims and releases a room, and
+confirms a second device cannot steal it — the three things that have to be
+true before a phone can join, none of which the emulator can vouch for. Then,
+by hand:
 
 1. Open https://trivia.omniflexfitness.com on the laptop, host a game, and get
    to the lobby.
@@ -209,6 +234,8 @@ it is republished on every tick of the question clock.
   is the one way this setup can go badly wrong.
 - **Five repository variables** and one workflow run turn it on for the live
   site; the same five in `.env` turn it on locally.
+- **Publishing the rules is a separate step from writing them**, and the app
+  cannot tell you that you skipped it. `npm run check-live` can.
 - **The host still runs the game.** Firebase is the wire, not the referee.
 - **`npm run check-room-rules` and `npm run check-room-join`** prove both halves
   against a local emulator, without touching the real project.
