@@ -68,8 +68,17 @@ npm run worker:login
 npm run worker:deploy
 ```
 
-Wrangler prints the deployed URL, something like
-`https://omnitrivia-generate.<your-subdomain>.workers.dev`.
+Wrangler prints the deployed URL on success, something like
+`https://omnitrivia-generate.<your-subdomain>.workers.dev`, where the subdomain
+is your Cloudflare account's, chosen the first time you deploy a Worker.
+
+> [!WARNING]
+> **Do not guess this URL.** Take it from the deploy output, or from the
+> Cloudflare dashboard under **Workers & Pages → omnitrivia-generate**. A
+> guessed hostname resolves — every `*.workers.dev` name does — and answers
+> `404` with a Cloudflare error code, which reads like a broken Worker rather
+> than one that was never deployed. `curl <url>/health` returning `ok` is how
+> you tell the difference.
 
 ### 2. Put the key in Cloudflare
 
@@ -91,14 +100,16 @@ echoed, and it does not appear in your shell history.
 ### 3. Point the site at it
 
 Add a repository **variable** (Settings → Secrets and variables → Actions →
-Variables), then re-run the deploy workflow:
+**Variables** tab), then re-run the deploy workflow:
 
 | Name | Value |
 | --- | --- |
 | `VITE_ANTHROPIC_PROXY_URL` | the URL wrangler printed |
 
 The URL is not a secret — it is useless without a Firebase sign-in this proxy
-accepts.
+accepts — and a variable can be read back later, which a secret cannot. The
+workflow reads secrets as a fallback, so the same name on the Secrets tab works
+too; it is just harder to check afterwards.
 
 > [!IMPORTANT]
 > **Firebase has to be configured too.** The proof a caller offers this proxy
