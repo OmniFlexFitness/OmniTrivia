@@ -8,11 +8,10 @@ import React, {
 } from "react";
 import {
   Answer,
-  AnswerRecord,
-  RevealReason,
   GameState,
   GamePhase,
   GameMode,
+  LaneStatus,
   Player,
   Question,
   QuestionType,
@@ -23,7 +22,6 @@ import {
   BOT_MAX_THINK_SECONDS,
   BOT_MIN_THINK_SECONDS,
   BOT_NAMES,
-  TIMER_DURATION,
   REVEAL_DURATION,
   AVATARS,
   AVATAR_COLORS,
@@ -31,14 +29,22 @@ import {
 } from "../constants";
 import { generateQuestions } from "../services/claudeService";
 import { parseImportData } from "../services/importService";
-import { isAnswerCorrect } from "../services/scoring";
 import {
   activePlayerIds,
-  answeringRoster,
   buildFirstRound,
   buildNextRound,
   resolveRound,
 } from "../services/bracket";
+import {
+  advanceBroadcast,
+  buildRoundLanes,
+  closeLaneQuestion,
+  laneAnswers,
+  recordLaneAnswer,
+  roundIsComplete,
+  syncLaneRosters,
+  tickRound,
+} from "../services/lanes";
 import { buildSnapshot } from "../services/snapshot";
 import { clearSeat, readSeat, saveSeat } from "../services/seat";
 import { maySpeakFor, seatHeldByAnother } from "../services/seats";
@@ -87,7 +93,6 @@ interface GameContextType extends GameState {
   beginWheelSpin: () => void;
   revealCategory: () => void;
   submitAnswer: (answer: Answer) => void;
-  nextQuestion: () => void;
   nextRound: () => void;
   restartGame: () => void;
   playAgain: () => void;
@@ -96,18 +101,26 @@ interface GameContextType extends GameState {
     questionIndex: number,
   ) => Promise<void>;
 
-  // Host controls for running a live round.
-  endQuestionNow: () => void;
-  toggleTimerPaused: () => void;
-  addTime: (seconds: number) => void;
+  /* --- host controls for running a live round --- *
+   * Every question-level control now names the matchup it applies to: there is
+   * no single question on screen to act on any more. The `all` variants are
+   * for the moments a host really does mean the whole room. */
+  revealLaneNow: (laneId: string) => void;
+  toggleLanePaused: (laneId: string) => void;
+  addLaneTime: (laneId: string, seconds: number) => void;
+  revealAllLanesNow: () => void;
+  setAllLanesPaused: (paused: boolean) => void;
+  addTimeToAllLanes: (seconds: number) => void;
+  /** Move the room's screen off the answer it is holding. */
+  advanceBroadcastNow: () => void;
+  /** Cut to the round's results without waiting for the projector to catch up. */
+  endRoundNow: () => void;
   toggleAutoAdvance: () => void;
   openBroadcast: () => void;
 }
 
 const GameContext = createContext<GameContextType | undefined>(undefined);
 
-const CORRECT_BASE_POINTS = 100;
-const TIME_BONUS_PER_SECOND = 10;
 /** A broadcast window that has not checked in for this long is treated as gone. */
 const BROADCAST_TIMEOUT_MS = 6000;
 /**
@@ -123,45 +136,11 @@ const DEFAULT_GAME_NAME = "OmniTrivia Night";
 /* ------------------------------------------------------------------ *
  * Pure transitions
  *
- * Every phase change a timer or an answer can trigger lives here as a
- * state -> state function, so the interval callbacks, the host's buttons and
- * the last player's answer all drive the game through the same code.
+ * A live round is driven entirely by `src/services/lanes.ts`: each matchup
+ * owns its question, its clock and its reveal, and moves itself along. What is
+ * left here are the transitions that are genuinely about the whole game —
+ * settling a round, drawing the next one, ending the night.
  * ------------------------------------------------------------------ */
-
-/** Close the question: bank the points, then put the answer on screen. */
-const endQuestion = (prev: GameState, reason: RevealReason): GameState => {
-  if (prev.phase !== GamePhase.PLAYING) return prev;
-
-  const active = new Set(answeringRoster(prev.bracket[prev.currentRound - 1], prev.players, prev.hostAnsweringEnabled));
-  const byPlayer = new Map(prev.currentAnswers.map((a) => [a.playerId, a]));
-
-  // Points land here rather than at submit time so nothing on a shared screen
-  // can move the moment someone answers correctly.
-  const players = prev.players.map((player) => {
-    if (!active.has(player.id)) return player;
-
-    const record = byPlayer.get(player.id);
-    const isCorrect = record?.isCorrect ?? false;
-    const points = record?.points ?? 0;
-
-    return {
-      ...player,
-      score: player.score + points,
-      roundScore: player.roundScore + points,
-      lastAnswerCorrect: isCorrect,
-      streak: isCorrect ? player.streak + 1 : 0,
-    };
-  });
-
-  return {
-    ...prev,
-    players,
-    phase: GamePhase.QUESTION_REVEAL,
-    timerPaused: false,
-    revealSecondsLeft: REVEAL_DURATION,
-    revealReason: reason,
-  };
-};
 
 /**
  * Settle the round's matchups and draw the next one. Called when the last
@@ -208,29 +187,6 @@ const finishRound = (prev: GameState): GameState => {
     championId: decided ? (advancingIds[0] ?? null) : null,
     phase: GamePhase.ROUND_END,
   };
-};
-
-/** Leave the reveal: next question, or the end of the round. */
-const advanceFromReveal = (prev: GameState): GameState => {
-  if (prev.phase !== GamePhase.QUESTION_REVEAL) return prev;
-
-  const nextIndex = prev.currentQuestionIndex + 1;
-  if (nextIndex < prev.questionsQueue.length) {
-    return {
-      ...prev,
-      phase: GamePhase.PLAYING,
-      currentQuestion: prev.questionsQueue[nextIndex],
-      currentQuestionIndex: nextIndex,
-      currentAnswers: [],
-      timeLeft: TIMER_DURATION,
-      timerPaused: false,
-      questionDuration: TIMER_DURATION,
-      revealSecondsLeft: REVEAL_DURATION,
-      revealReason: null,
-    };
-  }
-
-  return finishRound(prev);
 };
 
 /** An answer a bot submits, built to be right or wrong on purpose. */
@@ -284,19 +240,15 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     questionsPerRound: 5,
     roundsConfig: [],
     currentRound: 0,
-    currentQuestion: null,
-    currentQuestionIndex: 0,
     questionsQueue: [],
     usedCategories: [],
     selectedCategory: null,
     bracket: [],
     championId: null,
-    currentAnswers: [],
-    timeLeft: TIMER_DURATION,
-    timerPaused: false,
-    questionDuration: TIMER_DURATION,
-    revealSecondsLeft: REVEAL_DURATION,
-    revealReason: null,
+    lanes: [],
+    broadcastQuestionIndex: 0,
+    broadcastRevealing: false,
+    broadcastRevealSecondsLeft: REVEAL_DURATION,
     autoAdvance: true,
     hostAnsweringEnabled: true,
     wheelSpinning: false,
@@ -330,42 +282,24 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
   const seatUids = useRef<SeatBindings>(new Map());
 
   /* ---------------------------------------------------------------- *
-   * Question clock
+   * Round clock
+   *
+   * One interval for the whole round: it hands a second to every lane, each
+   * of which spends it on its own question or its own reveal. Matchups need
+   * no timer of their own to run independently — only their own numbers.
    * ---------------------------------------------------------------- */
   useEffect(() => {
-    if (state.phase !== GamePhase.PLAYING || state.timerPaused) return;
+    if (state.phase !== GamePhase.PLAYING) return;
 
     const timer = setInterval(() => {
       setState((prev) => {
-        if (prev.phase !== GamePhase.PLAYING) return prev;
-        const timeLeft = prev.timeLeft - 1;
-        return timeLeft <= 0
-          ? endQuestion({ ...prev, timeLeft: 0 }, "time")
-          : { ...prev, timeLeft };
+        const next = tickRound(prev);
+        return roundIsComplete(next) ? finishRound(next) : next;
       });
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [state.phase, state.timerPaused]);
-
-  /* ---------------------------------------------------------------- *
-   * Reveal clock — holds the answer up, then moves the room along
-   * ---------------------------------------------------------------- */
-  useEffect(() => {
-    if (state.phase !== GamePhase.QUESTION_REVEAL || !state.autoAdvance) return;
-
-    const timer = setInterval(() => {
-      setState((prev) => {
-        if (prev.phase !== GamePhase.QUESTION_REVEAL) return prev;
-        const revealSecondsLeft = prev.revealSecondsLeft - 1;
-        return revealSecondsLeft <= 0
-          ? advanceFromReveal({ ...prev, revealSecondsLeft: 0 })
-          : { ...prev, revealSecondsLeft };
-      });
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [state.phase, state.autoAdvance]);
+  }, [state.phase]);
 
   // Auto-add bots in the lobby so a host testing alone still gets a bracket.
   useEffect(() => {
@@ -381,83 +315,107 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     return () => clearInterval(botInterval);
   }, [state.isHost, state.phase, state.players.length]);
 
+  /** Take one answer into whichever matchup's lane the player is playing in. */
   const recordAnswer = useCallback((playerId: string, answer: Answer) => {
     setState((prev) => {
-      if (prev.phase !== GamePhase.PLAYING || !prev.currentQuestion) return prev;
-      if (prev.currentAnswers.some((a) => a.playerId === playerId)) return prev;
-
-      const active = answeringRoster(prev.bracket[prev.currentRound - 1], prev.players, prev.hostAnsweringEnabled);
-      // Eliminated players and spectators can watch, but they cannot score.
-      if (!active.includes(playerId)) return prev;
-
-      const isCorrect = isAnswerCorrect(prev.currentQuestion, answer);
-      const record: AnswerRecord = {
-        playerId,
-        answer,
-        isCorrect,
-        points: isCorrect
-          ? CORRECT_BASE_POINTS + prev.timeLeft * TIME_BONUS_PER_SECOND
-          : 0,
-        timeLeft: prev.timeLeft,
-      };
-
-      const currentAnswers = [...prev.currentAnswers, record];
-      const answered = new Set(currentAnswers.map((a) => a.playerId));
-      const everyoneIsIn =
-        active.length > 0 && active.every((id) => answered.has(id));
-
-      const next = { ...prev, currentAnswers };
-      // The whole point of the counter on the broadcast: once the last player
-      // is in there is nothing left to wait for, so the clock stops early.
-      return everyoneIsIn ? endQuestion(next, "all-in") : next;
+      const next = recordLaneAnswer(prev, playerId, answer);
+      // The last pair to finish can end the round with their answer, so this
+      // has to be checked here and not only on the clock.
+      return roundIsComplete(next) ? finishRound(next) : next;
     });
   }, []);
 
   /* ---------------------------------------------------------------- *
-   * Bots answer on a spread of timers, so the "still answering" count on
-   * the broadcast actually counts down during a question.
+   * Bots answer on a spread of timers, per lane, so every matchup's
+   * "still answering" count actually counts down while it plays.
    * ---------------------------------------------------------------- */
-  const botTimers = useRef<number[]>([]);
+  // Keyed by lane and question, so a lane advancing never reshuffles the
+  // think time of the bots sitting in another one.
+  const botTimers = useRef(new Map<string, number[]>());
 
   useEffect(() => {
-    botTimers.current.forEach(clearTimeout);
-    botTimers.current = [];
+    const clearKey = (key: string) => {
+      botTimers.current.get(key)?.forEach(clearTimeout);
+      botTimers.current.delete(key);
+    };
 
-    if (state.phase !== GamePhase.PLAYING || state.timerPaused) return;
-    const question = state.currentQuestion;
-    if (!question) return;
+    if (state.phase !== GamePhase.PLAYING) {
+      [...botTimers.current.keys()].forEach(clearKey);
+      return;
+    }
 
-    const active = new Set(answeringRoster(state.bracket[state.currentRound - 1], state.players, state.hostAnsweringEnabled));
-    const answered = new Set(state.currentAnswers.map((a) => a.playerId));
-    const thinking = state.players.filter(
-      (p) => p.isBot && active.has(p.id) && !answered.has(p.id),
-    );
+    const bots = new Set(state.players.filter((p) => p.isBot).map((p) => p.id));
+    const live = new Set<string>();
 
-    // Leave a second on the clock so a bot never lands after time is up.
-    const latest = Math.min(state.timeLeft - 1, BOT_MAX_THINK_SECONDS);
-    const spread = Math.max(0, latest - BOT_MIN_THINK_SECONDS);
+    state.lanes.forEach((lane) => {
+      if (lane.status !== LaneStatus.ANSWERING) return;
 
-    thinking.forEach((bot) => {
-      const delay = (BOT_MIN_THINK_SECONDS + Math.random() * spread) * 1000;
-      const timer = window.setTimeout(() => {
-        recordAnswer(bot.id, botAnswerFor(question, Math.random() < BOT_ACCURACY));
-      }, Math.max(500, delay));
-      botTimers.current.push(timer);
+      const key = `${lane.id}:${lane.questionIndex}`;
+      live.add(key);
+      if (botTimers.current.has(key)) return; // already thinking
+
+      const question = state.questionsQueue[lane.questionIndex];
+      if (!question) return;
+
+      const answered = new Set(
+        laneAnswers(lane, lane.questionIndex).map((a) => a.playerId),
+      );
+      const thinking = lane.answeringIds.filter(
+        (id) => bots.has(id) && !answered.has(id),
+      );
+      if (thinking.length === 0) return;
+
+      // Leave a second on the clock so a bot never lands after time is up.
+      const latest = Math.min(lane.timeLeft - 1, BOT_MAX_THINK_SECONDS);
+      const spread = Math.max(0, latest - BOT_MIN_THINK_SECONDS);
+
+      botTimers.current.set(
+        key,
+        thinking.map((botId) => {
+          const answerUp = () => {
+            const current = stateRef.current.lanes.find(
+              (candidate) => candidate.id === lane.id,
+            );
+            // The lane has moved on without this bot; its answer was built for
+            // a question that is no longer the one being asked.
+            if (!current || current.questionIndex !== lane.questionIndex) return;
+
+            // A paused lane is a host holding the room, so its bots wait too.
+            if (current.timerPaused) {
+              botTimers.current.set(key, [
+                ...(botTimers.current.get(key) ?? []),
+                window.setTimeout(answerUp, 1000),
+              ]);
+              return;
+            }
+            recordAnswer(
+              botId,
+              botAnswerFor(question, Math.random() < BOT_ACCURACY),
+            );
+          };
+
+          const delay =
+            (BOT_MIN_THINK_SECONDS + Math.random() * spread) * 1000;
+          return window.setTimeout(answerUp, Math.max(500, delay));
+        }),
+      );
     });
 
-    return () => {
-      botTimers.current.forEach(clearTimeout);
-      botTimers.current = [];
-    };
-    // Deliberately not keyed on currentAnswers: a rescheduling on every answer
-    // would keep resetting the bots' think time.
-  }, [
-    state.phase,
-    state.currentRound,
-    state.currentQuestionIndex,
-    state.timerPaused,
-    recordAnswer,
-  ]);
+    // Drop the timers for questions the field has already moved past.
+    [...botTimers.current.keys()]
+      .filter((key) => !live.has(key))
+      .forEach(clearKey);
+    // Deliberately not keyed on the lanes' answers: rescheduling on every
+    // answer would keep resetting the bots' think time.
+  }, [state.phase, state.lanes, state.players, state.questionsQueue, recordAnswer]);
+
+  useEffect(
+    () => () => {
+      botTimers.current.forEach((timers) => timers.forEach(clearTimeout));
+      botTimers.current.clear();
+    },
+    [],
+  );
 
   /* ---------------------------------------------------------------- *
    * Publish to the broadcast window
@@ -841,11 +799,22 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     });
   };
 
+  /**
+   * Take the host in or out of the answer count.
+   *
+   * Mid-round this has to reach the lanes as well: a matchup that was waiting
+   * on the host has to stop waiting, and a lane with nobody left in it is
+   * retired rather than holding the room's screen up for the rest of the
+   * round. It takes effect from the next round if the host toggles back.
+   */
   const toggleHostAnswering = () =>
-    setState((prev) => ({
-      ...prev,
-      hostAnsweringEnabled: !prev.hostAnsweringEnabled,
-    }));
+    setState((prev) => {
+      const next = syncLaneRosters({
+        ...prev,
+        hostAnsweringEnabled: !prev.hostAnsweringEnabled,
+      });
+      return roundIsComplete(next) ? finishRound(next) : next;
+    });
 
   const updateConfig = (rounds: number, questions: number) => {
     setState((prev) => ({
@@ -1141,7 +1110,10 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         // and nobody is eliminated.
         bracket: players.length >= 2 ? [buildFirstRound(players)] : [],
         championId: null,
-        currentAnswers: [],
+        lanes: [],
+        broadcastQuestionIndex: 0,
+        broadcastRevealing: false,
+        broadcastRevealSecondsLeft: REVEAL_DURATION,
         wheelSpinning: false,
         categoryRevealed: false,
         phase: GamePhase.CATEGORY_SELECT,
@@ -1171,7 +1143,13 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     }));
   };
 
-  // Modified to use pre-generated content
+  /**
+   * Start the round on the category the wheel landed on.
+   *
+   * This is the last moment the field is together: it deals a lane to every
+   * matchup and then stops coordinating them. From here each pairing is on its
+   * own clock, and the only thing they share is the list of questions.
+   */
   const selectCategory = async (_categoryId: string) => {
     setState((prev) => {
       const roundConfig = prev.roundsConfig[prev.currentRound - 1];
@@ -1180,22 +1158,20 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         return prev;
       }
 
-      return {
+      const started: GameState = {
         ...prev,
         loading: false,
-        currentQuestion: roundConfig.questions[0],
-        currentQuestionIndex: 0,
         questionsQueue: roundConfig.questions,
         selectedCategory: roundConfig.category.id,
-        currentAnswers: [],
         wheelSpinning: false,
         categoryRevealed: true,
         phase: GamePhase.PLAYING,
-        timeLeft: TIMER_DURATION,
-        timerPaused: false,
-        questionDuration: TIMER_DURATION,
-        revealReason: null,
+        broadcastQuestionIndex: 0,
+        broadcastRevealing: false,
+        broadcastRevealSecondsLeft: REVEAL_DURATION,
       };
+
+      return { ...started, lanes: buildRoundLanes(started) };
     });
   };
 
@@ -1219,26 +1195,114 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     recordAnswer(playerId, answer);
   };
 
-  /** Host control: stop the clock and put the answer up now. */
-  const endQuestionNow = () => setState((prev) => endQuestion(prev, "host"));
+  /* ---------------------------------------------------------------- *
+   * Host controls
+   *
+   * Each one names the matchup it acts on. A host stepping in for one table
+   * must not stop the three beside it, which is exactly what a single global
+   * clock control used to do.
+   * ---------------------------------------------------------------- */
 
-  const toggleTimerPaused = () =>
-    setState((prev) => ({ ...prev, timerPaused: !prev.timerPaused }));
-
-  const addTime = (seconds: number) =>
+  /** Stop one matchup's clock and put its answer in front of the pair in it. */
+  const revealLaneNow = (laneId: string) =>
     setState((prev) => {
-      if (prev.phase !== GamePhase.PLAYING) return prev;
+      const next = closeLaneQuestion(prev, laneId, "host");
+      return roundIsComplete(next) ? finishRound(next) : next;
+    });
 
-      const timeLeft = Math.max(1, prev.timeLeft + seconds);
+  const revealAllLanesNow = () =>
+    setState((prev) => {
+      const next = prev.lanes.reduce(
+        (state, lane) =>
+          lane.status === LaneStatus.ANSWERING
+            ? closeLaneQuestion(state, lane.id, "host")
+            : state,
+        prev,
+      );
+      return roundIsComplete(next) ? finishRound(next) : next;
+    });
+
+  const setLanePaused = (
+    prev: GameState,
+    match: (laneId: string) => boolean,
+    paused: (lane: GameState["lanes"][number]) => boolean,
+  ): GameState => ({
+    ...prev,
+    lanes: prev.lanes.map((lane) =>
+      match(lane.id) ? { ...lane, timerPaused: paused(lane) } : lane,
+    ),
+  });
+
+  const toggleLanePaused = (laneId: string) =>
+    setState((prev) =>
+      setLanePaused(
+        prev,
+        (id) => id === laneId,
+        (lane) => !lane.timerPaused,
+      ),
+    );
+
+  const setAllLanesPaused = (paused: boolean) =>
+    setState((prev) =>
+      setLanePaused(
+        prev,
+        () => true,
+        () => paused,
+      ),
+    );
+
+  const stretchLane = (
+    prev: GameState,
+    laneId: string,
+    seconds: number,
+  ): GameState => ({
+    ...prev,
+    lanes: prev.lanes.map((lane) => {
+      if (lane.id !== laneId || lane.status !== LaneStatus.ANSWERING) {
+        return lane;
+      }
+      const timeLeft = Math.max(1, lane.timeLeft + seconds);
       return {
-        ...prev,
+        ...lane,
         timeLeft,
         // Stretch the question's own clock with it, so the bars and the ring
-        // measure against what the room was actually given rather than sitting
-        // pinned at full while the number counts down from 25.
-        questionDuration: Math.max(prev.questionDuration, timeLeft),
+        // measure against what the pair were actually given rather than
+        // sitting pinned at full while the number counts past it.
+        questionDuration: Math.max(lane.questionDuration, timeLeft),
       };
+    }),
+  });
+
+  const addLaneTime = (laneId: string, seconds: number) =>
+    setState((prev) =>
+      prev.phase === GamePhase.PLAYING ? stretchLane(prev, laneId, seconds) : prev,
+    );
+
+  const addTimeToAllLanes = (seconds: number) =>
+    setState((prev) =>
+      prev.phase === GamePhase.PLAYING
+        ? prev.lanes.reduce(
+            (state, lane) => stretchLane(state, lane.id, seconds),
+            prev,
+          )
+        : prev,
+    );
+
+  /** Move the room's screen off the answer it is holding. */
+  const advanceBroadcastNow = () =>
+    setState((prev) => {
+      if (prev.phase !== GamePhase.PLAYING || !prev.broadcastRevealing) {
+        return prev;
+      }
+      const next = advanceBroadcast({ ...prev, broadcastRevealSecondsLeft: 0 });
+      return roundIsComplete(next) ? finishRound(next) : next;
     });
+
+  /** Cut to the results without waiting for the projector to catch up. */
+  const endRoundNow = () =>
+    setState((prev) =>
+      prev.phase === GamePhase.PLAYING ? finishRound(prev) : prev,
+    );
 
   const toggleAutoAdvance = () =>
     setState((prev) => ({ ...prev, autoAdvance: !prev.autoAdvance }));
@@ -1246,8 +1310,6 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
   const openBroadcast = () => {
     openBroadcastWindow();
   };
-
-  const nextQuestion = () => setState((prev) => advanceFromReveal(prev));
 
   const nextRound = () => {
     setState((prev) => {
@@ -1283,17 +1345,15 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         ...prev,
         currentRound: prev.currentRound + 1,
         phase: GamePhase.CATEGORY_SELECT,
-        currentQuestion: null,
-        currentQuestionIndex: 0,
         questionsQueue: [],
-        currentAnswers: [],
+        // Lanes belong to the round that dealt them; the next one draws its own.
+        lanes: [],
+        broadcastQuestionIndex: 0,
+        broadcastRevealing: false,
+        broadcastRevealSecondsLeft: REVEAL_DURATION,
         selectedCategory: null,
         wheelSpinning: false,
         categoryRevealed: false,
-        timeLeft: TIMER_DURATION,
-        timerPaused: false,
-        questionDuration: TIMER_DURATION,
-        revealReason: null,
         // Each round is scored on its own, so every matchup starts level.
         players: prev.players.map((p) => ({
           ...p,
@@ -1314,8 +1374,6 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
       ...prev,
       phase: GamePhase.START,
       currentRound: 0,
-      currentQuestion: null,
-      currentQuestionIndex: 0,
       questionsQueue: [],
       usedCategories: [],
       selectedCategory: null,
@@ -1332,12 +1390,10 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
       roundsConfig: [],
       bracket: [],
       championId: null,
-      currentAnswers: [],
-      timeLeft: TIMER_DURATION,
-      timerPaused: false,
-      questionDuration: TIMER_DURATION,
-      revealSecondsLeft: REVEAL_DURATION,
-      revealReason: null,
+      lanes: [],
+      broadcastQuestionIndex: 0,
+      broadcastRevealing: false,
+      broadcastRevealSecondsLeft: REVEAL_DURATION,
       wheelSpinning: false,
       categoryRevealed: false,
       loading: false,
@@ -1353,19 +1409,15 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
       ...prev,
       phase: GamePhase.LOBBY,
       currentRound: 0,
-      currentQuestion: null,
-      currentQuestionIndex: 0,
       questionsQueue: [],
       usedCategories: [],
       selectedCategory: null,
       bracket: [],
       championId: null,
-      currentAnswers: [],
-      timeLeft: TIMER_DURATION,
-      timerPaused: false,
-      questionDuration: TIMER_DURATION,
-      revealSecondsLeft: REVEAL_DURATION,
-      revealReason: null,
+      lanes: [],
+      broadcastQuestionIndex: 0,
+      broadcastRevealing: false,
+      broadcastRevealSecondsLeft: REVEAL_DURATION,
       wheelSpinning: false,
       categoryRevealed: false,
       players: prev.players.map((p) => ({
@@ -1438,14 +1490,18 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         beginWheelSpin,
         revealCategory,
         submitAnswer,
-        nextQuestion,
         nextRound,
         restartGame,
         playAgain,
         regenerateQuestion,
-        endQuestionNow,
-        toggleTimerPaused,
-        addTime,
+        revealLaneNow,
+        toggleLanePaused,
+        addLaneTime,
+        revealAllLanesNow,
+        setAllLanesPaused,
+        addTimeToAllLanes,
+        advanceBroadcastNow,
+        endRoundNow,
         toggleAutoAdvance,
         openBroadcast,
       }}

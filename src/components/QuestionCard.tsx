@@ -11,22 +11,30 @@ const shuffleArray = <T,>(array: T[]): T[] => {
 };
 
 /**
+ * The answering card, rendered inside whichever matchup the player is in.
+ *
  * `canGrade` is false on a guest's screen, where the question arrives with its
  * answer key stripped out. Without it the card would mark every typed answer
  * wrong and draw a slider's correct band from NaN — so instead of guessing, it
  * just shows the answer as locked in and leaves the verdict to the reveal.
- */
-/**
+ *
  * `compact` is for the panes that already show the question themselves — the
  * host's own player view beside their controls, and a guest's phone screen.
  * Repeating it at full size there pushed the answers off the bottom.
+ *
+ * The clock comes in as a prop rather than out of the context, because there
+ * is no longer one clock to read: every matchup runs its own. A guest's tab
+ * holds no game state at all, so reading a timer from its context left the bar
+ * pinned at full for the whole question.
  */
 const QuestionCard: React.FC<{
   question: Question;
+  timeLeft: number;
+  duration: number;
   canGrade?: boolean;
   compact?: boolean;
-}> = ({ question, canGrade = true, compact = false }) => {
-  const { submitAnswer, timeLeft, questionDuration, currentPlayerId } = useGame();
+}> = ({ question, timeLeft, duration, canGrade = true, compact = false }) => {
+  const { submitAnswer, currentPlayerId } = useGame();
   const [isSubmitted, setIsSubmitted] = useState(false);
 
   const isSpectator = !currentPlayerId;
@@ -57,7 +65,7 @@ const QuestionCard: React.FC<{
       <div className={`w-full bg-slate-800 rounded-full overflow-hidden border border-slate-700 shadow-inner ${compact ? 'h-2 mb-4' : 'h-6 mb-8'}`}>
         <div 
           className={`h-full transition-all duration-1000 ease-linear ${timeLeft < 5 ? 'bg-red-500 shadow-[0_0_10px_#ef4444]' : 'bg-neon-blue shadow-[0_0_10px_#00ffff]'}`}
-          style={{ width: `${Math.min(100, (timeLeft / questionDuration) * 100)}%` }}
+          style={{ width: `${Math.min(100, duration ? (timeLeft / duration) * 100 : 0)}%` }}
         ></div>
       </div>
 

@@ -100,11 +100,17 @@ a working file covering all five question types.
    **ADD BOT** adds opponents.
 4. **START GAME** → **SPIN THE WHEEL** each round (or flick the wheel), then
    **START ROUND**.
-5. Questions run themselves — the clock counts down, the broadcast counts the
-   room in, and the question closes early once everyone has answered. **Pause**,
-   **+10s**, **Reveal** and the **auto-advance** toggle are on the control
-   screen when you need to take the wheel.
-6. **PLAY AGAIN** replays the same questions with scores reset — it does not
+5. Every matchup then runs itself, at its own pace. Each one has its own clock
+   and its own question: it closes as soon as both of its players are in, shows
+   those two the answer, and moves on — so a fast pair can finish the round
+   while another pair is still on question two. **Pause**, **+10s** and
+   **Reveal** sit on each matchup's card, with "every table" versions above
+   them.
+6. The projector holds whichever question the slowest matchup is still on and
+   puts the answer up once the whole field is through it. The **auto-advance**
+   toggle decides whether it moves on by itself or waits for **MOVE THE ROOM
+   ON**.
+7. **PLAY AGAIN** replays the same questions with scores reset — it does not
    regenerate, so it costs no API calls.
 
 ### Joining a game
@@ -137,21 +143,22 @@ A PIN now means something:
 ### Hosting and playing at the same time
 
 The host is always seated as a player, and the control screen runs two panes
-side by side: the controls on one, **your player view** on the other. So a
-single person can click through a whole round — reading the question, locking
-in an answer, watching the count tick over and the next question arrive —
-which is the fastest way to feel whether the pacing holds up before a room is
-in front of you.
+side by side: the lane board on one, **your matchup** on the other. That pane
+follows your own matchup rather than the room, so a single person can click
+through a whole round — reading the question, locking in an answer, watching
+the answer come up and the next question arrive — which is the fastest way to
+feel whether the pacing holds up before a room is in front of you.
 
 The **answering on/off** toggle on that pane decides whether you are playing:
 
-- **On** — you are in the answer count, and the answer is held back from your
-  control screen until you lock one in.
-- **Off** — you are running the show. Questions no longer wait for you, and the
-  answer reference is visible again so you can read it out.
+- **On** — you are in your matchup's answer count, and every answer on the
+  control screen is held back until your own matchup is through that question.
+- **Off** — you are running the show. Your matchup stops waiting for you, and
+  the whole reading copy is visible again.
 
-The count agrees everywhere: flipping the toggle changes the "waiting on"
-number on your screen and on the projector at the same time.
+Turning it off mid-round takes effect immediately, and a matchup left with
+nobody to answer in it is retired rather than holding the projector up for the
+rest of the round. Turning it back on takes effect from the next round.
 
 ### Setting up the two screens
 
@@ -192,9 +199,9 @@ There is no server, no socket, and no shared session. Concretely:
   starting a phantom game.
 - **Other players in the lobby are bots.** `GameContext` auto-adds bots every
   3 seconds until there are 3 players. They answer at staggered, random times
-  during each question and are graded by the same scoring code as a person, so
-  the "answered / still answering" count on the broadcast moves the way a real
-  room would — but they are still guessing, not playing.
+  inside their own matchup and are graded by the same scoring code as a person,
+  so the matchups really do finish at different times the way a real room
+  would — but they are still guessing, not playing.
 
 So this is a big-screen trivia runner: one host machine driving its own
 windows, everyone answering in the room. Making players on other devices join the same

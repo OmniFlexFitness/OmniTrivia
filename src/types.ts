@@ -6,8 +6,7 @@ export enum GamePhase {
   JOIN = "JOIN",
   LOBBY = "LOBBY",
   CATEGORY_SELECT = "CATEGORY_SELECT",
-  PLAYING = "PLAYING",
-  QUESTION_REVEAL = "QUESTION_REVEAL", // Answer is on the broadcast, next question pending
+  PLAYING = "PLAYING", // The round is live; every matchup runs at its own pace
   ROUND_END = "ROUND_END",
   GAME_OVER = "GAME_OVER",
 }
@@ -75,7 +74,7 @@ export interface RoundConfig {
   questions: Question[];
 }
 
-/** One player's answer to the question currently on screen. */
+/** One player's answer to the question their matchup is currently on. */
 export interface AnswerRecord {
   playerId: string;
   answer: Answer;
@@ -112,6 +111,64 @@ export interface BracketRound {
   resolved: boolean;
 }
 
+/**
+ * Where a matchup has got to in the round it is playing.
+ *
+ * ANSWERING: the question is live and the lane is waiting on its players.
+ * REVEAL:    the answer is up for the two players in it, nobody else.
+ * DONE:      the lane has been through every question in the round.
+ */
+export enum LaneStatus {
+  ANSWERING = "ANSWERING",
+  REVEAL = "REVEAL",
+  DONE = "DONE",
+}
+
+/**
+ * One matchup's run through a round — its own question, its own clock, its own
+ * reveal.
+ *
+ * This is what makes a round asynchronous: the round hands every matchup the
+ * same list of questions and then stops coordinating. A pair who answer in
+ * four seconds each are on question five while the pair beside them are still
+ * reading question two, and neither is waiting on the other. Nothing outside a
+ * lane may move it along.
+ */
+export interface MatchupLane {
+  /** The matchup's id, or a synthetic one for a game with no bracket. */
+  id: string;
+  /** The bracket matchup this lane runs. Null when the game has no bracket. */
+  matchupId: string | null;
+  /** Both sides of the pairing — who the lane is *about*. */
+  playerIds: string[];
+  /**
+   * Who the lane actually waits on. The same as `playerIds` except for a host
+   * who has switched answering off; a lane with nobody left to answer is
+   * retired rather than run through the round on an empty clock.
+   */
+  answeringIds: string[];
+  /** Index into the round's questions. Equals the round length once DONE. */
+  questionIndex: number;
+  status: LaneStatus;
+  /**
+   * Answers indexed by question, so a finished question keeps its record for
+   * the broadcast's aggregate tally. `answers[questionIndex]` is the live one.
+   */
+  answers: AnswerRecord[][];
+  timeLeft: number;
+  /**
+   * How long this lane's current question was given in total. Tracked rather
+   * than assumed from TIMER_DURATION because the host can add time to a single
+   * lane, and its bars and rings measure against what it was actually given.
+   */
+  questionDuration: number;
+  timerPaused: boolean;
+  /** Seconds the answer stays up in this lane before it moves on. */
+  revealSecondsLeft: number;
+  /** Why this lane's question ended. Null while one is running. */
+  revealReason: RevealReason | null;
+}
+
 export interface GameState {
   phase: GamePhase;
   mode: GameMode;
@@ -137,8 +194,7 @@ export interface GameState {
 
   // Current Progress
   currentRound: number;
-  currentQuestion: Question | null;
-  currentQuestionIndex: number;
+  /** The round's questions. Every matchup works through this same list. */
   questionsQueue: Question[];
   usedCategories: string[];
   selectedCategory: string | null;
@@ -147,20 +203,27 @@ export interface GameState {
   bracket: BracketRound[];
   championId: string | null;
 
-  // Answers to the question currently on screen, cleared on every question.
-  currentAnswers: AnswerRecord[];
+  /**
+   * One lane per matchup, drawn when the round starts and emptied when it
+   * ends. This — not a single question and a single clock — is where a live
+   * round's progress lives.
+   */
+  lanes: MatchupLane[];
 
-  timeLeft: number;
-  timerPaused: boolean;
-  // Why the question on screen ended. Null until it does.
-  revealReason: RevealReason | null;
-  // How long the current question was given in total. Tracked rather than
-  // assumed from TIMER_DURATION because the host can add time mid-question,
-  // and every progress bar and ring measures against it.
-  questionDuration: number;
-  // Seconds the answer stays up before the broadcast moves on.
-  revealSecondsLeft: number;
-  // When false the host has to click through every question and reveal.
+  /* --- what the room sees, which trails the field rather than driving it --- */
+  /**
+   * The question on the projector. It is the one the slowest matchup is still
+   * working on, so the big screen can never show a lane a question it has not
+   * reached, and the answer only goes up once every lane is through it.
+   */
+  broadcastQuestionIndex: number;
+  /** The answer to `broadcastQuestionIndex` is up on the projector. */
+  broadcastRevealing: boolean;
+  /** Seconds that answer stays up before the room's screen moves on. */
+  broadcastRevealSecondsLeft: number;
+
+  // When false the room's screen holds on each answer until the host clicks
+  // through. Matchups always advance themselves — that is the point of a lane.
   autoAdvance: boolean;
   // The host plays along from their own screen for testing. Turning this off
   // takes them out of the answer count so a round does not wait on them.
@@ -255,6 +318,38 @@ export interface RevealDetail {
   explanation?: string;
 }
 
+/**
+ * One matchup's lane, as published.
+ *
+ * Every lane is in the snapshot because the host desk and the projector both
+ * draw the whole field, and because a player's own tab has to find its lane in
+ * here to know which question it is on. A lane carries its own question and —
+ * only while it is revealing — its own answer.
+ */
+export interface PublicLane {
+  id: string;
+  matchupId: string | null;
+  playerIds: string[];
+  answeringIds: string[];
+  status: LaneStatus;
+  /** 1-based position in the round, clamped to the round's length. */
+  questionNumber: number;
+  /** How many of the round's questions this lane is through. */
+  completed: number;
+  question: PublicQuestion | null;
+  /** Non-null only while this lane is showing its answer. */
+  reveal: RevealDetail | null;
+  timeLeft: number;
+  timerDuration: number;
+  timerPaused: boolean;
+  revealSecondsLeft: number;
+  revealReason: RevealReason | null;
+  /** Who is in on this lane's current question. */
+  answeredPlayerIds: string[];
+  /** Who got it — published only once this lane is revealing. */
+  correctPlayerIds: string[];
+}
+
 export interface BroadcastSnapshot {
   /** Bumped when the snapshot shape changes so a stale window can bow out. */
   version: number;
@@ -275,26 +370,35 @@ export interface BroadcastSnapshot {
   category: Category | null;
   wheelSpinning: boolean;
 
+  /* --- the room's question: the one the slowest matchup is still on --- */
   questionNumber: number;
   questionsInRound: number;
   question: PublicQuestion | null;
+  /** Set once every matchup is through the room's question, and not before. */
   reveal: RevealDetail | null;
-
+  /** Longest a lane still on the room's question has left on its clock. */
   timeLeft: number;
   timerDuration: number;
-  timerPaused: boolean;
+  /** Seconds the room's screen holds this answer before moving on. */
   revealSecondsLeft: number;
-  revealReason: RevealReason | null;
   autoAdvance: boolean;
 
-  /** Who is competing this round, who has locked in, and who got it right. */
+  /** How many matchups are through the room's question, out of how many. */
+  lanesCompleted: number;
+  lanesInPlay: number;
+  /** Every matchup's lane, so both the desk and the room can see the field. */
+  lanes: PublicLane[];
+
+  /** Who is competing this round, who is through the room's question, and
+   * — once its answer is up — who got it right. */
   activePlayerIds: string[];
   answeredPlayerIds: string[];
   correctPlayerIds: string[];
 
   /**
-   * How many players picked each public option. Sent only with the reveal —
-   * a live tally would tell the room where the crowd is going.
+   * How many players picked each public option, across every matchup. Sent
+   * only with the reveal — a live tally would tell the room where the crowd is
+   * going, and would leak to lanes that have not reached the question yet.
    */
   optionTallies: number[] | null;
 

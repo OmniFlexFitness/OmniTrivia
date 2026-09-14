@@ -3,7 +3,10 @@ import {
   BroadcastSnapshot,
   GamePhase,
   GameState,
+  LaneStatus,
+  MatchupLane,
   Player,
+  PublicLane,
   PublicPlayer,
   PublicQuestion,
   Question,
@@ -12,15 +15,31 @@ import {
 } from "../types";
 import { CATEGORIES } from "../constants";
 import { answeringRoster } from "./bracket";
+import {
+  answersForQuestion,
+  broadcastIndex,
+  everyLaneCompleted,
+  laneAnswers,
+  laneCompletedCount,
+  laneHasCompleted,
+} from "./lanes";
 import { SNAPSHOT_VERSION } from "./broadcastBus";
 
 /**
- * Builds the read-only view of the game that the projector renders.
+ * Builds the read-only view of the game that the projector and the players'
+ * phones render.
  *
  * The broadcast is a public screen, so this is where the answer is held back:
- * `question` carries only what the room may see while the clock is running,
- * and the answer travels separately in `reveal`, which is populated only once
- * the question is over.
+ * `question` carries only what the room may see, and the answer travels
+ * separately in `reveal`, which is populated only once *every* matchup is
+ * through that question. The room's question is the slowest lane's, so the big
+ * screen can never run ahead of anyone playing.
+ *
+ * Each lane publishes its own question and — while it is revealing — its own
+ * answer, because the player in that lane has to render it. Every tab on the
+ * channel receives the whole snapshot, so a lane's answer is only as private
+ * as the machine the game is running on; a real backend would address each
+ * lane's payload to the players in it.
  */
 
 /** FNV-1a. Enough to turn a question id into a stable shuffle seed. */
@@ -175,13 +194,48 @@ const toPublicPlayer = (player: Player): PublicPlayer => ({
   eliminated: player.eliminated,
 });
 
+/** One matchup's lane, stripped of anything the lane is not owed yet. */
+const toPublicLane = (
+  lane: MatchupLane,
+  state: GameState,
+): PublicLane => {
+  const questionsInRound = state.questionsQueue.length;
+  const question = state.questionsQueue[lane.questionIndex];
+  const isRevealing = lane.status === LaneStatus.REVEAL;
+  const answers = laneAnswers(lane, lane.questionIndex);
+
+  return {
+    id: lane.id,
+    matchupId: lane.matchupId,
+    playerIds: lane.playerIds,
+    answeringIds: lane.answeringIds,
+    status: lane.status,
+    questionNumber: Math.min(lane.questionIndex + 1, Math.max(1, questionsInRound)),
+    completed: laneCompletedCount(lane, questionsInRound),
+    question:
+      question && lane.status !== LaneStatus.DONE
+        ? toPublicQuestion(question)
+        : null,
+    reveal: isRevealing && question ? buildReveal(question) : null,
+    timeLeft: lane.timeLeft,
+    timerDuration: lane.questionDuration,
+    timerPaused: lane.timerPaused,
+    revealSecondsLeft: lane.revealSecondsLeft,
+    revealReason: lane.revealReason,
+    answeredPlayerIds: answers.map((a) => a.playerId),
+    // Who was right is a spoiler until this lane's own answer is up.
+    correctPlayerIds: isRevealing
+      ? answers.filter((a) => a.isCorrect).map((a) => a.playerId)
+      : [],
+  };
+};
+
 export const buildSnapshot = (
   state: GameState,
   hostId: string,
 ): BroadcastSnapshot => {
   const roundConfig = state.roundsConfig[state.currentRound - 1];
   const bracketRound = state.bracket[state.currentRound - 1];
-  const isRevealing = state.phase === GamePhase.QUESTION_REVEAL;
 
   // The wheel picks from the categories this game actually loaded; fall back to
   // the built-ins only before a game has been configured. Held back until the
@@ -194,6 +248,25 @@ export const buildSnapshot = (
       (state.selectedCategory
         ? (CATEGORIES.find((c) => c.id === state.selectedCategory) ?? null)
         : null));
+
+  /* --- the room's question --- */
+  const questionsInRound = state.questionsQueue.length;
+  const roomIndex = broadcastIndex(state);
+  const roomQuestion = state.questionsQueue[roomIndex] ?? null;
+  // The answer only goes on the projector once there is no lane left that
+  // could still be looking at the question.
+  const roomRevealing =
+    state.phase === GamePhase.PLAYING &&
+    state.broadcastRevealing &&
+    everyLaneCompleted(state.lanes, roomIndex);
+
+  const roomAnswers = roomQuestion
+    ? answersForQuestion(state.lanes, roomIndex)
+    : [];
+  const lanesOnRoomQuestion = state.lanes.filter(
+    (lane) =>
+      lane.status === LaneStatus.ANSWERING && lane.questionIndex === roomIndex,
+  );
 
   return {
     version: SNAPSHOT_VERSION,
@@ -209,37 +282,43 @@ export const buildSnapshot = (
     category,
     wheelSpinning: state.wheelSpinning,
 
-    questionNumber: state.currentQuestionIndex + 1,
-    questionsInRound: state.questionsQueue.length,
-    question: state.currentQuestion
-      ? toPublicQuestion(state.currentQuestion)
-      : null,
-    reveal:
-      isRevealing && state.currentQuestion
-        ? buildReveal(state.currentQuestion)
-        : null,
+    questionNumber: roomIndex + 1,
+    questionsInRound,
+    question: roomQuestion ? toPublicQuestion(roomQuestion) : null,
+    reveal: roomRevealing && roomQuestion ? buildReveal(roomQuestion) : null,
 
-    timeLeft: state.timeLeft,
-    timerDuration: state.questionDuration,
-    timerPaused: state.timerPaused,
-    revealSecondsLeft: state.revealSecondsLeft,
-    revealReason: state.revealReason,
+    // The room is waiting on whichever lane has the most clock left on this
+    // question — that is the longest it can still be held up.
+    timeLeft: lanesOnRoomQuestion.reduce(
+      (longest, lane) => Math.max(longest, lane.timeLeft),
+      0,
+    ),
+    timerDuration: lanesOnRoomQuestion.reduce(
+      (longest, lane) => Math.max(longest, lane.questionDuration),
+      0,
+    ),
+    revealSecondsLeft: state.broadcastRevealSecondsLeft,
     autoAdvance: state.autoAdvance,
+
+    lanesCompleted: state.lanes.filter((lane) =>
+      laneHasCompleted(lane, roomIndex),
+    ).length,
+    lanesInPlay: state.lanes.length,
+    lanes: state.lanes.map((lane) => toPublicLane(lane, state)),
 
     activePlayerIds: answeringRoster(
       bracketRound,
       state.players,
       state.hostAnsweringEnabled,
     ),
-    answeredPlayerIds: state.currentAnswers.map((a) => a.playerId),
-    // Who was right is a spoiler until the answer is up.
-    correctPlayerIds: isRevealing
-      ? state.currentAnswers.filter((a) => a.isCorrect).map((a) => a.playerId)
+    answeredPlayerIds: roomAnswers.map((a) => a.playerId),
+    correctPlayerIds: roomRevealing
+      ? roomAnswers.filter((a) => a.isCorrect).map((a) => a.playerId)
       : [],
 
     optionTallies:
-      isRevealing && state.currentQuestion
-        ? tallyOptions(state.currentQuestion, state.currentAnswers)
+      roomRevealing && roomQuestion
+        ? tallyOptions(roomQuestion, roomAnswers)
         : null,
 
     players: state.players.map(toPublicPlayer),

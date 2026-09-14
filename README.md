@@ -293,13 +293,14 @@ server after creating it. Vite reads it only at startup.
 
 A game runs on two windows, and they show completely different things.
 
-- **The hosting interface** is the host's own screen. It carries the question
-  with its answer, the clock and its controls, a live read on who has answered,
-  the round's matchups and the bracket. Nobody else should see it.
-- **The broadcast interface** is the projector or TV. It shows the question and
-  the answer choices, a countdown ring, and a running count of how many players
-  have answered and how many the room is still waiting on — and nothing else.
-  The answer never reaches it until the question is over.
+- **The hosting interface** is the host's own screen. It is a board of every
+  matchup in the round, each with its own question, clock, answer and controls,
+  plus a panel showing what the projector is holding up, the scores and the
+  bracket. Nobody else should see it.
+- **The broadcast interface** is the projector or TV. It shows one question,
+  the answer choices, a countdown, how many matchups are through that question,
+  and a race board of how far each matchup has got — and nothing else. The
+  answer never reaches it until every matchup is through the question.
 
 Open the broadcast window from **OPEN BROADCAST DISPLAY** in the lobby or in
 the header of the control screen, then drag it onto the second display and put
@@ -338,19 +339,47 @@ into a room of its own.
 3. **APPROVE & OPEN LOBBY** → you get a PIN and a QR code, and you are seated
    as a player automatically. **OPEN BROADCAST DISPLAY** and move it to the big
    screen. **EDIT MY PLAYER** renames your seat, **ADD BOT** adds opponents.
-4. **START GAME** → **SPIN THE WHEEL** each round, then **START ROUND**. Your
-   own player view sits beside the controls, with an **answering on/off**
-   toggle: off takes you out of the answer count so questions stop waiting on
-   you, and brings the answer reference back for reading aloud.
-5. Each question runs itself: the clock counts down, the broadcast counts
-   players in, and the question closes as soon as the last one has answered.
-   The answer goes up, then the next question follows. **Pause**, **+10s**,
-   **Reveal** and **auto-advance off** are there when the room needs them.
-6. At the end of a round the broadcast shows the round's results, the standings
+4. **START GAME** → **SPIN THE WHEEL** each round, then **START ROUND**. That
+   deals every matchup its own lane and stops coordinating them. Your own
+   matchup sits beside the controls, with an **answering on/off** toggle: off
+   takes you out of your matchup's answer count so it stops waiting on you, and
+   brings the answer reference back.
+5. Each matchup runs itself: its clock counts down, its question closes as soon
+   as both players are in, its answer goes up for those two, and it moves
+   straight on to the next question. A quick pair can be finished with the
+   round while the table beside them is on question two. **Pause**, **+10s**
+   and **Reveal** are per matchup on the lane board, with "every table"
+   versions beside them.
+6. The projector follows the field: it holds whichever question the slowest
+   matchup is still on, and puts the answer up once every matchup is through
+   it. **MOVE THE ROOM ON** does that by hand when **auto-advance** is off.
+7. At the end of a round the broadcast shows the round's results, the standings
    and the bracket, including who is up against whom next. **START ROUND N** to
    carry on.
-7. **PLAY AGAIN** replays the same questions with scores reset — no
+8. **PLAY AGAIN** replays the same questions with scores reset — no
    regeneration, no API spend.
+
+### How a round is played
+
+**A round is asynchronous.** Every matchup gets the round's questions and works
+through them at its own speed — nobody waits on the room. The two players in a
+matchup do share a clock, because they are playing each other and a duel is
+only fair if both sides get the same question for the same number of seconds;
+what was removed is the synchronisation *between* matchups.
+
+So one question, in one matchup:
+
+1. Both players get it at the same moment, on that matchup's own clock.
+2. It closes the instant both of them are in — or when their clock runs out.
+3. The answer goes up for those two players, and nobody else.
+4. A few seconds later that matchup moves to its next question, whatever the
+   rest of the field is doing.
+
+**The projector trails the field rather than driving it.** It holds whichever
+question the slowest matchup is still working on, so nobody in the room can be
+shown a question — or an answer — ahead of where they are, and it only puts the
+answer up once every matchup has been through it. The race board down the side
+is where the room watches a fast pair pull three questions clear.
 
 ### How a round is scored
 
@@ -358,6 +387,10 @@ Players are drawn into head-to-head pairs when the game starts, and the odd
 player out gets a bye. Each round is scored on its own — every pairing starts
 level at zero — and the higher score in a pairing advances. A tie is settled on
 the running total, then on the draw; never on a coin flip in front of a room.
+
+Points are 100 for a correct answer plus 10 for every second left on **that
+matchup's** clock, so answering quickly is worth the same wherever you are in
+the field.
 
 The game ends when one player is left standing, or when the rounds run out,
 whichever comes first.

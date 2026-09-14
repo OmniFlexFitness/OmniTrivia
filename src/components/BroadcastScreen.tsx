@@ -2,7 +2,9 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   BroadcastSnapshot,
   GamePhase,
+  LaneStatus,
   Matchup,
+  PublicLane,
   PublicPlayer,
   QuestionType,
 } from "../types";
@@ -17,6 +19,7 @@ import JoinCode from "./JoinCode";
 import {
   CheckCircle2,
   Crown,
+  Flag,
   Hourglass,
   Radio,
   Swords,
@@ -28,6 +31,13 @@ import {
  * The broadcast interface: the screen on the projector that the whole room
  * watches. It renders the host's snapshot and nothing else — there are no
  * controls here, and no way for anything on this screen to change the game.
+ *
+ * It follows the field rather than setting its pace. Each matchup plays at its
+ * own speed, so the big screen holds whichever question the slowest table is
+ * still working on and only puts the answer up once every table is through it.
+ * That is what makes it safe to look at: nobody can be shown a question — or
+ * an answer — ahead of where they are. The race board is where the room
+ * watches the faster tables pull ahead.
  */
 
 /** No word from the host window for this long and we say so on screen. */
@@ -91,39 +101,42 @@ const CountdownRing: React.FC<{
 };
 
 /**
- * The room needs to know how much longer it is waiting and on whom, so this
- * shows both halves: locked in, and still out.
+ * Where the room is on the question it is being shown: how many matchups are
+ * through it, and which players have locked an answer in.
  */
-const AnswerTally: React.FC<{
+const RoomProgress: React.FC<{
   snapshot: BroadcastSnapshot;
   players: PublicPlayer[];
 }> = ({ snapshot, players }) => {
-  const active = snapshot.activePlayerIds;
   const answered = new Set(snapshot.answeredPlayerIds);
-  const answeredCount = active.filter((id) => answered.has(id)).length;
-  const waitingCount = active.length - answeredCount;
-  const progress = active.length ? (answeredCount / active.length) * 100 : 0;
+  const revealing = !!snapshot.reveal;
+  const waiting = Math.max(0, snapshot.lanesInPlay - snapshot.lanesCompleted);
+  const progress = snapshot.lanesInPlay
+    ? (snapshot.lanesCompleted / snapshot.lanesInPlay) * 100
+    : 0;
 
   return (
     <div className="w-full bg-slate-900/80 border border-slate-800 rounded-2xl p-5">
       <div className="flex items-end justify-between mb-3">
         <div>
           <div className="text-5xl font-black font-mono text-neon-green leading-none">
-            {answeredCount}
-            <span className="text-2xl text-slate-600">/{active.length}</span>
+            {snapshot.lanesCompleted}
+            <span className="text-2xl text-slate-600">
+              /{snapshot.lanesInPlay}
+            </span>
           </div>
           <div className="text-[11px] font-mono uppercase tracking-widest text-slate-500 mt-1">
-            answered
+            matchups through it
           </div>
         </div>
         <div className="text-right">
           <div
-            className={`text-5xl font-black font-mono leading-none ${waitingCount > 0 ? "text-neon-yellow" : "text-slate-700"}`}
+            className={`text-5xl font-black font-mono leading-none ${waiting > 0 ? "text-neon-yellow" : "text-slate-700"}`}
           >
-            {waitingCount}
+            {waiting}
           </div>
           <div className="text-[11px] font-mono uppercase tracking-widest text-slate-500 mt-1">
-            still answering
+            still on it
           </div>
         </div>
       </div>
@@ -136,12 +149,11 @@ const AnswerTally: React.FC<{
       </div>
 
       <div className="flex flex-wrap gap-2 mt-4">
-        {active.map((id) => {
+        {snapshot.activePlayerIds.map((id) => {
           const player = players.find((p) => p.id === id);
           if (!player) return null;
           const isIn = answered.has(id);
           const wasRight = snapshot.correctPlayerIds.includes(id);
-          const revealing = !!snapshot.reveal;
 
           return (
             <div
@@ -180,6 +192,73 @@ const AnswerTally: React.FC<{
                   className="absolute -bottom-1 -right-1 text-neon-green bg-slate-900 rounded-full"
                 />
               )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+/**
+ * The race board: every matchup and how far through the round it is.
+ *
+ * This is the part of the screen that makes an asynchronous round readable
+ * from the back of the room — one table three questions clear of another is
+ * the whole drama of the format, and without this it would be invisible.
+ */
+const LaneRace: React.FC<{
+  lanes: PublicLane[];
+  players: PublicPlayer[];
+  questionsInRound: number;
+}> = ({ lanes, players, questionsInRound }) => {
+  if (lanes.length === 0) return null;
+
+  const nameOf = (id: string) =>
+    players.find((p) => p.id === id)?.name ?? "Unknown";
+  const scoreOf = (id: string) =>
+    players.find((p) => p.id === id)?.roundScore ?? 0;
+  const total = questionsInRound || 1;
+
+  // Furthest along first, so the leaders sit at the top of the board.
+  const ordered = [...lanes].sort((a, b) => b.completed - a.completed);
+
+  return (
+    <div className="w-full bg-slate-900/80 border border-slate-800 rounded-2xl p-4">
+      <div className="text-[11px] font-mono uppercase tracking-[0.3em] text-slate-500 mb-3">
+        The field
+      </div>
+      <div className="space-y-2.5">
+        {ordered.map((lane) => {
+          const done = lane.status === LaneStatus.DONE;
+
+          return (
+            <div key={lane.id} className="space-y-1">
+              <div className="flex items-center gap-2 text-sm">
+                <span className="flex-1 truncate font-bold text-white">
+                  {lane.playerIds.map(nameOf).join("  vs  ")}
+                </span>
+                <span className="font-mono text-neon-green shrink-0">
+                  {lane.playerIds.map(scoreOf).join(" – ")}
+                </span>
+                <span
+                  className={`font-mono text-xs shrink-0 w-16 text-right ${done ? "text-neon-green" : "text-slate-500"}`}
+                >
+                  {done ? (
+                    <span className="flex items-center justify-end gap-1">
+                      <Flag size={11} /> done
+                    </span>
+                  ) : (
+                    `Q${Math.min(lane.completed + 1, total)}/${total}`
+                  )}
+                </span>
+              </div>
+              <div className="h-2 w-full bg-slate-800 rounded-full overflow-hidden">
+                <div
+                  className={`h-full transition-all duration-700 ${done ? "bg-neon-green" : "bg-neon-pink"}`}
+                  style={{ width: `${(lane.completed / total) * 100}%` }}
+                />
+              </div>
             </div>
           );
         })}
@@ -495,13 +574,26 @@ const BroadcastOptions: React.FC<{ snapshot: BroadcastSnapshot }> = ({
   }
 };
 
+/**
+ * The room's question.
+ *
+ * The header says plainly that this is the field's slowest table rather than
+ * anybody's live question, so nobody in the room reads it as the question they
+ * are supposed to be on.
+ */
 const QuestionStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
   snapshot,
 }) => {
   const reveal = snapshot.reveal;
   const correctCount = snapshot.correctPlayerIds.length;
   const answeredCount = snapshot.answeredPlayerIds.length;
-  const bracketRound = snapshot.bracket[snapshot.roundNumber - 1];
+  const waiting = Math.max(0, snapshot.lanesInPlay - snapshot.lanesCompleted);
+  // Every table still on this question is paused, so the clock is too.
+  const paused =
+    snapshot.lanes.some((lane) => lane.status === LaneStatus.ANSWERING) &&
+    snapshot.lanes
+      .filter((lane) => lane.status === LaneStatus.ANSWERING)
+      .every((lane) => lane.timerPaused);
 
   return (
     <div className="flex-1 flex flex-col lg:flex-row gap-6 min-h-0">
@@ -521,7 +613,7 @@ const QuestionStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
 
         <BroadcastOptions snapshot={snapshot} />
 
-        {reveal && (
+        {reveal ? (
           <div className="text-center">
             <div className="text-2xl font-bold text-green-400">
               {correctCount} of {answeredCount || 0} answered correctly
@@ -537,41 +629,41 @@ const QuestionStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
               </div>
             )}
           </div>
+        ) : (
+          <div className="text-center text-lg font-mono uppercase tracking-widest text-slate-500">
+            {waiting > 0
+              ? `The answer goes up when the last ${waiting === 1 ? "matchup is" : `${waiting} matchups are`} through it`
+              : "Everyone is through — answer coming up"}
+          </div>
         )}
       </div>
 
-      {/* Clock and the room's progress */}
-      <div className="w-full lg:w-96 shrink-0 flex flex-col items-center gap-6">
+      {/* Clock and the field's progress */}
+      <div className="w-full lg:w-96 shrink-0 flex flex-col items-center gap-5 overflow-y-auto custom-scrollbar">
         {reveal ? (
-          <div className="w-48 h-48 rounded-full border-8 border-green-500 flex flex-col items-center justify-center bg-green-500/10 shadow-[0_0_40px_rgba(34,197,94,0.35)]">
+          <div className="w-48 h-48 shrink-0 rounded-full border-8 border-green-500 flex flex-col items-center justify-center bg-green-500/10 shadow-[0_0_40px_rgba(34,197,94,0.35)]">
             <CheckCircle2 size={56} className="text-green-400" />
-            <div className="mt-2 font-mono uppercase tracking-widest text-green-400 text-sm">
-              {snapshot.revealReason === "all-in"
-                ? "All in"
-                : snapshot.revealReason === "host"
-                  ? "Revealed"
-                  : "Time's up"}
+            <div className="mt-2 font-mono uppercase tracking-widest text-green-400 text-sm text-center px-4">
+              Every matchup is through it
             </div>
           </div>
         ) : (
           <CountdownRing
+            // The room is waiting on the table with the most clock left, so
+            // that — not any one player's timer — is the honest countdown.
             timeLeft={snapshot.timeLeft}
             duration={snapshot.timerDuration}
-            paused={snapshot.timerPaused}
+            paused={paused}
           />
         )}
 
-        <AnswerTally snapshot={snapshot} players={snapshot.players} />
+        <RoomProgress snapshot={snapshot} players={snapshot.players} />
 
-        {bracketRound && (
-          <div className="w-full">
-            <MatchupStrip
-              matchups={bracketRound.matchups}
-              players={snapshot.players}
-              title="Head-to-head"
-            />
-          </div>
-        )}
+        <LaneRace
+          lanes={snapshot.lanes}
+          players={snapshot.players}
+          questionsInRound={snapshot.questionsInRound}
+        />
       </div>
     </div>
   );
@@ -838,7 +930,6 @@ const BroadcastScreen: React.FC = () => {
       case GamePhase.CATEGORY_SELECT:
         return <RoundIntroStage snapshot={snapshot} />;
       case GamePhase.PLAYING:
-      case GamePhase.QUESTION_REVEAL:
         return snapshot.question ? (
           <QuestionStage snapshot={snapshot} />
         ) : (
