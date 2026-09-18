@@ -238,6 +238,18 @@ const describeError = (error: any): string => {
     return `The Anthropic API rejected the request: ${error.message}`;
   }
   if (error instanceof Anthropic.APIConnectionError) {
+    // A browser that refuses a request never reports *why* to the page, so this
+    // arrives looking exactly like an unplugged cable. Through the proxy it
+    // almost never is one: the usual cause is the Worker declining a header the
+    // SDK sends, which blocks the preflight so the request is never made. The
+    // network tab shows it as a failed OPTIONS; `npm run check-live` names it.
+    if (proxyUrl) {
+      return (
+        `Could not reach the question proxy at ${proxyUrl}. It is either down, ` +
+        `or it refused the browser's preflight — run \`npm run check-live\` to ` +
+        `see which, then \`npm run worker:deploy\` if the Worker needs updating.`
+      );
+    }
     return "Could not reach the Anthropic API. Check the network connection.";
   }
   if (error instanceof Anthropic.APIError) {

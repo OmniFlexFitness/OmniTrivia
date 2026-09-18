@@ -68,6 +68,10 @@ npm run worker:login
 npm run worker:deploy
 ```
 
+This is the bootstrap deploy, and the only one that has to be done by hand.
+Once [**Deploying automatically**](#deploying-automatically) is set up, every
+push to master deploys the Worker and then checks it.
+
 The Worker answers at **https://play.omniflexfitness.com** and
 **https://trivia-api.omniflexfitness.com** — two names for one Worker, set by
 the `[[routes]]` blocks in `wrangler.toml`. Cloudflare creates each DNS record
@@ -196,6 +200,107 @@ complaint about the key names which way it is wrong. Still free.
 
 Then open the site, host a game, and use **GENERATE & REVIEW** — the first real
 generation is the last step, and it is the one that spends money.
+
+---
+
+## Deploying automatically
+
+`.github/workflows/deploy-worker.yml` deploys this Worker on every push to
+**master** (and to **live**, if that branch is ever created), then runs
+`check-proxy-gates` against the Worker it just deployed. A deploy that does not
+take is a red tick rather than a silence.
+
+This is not a convenience. The Worker was deployed by hand for its first weeks,
+from whichever machine last ran `npm run worker:deploy`, and that is exactly how
+it ended up four days behind the repository while the site served placeholder
+questions — `git log` looked healthy the whole time, because nothing in git
+knows what Cloudflare is running.
+
+### One-time setup
+
+Two repository secrets (Settings → Secrets and variables → Actions → **Secrets**):
+
+| Name | Where it comes from |
+| --- | --- |
+| `CLOUDFLARE_API_TOKEN` | Cloudflare dashboard → **My Profile** → **API Tokens** → **Create Token** → **Edit Cloudflare Workers** template |
+| `CLOUDFLARE_ACCOUNT_ID` | Workers & Pages → Overview, in the right-hand sidebar (also the hex string in any dashboard URL) |
+
+Use the **Edit Cloudflare Workers** template rather than a hand-rolled custom
+token. It already carries `Workers Scripts:Edit` *and* the zone-level
+`Workers Routes:Edit` that the `[[routes]]` custom domains in `wrangler.toml`
+need — a token with only the account-level permission deploys the code and then
+fails on the routes. When the template asks which zone, include
+`omniflexfitness.com`.
+
+These are the *only* two secrets the workflow needs. The Anthropic key is not
+among them: it lives in Cloudflare, set once with `npm run worker:secret`, and
+it survives every deploy. Nothing in GitHub ever sees it.
+
+Until both secrets exist the workflow fails on its first step and says which one
+is missing, deliberately — a workflow that skipped quietly would be the same
+silent non-deploy all over again.
+
+### Deploying by hand
+
+Still works, and is still the way to deploy from a branch or to test a change
+before merging it:
+
+```bash
+npm run worker:deploy
+```
+
+Note that this deploys **your working tree**, not master. If you deploy by hand
+from a branch, the next push to master puts the Worker back to whatever master
+says — which is the behaviour you want, but it will silently undo a hand deploy
+you meant to keep.
+
+### Deploying without a code change
+
+Rotating the Anthropic key takes no deploy at all — `npm run worker:secret`
+takes effect immediately. For anything that does need a redeploy, use the
+workflow's **Run workflow** button (Actions → *Deploy the question proxy* →
+Run workflow) rather than an empty commit.
+
+---
+
+## If the site shows placeholder questions
+
+The host clicks **GENERATE & REVIEW** and gets *"Placeholder question #1 about
+… — question generation failed."* Almost always the request never left the
+browser, and the reason is the preflight.
+
+Anything the browser sends beyond a handful of safelisted headers has to be
+cleared first, in one `OPTIONS` request, all or nothing. The Anthropic SDK puts
+**fourteen** headers on every request — the documented ones plus eight
+`x-stainless-*` telemetry headers — so a Worker whose `Access-Control-Allow-Headers`
+names thirteen of them is a Worker that every browser refuses. The `POST` is
+never made, the SDK can only report it as a connection error, and the app falls
+back to placeholders.
+
+This is invisible to everything that is not a browser. `curl`, `npm run
+check-live` and `check-proxy-gates` all used to talk to the Worker from Node,
+where there is no CORS at all, and all reported a healthy proxy while the live
+site generated nothing for weeks. Both scripts now send the browser's real
+header list and fail on any header the Worker will not clear:
+
+```bash
+npm run check-live
+PROXY_URL=https://trivia-api.omniflexfitness.com npm run check-proxy-gates
+```
+
+If either names a blocked header, the deployed Worker is behind this repository.
+Redeploy it:
+
+```bash
+npm run worker:deploy
+```
+
+The Worker now echoes back whatever the browser asks for on top of its own
+list, so a future SDK release that adds a header cannot break the site again.
+That grants nothing: clearing a header at the preflight only lets the browser
+*send* it, and a request still has to pass the origin allowlist, the Firebase
+token, the rate limit and the body cap — while only the fixed `FORWARDED_HEADERS`
+list is ever passed on to Anthropic.
 
 ---
 

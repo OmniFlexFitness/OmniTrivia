@@ -1,0 +1,93 @@
+# Deploys the question-generation proxy to Cloudflare whenever master moves.
+#
+# The Worker used to be deployed by hand, from whichever machine last ran
+# `npm run worker:deploy`. That is how the repository and the live Worker came
+# apart: worker/src/index.ts gained the headers the Anthropic SDK sends, the
+# deployed Worker never did, and every generation on the site came back as
+# placeholder questions while `git log` looked perfectly healthy.
+#
+# Nothing here is deployed by hand any more, and a deploy that does not take is
+# a red tick rather than a silence.
+name: Deploy the question proxy
+
+on:
+  push:
+    # master is this repository's trunk and the only branch that exists today.
+    # `live` is listed ahead of time so that promoting a release branch later
+    # is a branch push and nothing else — no one has to remember to come back
+    # and edit this file, which is the kind of forgetting that left the Worker
+    # four days behind the repository in the first place. A branch that is
+    # never pushed is a trigger that never fires, so listing it costs nothing.
+    #
+    # Both deploy the same Worker. If `live` ever becomes real, treat master
+    # and live as one line of history — merge master into live rather than
+    # letting them diverge, or the deployed Worker is whichever branch was
+    # pushed last rather than whichever is newer.
+    branches: [master, live]
+  # For redeploying without an empty commit — after rotating the Anthropic key,
+  # or to put the Worker back in step if it is ever changed from the dashboard.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deploy at a time, and let a running one finish: two `wrangler deploy`
+# runs racing decide the live version by whichever finishes last, which is not
+# necessarily the newer commit.
+concurrency:
+  group: deploy-worker
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Without this the first failure is wrangler's, which reads like a broken
+      # Worker rather than a repository missing two settings. Failing here is
+      # deliberate: a skip would be a Worker silently left on an old version,
+      # which is the whole bug this workflow is here to stop.
+      - name: Check the Cloudflare credentials exist
+        env:
+          API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          missing=""
+          [ -n "$API_TOKEN" ] || missing="$missing CLOUDFLARE_API_TOKEN"
+          [ -n "$ACCOUNT_ID" ] || missing="$missing CLOUDFLARE_ACCOUNT_ID"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository secret(s):$missing — the Worker was NOT deployed. See worker/README.md, 'Deploying automatically'."
+            exit 1
+          fi
+
+      - name: Deploy the Worker
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy --config worker/wrangler.toml
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      # Prove the Worker that is now answering is the one just deployed.
+      #
+      # A green `wrangler deploy` says Cloudflare accepted the upload, not that
+      # the Worker on the far side of the DNS name behaves. check-proxy-gates
+      # asks it the questions a browser would — including the preflight, which
+      # is the one that was failing — and every check in it is a refusal, so it
+      # costs nothing and spends nothing against the Anthropic key.
+      - name: Check the deployed Worker
+        run: |
+          for attempt in 1 2 3 4 5 6; do
+            if [ "$(curl -fsS --max-time 10 "$PROXY_URL/health" || true)" = "ok" ]; then
+              break
+            fi
+            echo "Not answering yet; waiting for the deploy to propagate ($attempt/6)."
+            sleep 10
+          done
+          npm run check-proxy-gates
+        env:
+          PROXY_URL: https://trivia-api.omniflexfitness.com

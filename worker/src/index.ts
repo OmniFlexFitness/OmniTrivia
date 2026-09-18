@@ -55,32 +55,85 @@ const allowedOrigins = (env: Env): string[] =>
     .map((origin) => origin.trim())
     .filter(Boolean);
 
-const corsHeaders = (origin: string | null, env: Env): Record<string, string> => {
-  const allowed = allowedOrigins(env);
-  const match = origin && allowed.includes(origin) ? origin : null;
+/**
+ * Headers a browser may send here, whether or not it thought to ask.
+ *
+ * The Anthropic SDK does not stop at the headers the API documents. Every
+ * request it makes also carries eight `x-stainless-*` telemetry headers, and a
+ * browser will not send a request whose headers the preflight did not clear.
+ * Omitting them is not a partial failure: the POST never leaves the browser at
+ * all, the SDK reports it as a connection error, and the host is shown
+ * placeholder questions with nothing to go on but a blocked preflight.
+ */
+const ALLOWED_HEADERS = [
+  "authorization",
+  "content-type",
+  "accept",
+  "anthropic-version",
+  "anthropic-beta",
+  "x-api-key",
+  "anthropic-dangerous-direct-browser-access",
+  "x-stainless-lang",
+  "x-stainless-package-version",
+  "x-stainless-os",
+  "x-stainless-arch",
+  "x-stainless-runtime",
+  "x-stainless-runtime-version",
+  "x-stainless-retry-count",
+  "x-stainless-timeout",
+];
+
+/**
+ * The list above, plus whatever this particular browser asked to send.
+ *
+ * Echoing the request's own list is what stops this breaking again the next
+ * time the SDK adds a header. It grants nothing: clearing a header at the
+ * preflight only lets the browser *send* it, and what a request may actually do
+ * here is settled afterwards by the origin allowlist, the Firebase token, the
+ * rate limit and the body cap — none of which a header can talk its way past.
+ * Only the fixed FORWARDED_HEADERS list ever reaches Anthropic.
+ */
+const allowedRequestHeaders = (request: Request): string => {
+  const asked = (request.headers.get("access-control-request-headers") ?? "")
+    .split(",")
+    .map((name) => name.trim().toLowerCase())
+    .filter(Boolean);
+
+  return [...new Set([...ALLOWED_HEADERS, ...asked])].join(", ");
+};
+
+/** Errors the SDK reads off a response; without these it cannot see them. */
+const EXPOSED_HEADERS = "request-id, retry-after, anthropic-ratelimit-requests-reset";
+
+const corsHeaders = (request: Request, env: Env): Record<string, string> => {
+  const origin = request.headers.get("origin");
+  const match = origin && allowedOrigins(env).includes(origin) ? origin : null;
   if (!match) return {};
 
   return {
     "Access-Control-Allow-Origin": match,
     "Access-Control-Allow-Methods": "POST, OPTIONS",
-    // The SDK adds its own headers in the browser; a preflight that does not
-    // name them is a preflight the browser refuses.
-    "Access-Control-Allow-Headers":
-      "authorization, content-type, anthropic-version, anthropic-beta, x-api-key, anthropic-dangerous-direct-browser-access",
+    "Access-Control-Allow-Headers": allowedRequestHeaders(request),
+    // A 429 the SDK cannot read `retry-after` from is a 429 it backs off from
+    // by guesswork, which on a shared key is the difference between the second
+    // attempt working and the round starting on placeholders.
+    "Access-Control-Expose-Headers": EXPOSED_HEADERS,
     "Access-Control-Max-Age": "86400",
-    Vary: "Origin",
+    // The allowed-header list is now per-request, so a cache that ignored the
+    // request's own list would hand one browser another browser's preflight.
+    Vary: "Origin, Access-Control-Request-Headers",
   };
 };
 
 const refuse = (
   status: number,
   message: string,
-  origin: string | null,
+  request: Request,
   env: Env,
 ): Response =>
   new Response(JSON.stringify({ error: { type: "proxy_error", message } }), {
     status,
-    headers: { "content-type": "application/json", ...corsHeaders(origin, env) },
+    headers: { "content-type": "application/json", ...corsHeaders(request, env) },
   });
 
 export default {
@@ -89,7 +142,7 @@ export default {
     const url = new URL(request.url);
 
     if (request.method === "OPTIONS") {
-      const headers = corsHeaders(origin, env);
+      const headers = corsHeaders(request, env);
       // An unlisted origin gets no CORS headers, so the browser stops it here.
       return new Response(null, { status: Object.keys(headers).length ? 204 : 403, headers });
     }
@@ -100,23 +153,23 @@ export default {
     }
 
     if (request.method !== "POST") {
-      return refuse(405, "Only POST is accepted.", origin, env);
+      return refuse(405, "Only POST is accepted.", request, env);
     }
 
     // The Anthropic SDK appends /v1/messages to its base URL. Nothing else on
     // the API is needed here, so nothing else is reachable through it.
     if (url.pathname !== "/v1/messages") {
-      return refuse(404, "Unknown endpoint.", origin, env);
+      return refuse(404, "Unknown endpoint.", request, env);
     }
 
     if (!origin || !allowedOrigins(env).includes(origin)) {
-      return refuse(403, "Origin not allowed.", origin, env);
+      return refuse(403, "Origin not allowed.", request, env);
     }
 
     const authorization = request.headers.get("authorization") ?? "";
     const token = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
     if (!token) {
-      return refuse(401, "Sign in before generating questions.", origin, env);
+      return refuse(401, "Sign in before generating questions.", request, env);
     }
 
     let uid: string;
@@ -127,19 +180,19 @@ export default {
     } catch (error) {
       // The reason goes to the log, not to whoever is probing.
       console.log(`rejected token: ${(error as Error).message}`);
-      return refuse(401, "Sign in before generating questions.", origin, env);
+      return refuse(401, "Sign in before generating questions.", request, env);
     }
 
     if (env.GENERATION_LIMIT) {
       const { success } = await env.GENERATION_LIMIT.limit({ key: uid });
       if (!success) {
-        return refuse(429, "Too many generations from this device. Wait a moment.", origin, env);
+        return refuse(429, "Too many generations from this device. Wait a moment.", request, env);
       }
     }
 
     const body = await request.arrayBuffer();
     if (body.byteLength > MAX_BODY_BYTES) {
-      return refuse(413, "Request too large.", origin, env);
+      return refuse(413, "Request too large.", request, env);
     }
 
     const headers = new Headers();
@@ -165,7 +218,7 @@ export default {
       status: upstream.status,
       headers: upstream.headers,
     });
-    for (const [name, value] of Object.entries(corsHeaders(origin, env))) {
+    for (const [name, value] of Object.entries(corsHeaders(request, env))) {
       response.headers.set(name, value);
     }
     // Nothing here is cacheable, and an answer cached across devices would be
