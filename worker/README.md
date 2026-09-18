@@ -295,6 +295,35 @@ Redeploy it:
 npm run worker:deploy
 ```
 
+### The other cause: a key with no workspace
+
+Placeholders are what a host sees for *any* generation failure, not just the
+preflight, so rule this one out too — it was live alongside the preflight bug
+and would have kept the site broken after the preflight was fixed.
+
+An org-level Anthropic key is refused unless the request names a workspace to
+bill, and the refusal arrives as a `400` **after** every gate here has passed,
+so it reads like a broken proxy:
+
+```
+This API key is not scoped to a workspace, so this request must include the
+anthropic-workspace-id header with the ID of the workspace to use.
+```
+
+Confirm it without opening a browser — `npm run check-live` says
+`and the key it holds is one Anthropic will bill` when it is fine, and names
+this when it is not. Either fix takes effect immediately, with no redeploy:
+
+```bash
+# Preferred: a key created inside a workspace carries its own.
+npm run worker:secret
+
+# Or keep the org-level key and name the workspace for it.
+npx wrangler@latest secret put ANTHROPIC_WORKSPACE_ID --config worker/wrangler.toml
+```
+
+### Why the allowed-header list is open-ended
+
 The Worker now echoes back whatever the browser asks for on top of its own
 list, so a future SDK release that adds a header cannot break the site again.
 That grants nothing: clearing a header at the preflight only lets the browser

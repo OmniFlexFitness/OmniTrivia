@@ -226,13 +226,25 @@ const describeError = (error: any): string => {
     return "Rate limited by the Anthropic API. Wait a moment and try again.";
   }
   if (error instanceof Anthropic.BadRequestError) {
-    // Identity-linked keys fail this way until a workspace is named, and the
-    // raw message does not say where to put it.
+    // An org-level key is refused until the request names a workspace to bill,
+    // and the raw message does not say where that goes. Where it goes depends
+    // on which side is holding the key: through the proxy the browser never
+    // sees it, so nothing in this bundle can fix it.
     if (/workspace/i.test(error.message)) {
+      if (proxyUrl) {
+        return (
+          "The Anthropic key the proxy holds is not scoped to a workspace, so " +
+          "Anthropic will not bill it. Either re-run `npm run worker:secret` " +
+          "with a key created inside a workspace, or name the workspace on " +
+          "the Worker with `npx wrangler@latest secret put " +
+          "ANTHROPIC_WORKSPACE_ID --config worker/wrangler.toml`. Either takes " +
+          "effect immediately. See worker/README.md."
+        );
+      }
       return (
-        "This Anthropic key is tied to a workspace and the request did not " +
-        "name one. Set VITE_ANTHROPIC_WORKSPACE_ID in .env to the workspace " +
-        "id (starts with wrkspc_) and restart the dev server."
+        "This Anthropic key is not scoped to a workspace, so the request has " +
+        "to name one. Set VITE_ANTHROPIC_WORKSPACE_ID in .env to the " +
+        "workspace id and restart the dev server."
       );
     }
     return `The Anthropic API rejected the request: ${error.message}`;

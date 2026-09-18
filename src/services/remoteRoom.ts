@@ -233,6 +233,31 @@ const decode = (
  * Safe to call for a PIN already attached — the second call is a no-op, which
  * is what lets the host's heartbeat and a re-render share one attachment.
  */
+/**
+ * Why the last attach failed.
+ *
+ * `openRoom` starts with a read, so a database that refuses this device throws
+ * immediately, while an unreachable one hangs until the timebox. Both used to
+ * come back as a bare `false` and be reported as a network problem — and a
+ * room told to check its Wi-Fi when the real answer is that
+ * firebase/database.rules.json was never published will check its Wi-Fi all
+ * night. The rules deny by default until they are deployed, so this is the
+ * first thing a new project hits and the last thing the message described.
+ */
+export type RoomFailure = "denied" | "unreachable" | null;
+
+let lastFailure: RoomFailure = null;
+
+/** Firebase reports this as a code, a message, or both, depending on the call. */
+const isPermissionDenied = (error: unknown): boolean => {
+  const { code, message } = (error ?? {}) as { code?: unknown; message?: unknown };
+  const text = `${typeof code === "string" ? code : ""} ${typeof message === "string" ? message : ""}`;
+  return /permission[\s_]?denied/i.test(text);
+};
+
+/** The reason the last `attachRoom` returned false, or null if it succeeded. */
+export const lastRoomFailure = (): RoomFailure => lastFailure;
+
 export const attachRoom = async (
   pin: string,
   options: {
@@ -244,19 +269,33 @@ export const attachRoom = async (
   if (attachment?.pin === pin && attachment.asHost === options.asHost) return true;
 
   await detachRoom();
+  lastFailure = null;
 
   // Everything past here can fail or hang: sign-in is refused when Anonymous
-  // auth was never enabled, and a first read over a bad connection can sit
-  // there indefinitely. Neither may take the local game down with it, so the
-  // whole attachment is timeboxed and its failure is just a `false`.
+  // auth was never enabled, the rules refuse every read until they are
+  // published, and a first read over a bad connection can sit there
+  // indefinitely. None of them may take the local game down, so the whole
+  // attachment is timeboxed and its failure is just a `false` — with the
+  // reason kept alongside, because the caller has to explain it to someone.
   try {
-    return await Promise.race([
-      openRoom(pin, options),
+    // Catching here rather than around the race keeps a rejection that lands
+    // after the timebox from going unhandled, and still records its reason.
+    const opening = openRoom(pin, options).catch((error) => {
+      lastFailure = isPermissionDenied(error) ? "denied" : "unreachable";
+      return false;
+    });
+
+    const opened = await Promise.race([
+      opening,
       new Promise<boolean>((resolve) =>
         setTimeout(() => resolve(false), ATTACH_TIMEOUT_MS),
       ),
     ]);
-  } catch {
+
+    if (!opened && !lastFailure) lastFailure = "unreachable";
+    return opened;
+  } catch (error) {
+    lastFailure = isPermissionDenied(error) ? "denied" : "unreachable";
     return false;
   }
 };

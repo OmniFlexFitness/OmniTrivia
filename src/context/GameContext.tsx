@@ -62,6 +62,7 @@ import {
   canReachOtherDevices,
   deviceIdentity,
   roomChannelReady,
+  roomFailureReason,
   subscribeToMessages,
 } from "../services/broadcastBus";
 
@@ -745,10 +746,11 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     // because the alternative is a host stuck on the review screen with a
     // dead button and a room waiting on them.
     const attached = await attachRoomChannel(pin, true);
-    const roomWarning =
-      canReachOtherDevices() && !attached
-        ? "Could not reach the multiplayer server, so phones cannot join this game. The host screen and the broadcast display still work."
-        : null;
+    const roomWarning = !canReachOtherDevices() || attached
+      ? null
+      : roomFailureReason() === "denied"
+        ? "The room database is refusing every device, so phones cannot join this game. Its security rules have never been published — run `npm run rules:deploy` (see MULTIPLAYER.md). The host screen and the broadcast display still work."
+        : "Could not reach the multiplayer server, so phones cannot join this game. The host screen and the broadcast display still work.";
 
     // Claim the PIN now rather than on the first heartbeat: until the room is
     // registered another host could allocate the same code, and a snapshot
@@ -880,7 +882,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
       giveUp(
         params.silent
           ? null
-          : "Could not reach the game server. Check this device's internet connection, then try the PIN again.",
+          : roomFailureReason() === "denied"
+            ? "The game server is refusing every device, because this game's database rules have not been published yet. Nothing is wrong with this phone or the PIN — the host has to publish them."
+            : "Could not reach the game server. Check this device's internet connection, then try the PIN again.",
       );
       return;
     }
