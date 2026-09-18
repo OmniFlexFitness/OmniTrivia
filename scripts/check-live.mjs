@@ -76,7 +76,7 @@ console.log("\nSigning in, the way every device does\n");
 
 const { initializeApp } = await import("firebase/app");
 const { getAuth, signInAnonymously } = await import("firebase/auth");
-const { getDatabase, ref, get, set, remove } = await import("firebase/database");
+const { getDatabase, ref, get, set, remove, onValue, serverTimestamp } = await import("firebase/database");
 
 const app = initializeApp({ apiKey, authDomain, databaseURL, projectId, appId: "1:0:web:check-live" });
 const db = getDatabase(app);
@@ -92,6 +92,21 @@ try {
   host = (await timed(signInAnonymously(getAuth(app)), 15000, "sign-in")).user;
   ok("anonymous sign-in works", true);
   note(`signed in as ${host.uid}`);
+
+  // Not a pass/fail — the app writes the server's clock and does not care. It
+  // is here because a skewed clock breaks other things quietly (a CSV import
+  // stamped in the future, a confusing log), and this is the one place that
+  // already knows the answer.
+  const offset = await new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), 8000);
+    onValue(ref(db, ".info/serverTimeOffset"), (snap) => {
+      clearTimeout(timer);
+      resolve(snap.val());
+    }, { onlyOnce: true });
+  });
+  if (typeof offset === "number" && Math.abs(offset) > 2000) {
+    note(`this machine's clock is ${Math.abs(offset) / 1000}s ${offset < 0 ? "ahead of" : "behind"} the database's — worth fixing, though nothing below depends on it`);
+  }
 } catch (error) {
   const code = error?.code ?? "";
   ok("anonymous sign-in works", false, `${code} ${error?.message ?? error}`);
@@ -140,7 +155,14 @@ if (readable && pin) {
         hostUid: host.uid,
         gameName: "check-live",
         open: true,
-        updatedAt: Date.now(),
+        // serverTimestamp(), not Date.now(), because the rules require
+        // `updatedAt <= now` and this machine's clock is not the database's.
+        // A laptop running a few seconds fast writes a timestamp from the
+        // future, the rule refuses it, and this check reports a broken app
+        // that is in fact fine — remoteRoom.ts has always written the server's
+        // clock here. Checking with a different clock than the app uses is
+        // checking something the app never does.
+        updatedAt: serverTimestamp(),
       }),
       15000,
       "claim",
@@ -193,7 +215,7 @@ if (claimed) {
           hostUid: intruder.uid,
           gameName: "stolen",
           open: true,
-          updatedAt: Date.now(),
+          updatedAt: serverTimestamp(),
         }),
         15000,
         "steal",
