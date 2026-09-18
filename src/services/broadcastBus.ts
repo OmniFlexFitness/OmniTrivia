@@ -3,6 +3,7 @@ import {
   attachRoom,
   currentUid,
   detachRoom,
+  lastRoomFailure,
   publishRemote,
   registerRemoteRoom,
   releaseRemoteRoom,
@@ -113,6 +114,12 @@ export const detachRoomChannel = (): Promise<void> => detachRoom();
 
 /** Whether this build can reach other devices at all. */
 export const canReachOtherDevices = remoteEnabled;
+
+/**
+ * Why the last attach failed — "denied" when the database refused this device,
+ * which is a published-rules problem rather than a network one.
+ */
+export const roomFailureReason = lastRoomFailure;
 
 /**
  * Resolves true once the room channel can carry a message. Always true when
