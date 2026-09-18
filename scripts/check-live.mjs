@@ -249,6 +249,59 @@ if (!proxy) {
 }
 note(proxy);
 
+/**
+ * The preflight, exactly as the host's browser sends it.
+ *
+ * Everything else in this file talks to the proxy from Node, which does no
+ * CORS at all — so a Worker that every browser refuses looks perfectly healthy
+ * from here. It has: the site generated placeholders for weeks while every
+ * check below passed, because the Worker cleared six headers and the Anthropic
+ * SDK sends fourteen. A blocked preflight never becomes a POST, so the SDK can
+ * only call it a connection error.
+ *
+ * `user-agent` is absent on purpose: browsers will not let a page set it.
+ */
+const SDK_HEADERS = [
+  "authorization",
+  "content-type",
+  "x-api-key",
+  "anthropic-version",
+  "anthropic-dangerous-direct-browser-access",
+  "x-stainless-arch",
+  "x-stainless-lang",
+  "x-stainless-os",
+  "x-stainless-package-version",
+  "x-stainless-retry-count",
+  "x-stainless-runtime",
+  "x-stainless-runtime-version",
+  "x-stainless-timeout",
+];
+
+const preflight = await fetch(`${proxy}/v1/messages`, {
+  method: "OPTIONS",
+  headers: {
+    Origin: SITE,
+    "Access-Control-Request-Method": "POST",
+    "Access-Control-Request-Headers": SDK_HEADERS.join(","),
+  },
+}).catch(() => null);
+
+const clearedHeaders = (preflight?.headers.get("access-control-allow-headers") ?? "")
+  .split(",")
+  .map((name) => name.trim().toLowerCase());
+const blocked = SDK_HEADERS.filter((name) => !clearedHeaders.includes(name));
+
+ok("clears the preflight a browser actually sends", preflight?.status === 204 && blocked.length === 0,
+  preflight?.status !== 204
+    ? `the proxy answered the preflight with ${preflight?.status ?? "nothing"}`
+    : `the browser is refused over: ${blocked.join(", ")}`);
+
+if (blocked.length) {
+  note("The browser never sends the POST, so the SDK reports a connection error");
+  note("and the host is handed placeholder questions. Redeploy the Worker:");
+  note("npm run worker:deploy");
+}
+
 const token = await host.getIdToken();
 const attempt = await fetch(`${proxy}/v1/messages`, {
   method: "POST",

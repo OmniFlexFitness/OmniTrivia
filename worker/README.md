@@ -199,6 +199,47 @@ generation is the last step, and it is the one that spends money.
 
 ---
 
+## If the site shows placeholder questions
+
+The host clicks **GENERATE & REVIEW** and gets *"Placeholder question #1 about
+… — question generation failed."* Almost always the request never left the
+browser, and the reason is the preflight.
+
+Anything the browser sends beyond a handful of safelisted headers has to be
+cleared first, in one `OPTIONS` request, all or nothing. The Anthropic SDK puts
+**fourteen** headers on every request — the documented ones plus eight
+`x-stainless-*` telemetry headers — so a Worker whose `Access-Control-Allow-Headers`
+names thirteen of them is a Worker that every browser refuses. The `POST` is
+never made, the SDK can only report it as a connection error, and the app falls
+back to placeholders.
+
+This is invisible to everything that is not a browser. `curl`, `npm run
+check-live` and `check-proxy-gates` all used to talk to the Worker from Node,
+where there is no CORS at all, and all reported a healthy proxy while the live
+site generated nothing for weeks. Both scripts now send the browser's real
+header list and fail on any header the Worker will not clear:
+
+```bash
+npm run check-live
+PROXY_URL=https://trivia-api.omniflexfitness.com npm run check-proxy-gates
+```
+
+If either names a blocked header, the deployed Worker is behind this repository.
+Redeploy it:
+
+```bash
+npm run worker:deploy
+```
+
+The Worker now echoes back whatever the browser asks for on top of its own
+list, so a future SDK release that adds a header cannot break the site again.
+That grants nothing: clearing a header at the preflight only lets the browser
+*send* it, and a request still has to pass the origin allowlist, the Firebase
+token, the rate limit and the body cap — while only the fixed `FORWARDED_HEADERS`
+list is ever passed on to Anthropic.
+
+---
+
 ## Local development
 
 ```bash

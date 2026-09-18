@@ -44,17 +44,54 @@ ok("answers a health check", true);
 
 console.log("\nWho may call it\n");
 
+/**
+ * Every header @anthropic-ai/sdk puts on a request from a browser.
+ *
+ * A browser clears its whole header list in one preflight: one header the
+ * Worker does not name and the POST is never sent, which the SDK can only
+ * report as a connection error and the host only sees as placeholder
+ * questions. Asking for a single header — as this check used to — passes
+ * happily while the other eight are refused, so ask for all of them.
+ *
+ * `user-agent` is left out on purpose: browsers refuse to let a page set it,
+ * so it never reaches the preflight.
+ */
+const SDK_HEADERS = [
+  "authorization",
+  "content-type",
+  "x-api-key",
+  "anthropic-version",
+  "anthropic-dangerous-direct-browser-access",
+  "x-stainless-arch",
+  "x-stainless-lang",
+  "x-stainless-os",
+  "x-stainless-package-version",
+  "x-stainless-retry-count",
+  "x-stainless-runtime",
+  "x-stainless-runtime-version",
+  "x-stainless-timeout",
+];
+
 const preflight = await call("/v1/messages", {
   method: "OPTIONS",
-  headers: { Origin: ALLOWED },
+  headers: {
+    Origin: ALLOWED,
+    "Access-Control-Request-Method": "POST",
+    "Access-Control-Request-Headers": SDK_HEADERS.join(","),
+  },
 });
 ok("the game's own origin gets a preflight", preflight.status === 204);
+
+const allowedHeaders = (preflight.headers.get("access-control-allow-headers") ?? "")
+  .split(",")
+  .map((name) => name.trim().toLowerCase());
+const missing = SDK_HEADERS.filter((name) => !allowedHeaders.includes(name));
 ok(
-  "and the headers the Anthropic SDK sends",
-  (preflight.headers.get("access-control-allow-headers") ?? "").includes(
-    "anthropic-dangerous-direct-browser-access",
-  ),
+  "clearing every header the Anthropic SDK sends",
+  missing.length === 0,
+  `the browser would be refused over: ${missing.join(", ")}`,
 );
+
 ok(
   "which name that origin and no other",
   preflight.headers.get("access-control-allow-origin") === ALLOWED,
