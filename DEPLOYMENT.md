@@ -18,6 +18,7 @@ at the end of this guide, but nothing in this app needs it today.
 | Piece | Where it lives | What it does |
 | --- | --- | --- |
 | **Build + publish** | `.github/workflows/deploy.yml` | On every push to `master`: `npm ci`, `npm run build` (`tsc` then `vite build`), then upload `dist/` to GitHub Pages. Pull requests build but do not deploy. |
+| **Deploy the proxy** | `.github/workflows/deploy-worker.yml` | On every push to `master` (or `live`): deploys the Worker in `worker/` to Cloudflare, then runs `check-proxy-gates` against it. Needs `secrets.CLOUDFLARE_API_TOKEN` and `secrets.CLOUDFLARE_ACCOUNT_ID`; fails loudly without them. [worker/README.md](worker/README.md#deploying-automatically) |
 | **Hosting** | GitHub Pages, this repository | Serves `dist/` over GitHub's CDN with a free, auto-renewing TLS certificate. |
 | **Domain** | Cloudflare DNS for `omniflexfitness.com` | `trivia` is a `CNAME` to `omniflexfitness.github.io`. |
 | **Asset paths** | `base: "./"` in `vite.config.ts` | Relative URLs, so the same build works at the custom domain root *and* at the `omniflexfitness.github.io/OmniTrivia/` fallback URL. |
