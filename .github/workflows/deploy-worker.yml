@@ -68,6 +68,60 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: deploy --config worker/wrangler.toml
 
+      # Why the deploy failed, in words, when it does.
+      #
+      # wrangler prints the real reason inside a collapsed `::group::`, so what
+      # GitHub surfaces at the top of a failed run is "The process
+      # '/usr/local/bin/npx' failed with exit code 1" — true, and useless.
+      # Worse with debug logging on, where it is buried in a thousand lines of
+      # `##[debug]`. So on failure, ask the Cloudflare API the two questions
+      # that separate the usual causes and say which one it is.
+      #
+      # This runs only after a failure and always exits 0: the job is already
+      # red from the step above, and a diagnostic that can itself fail is a
+      # diagnostic that can lie about what went wrong.
+      - name: Say why the deploy failed
+        if: failure()
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          # `failure()` also fires when the credential check above failed, and
+          # that step has already said the useful thing. Probing with an empty
+          # token would only add a second, wronger explanation.
+          if [ -z "$CF_TOKEN" ] || [ -z "$CF_ACCOUNT" ]; then
+            echo "The credential check above already named what is missing."
+            exit 0
+          fi
+
+          probe() {
+            curl -sS --max-time 20 -H "Authorization: Bearer $CF_TOKEN" "$1" 2>/dev/null || true
+          }
+
+          # The decisive question first: can this token see this account's
+          # Workers at all? Deploying needs strictly more than that.
+          scripts=$(probe "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT/workers/scripts")
+
+          if printf '%s' "$scripts" | grep -q '"success":true'; then
+            echo "::error::The token can read this account's Workers, so the failure above is narrower than a missing account permission. The usual cause is the zone-level 'Workers Routes' permission: worker/wrangler.toml claims trivia-api.omniflexfitness.com and play.omniflexfitness.com as custom domains, and updating those needs edit access to the omniflexfitness.com zone. Expand 'Running Wrangler Commands' in the step above for wrangler's own message."
+            exit 0
+          fi
+
+          # It cannot. Distinguish a token that is refused outright from one
+          # that is accepted but not allowed to touch Workers.
+          verify=$(probe "https://api.cloudflare.com/client/v4/user/tokens/verify")
+
+          if printf '%s' "$verify" | grep -q '"success":true'; then
+            echo "::error::CLOUDFLARE_API_TOKEN is a valid token but cannot read this account's Workers, so it certainly cannot deploy one — it is missing the account-level 'Workers Scripts' permission. Recreate it from the 'Edit Cloudflare Workers' template (Cloudflare -> My Profile -> API Tokens -> Create Token), include the omniflexfitness.com zone, and replace the repository secret. See worker/README.md."
+          else
+            echo "::error::CLOUDFLARE_API_TOKEN was rejected before any permission was checked — revoked, expired, pasted with a stray character, or an account-scoped token this check cannot verify. Recreate it from the 'Edit Cloudflare Workers' template, include the omniflexfitness.com zone, and replace the repository secret. See worker/README.md."
+          fi
+
+          # The API's own words, which name the permission group when it is one.
+          # No secret appears in an error body; the token is never echoed.
+          echo "Cloudflare replied: $(printf '%s' "$scripts" | head -c 400)"
+          exit 0
+
       - uses: actions/setup-node@v7
         with:
           node-version: 22
