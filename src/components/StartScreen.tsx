@@ -4,10 +4,10 @@ import Button from './Button';
 import Instructions from './Instructions';
 import CategoryPoolManager from './CategoryPoolManager';
 import InsightsPanel from './InsightsPanel';
-import { BarChart3, Gamepad2, ListPlus, Server } from 'lucide-react';
+import { BarChart3, Gamepad2, KeyRound, ListPlus, Server } from 'lucide-react';
 
 const StartScreen: React.FC = () => {
-  const { initHost, initJoin } = useGame();
+  const { initHost, initJoin, initHostResume } = useGame();
   const [showPool, setShowPool] = useState(false);
   const [showInsights, setShowInsights] = useState(false);
 
@@ -46,6 +46,17 @@ const StartScreen: React.FC = () => {
           >
             <Server /> HOST GAME
           </Button>
+
+          {/* A host whose window went away is not starting a game — their
+              game is still running, with a room sitting in front of it. This
+              is the way back in, and it belongs beside the other two doors
+              rather than buried in the host's setup. */}
+          <button
+            onClick={initHostResume}
+            className="w-full flex items-center justify-center gap-2 py-3 text-sm font-mono uppercase tracking-widest text-slate-400 hover:text-neon-yellow transition-colors"
+          >
+            <KeyRound size={16} /> resume hosting a game
+          </button>
         </div>
 
         {/* The host's own tools. They are not part of playing a game, so they

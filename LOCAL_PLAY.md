@@ -144,6 +144,27 @@ A PIN now means something:
 > is the same missing piece described under "What actually works today" — it
 > needs a server holding room state, not a bigger front end.
 
+### If you lose the page mid-game
+
+Two pages can go wrong on a trivia night, and neither one ends the game any
+more.
+
+- **The host's.** A reload, the back button, a closed tab or a sleeping laptop
+  used to take the whole game with it. Now the game is written down as it goes,
+  and **RESUME HOSTING** on the start screen asks for the PIN and the **host
+  password** set during setup — the lobby shows it one last time, behind an eye
+  toggle. The game comes back mid-round: every score, the bracket, the clock
+  where it stopped.
+- **A player's.** Every player picks a four-digit **rejoin code** when they
+  join. A tab that just reloads comes back on its own; one that has been cleared
+  out types the same name and the same code on the same join screen and lands
+  back in its own seat, score and all.
+
+Without Firebase both of these work within the browser that was running the
+game, which is as far as anything else goes here either. The saved game lives in
+that browser's storage; with multiplayer configured a copy also lives in the
+room, and the host can come back on a completely different device.
+
 ### Hosting and playing at the same time
 
 The host is always seated as a player, and the control screen runs two panes
@@ -203,6 +224,10 @@ There is no server, no socket, and no shared session. Concretely:
   crosses a network, so a phone that scans the QR code gets the app with the
   PIN filled in and then finds no room to join — it now says so rather than
   starting a phantom game.
+- **A lost page is no longer a lost game.** The host's running game is saved to
+  this browser as it goes and is taken back with the PIN and the host password;
+  a player's seat is taken back with their name and their rejoin code. Both are
+  checked headlessly by `npm run check-returns`.
 - **Other players in the lobby are bots.** `GameContext` auto-adds bots every
   3 seconds until there are 3 players. They answer at staggered, random times
   inside their own matchup and are graded by the same scoring code as a person,
