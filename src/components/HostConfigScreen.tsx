@@ -33,6 +33,14 @@ const HostConfigScreen: React.FC = () => {
     generateGame(rounds, questions);
   };
 
+  // The sliders above are the shape of the game either way round. An import
+  // that arrived without them is what turned a 40-question file into one
+  // 40-question round.
+  const handleImport = () => {
+    if (passwordTooShort) return;
+    initImport(rounds, questions);
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-slate-900 text-white">
@@ -150,13 +158,18 @@ const HostConfigScreen: React.FC = () => {
               />
               <span className="text-2xl font-mono font-bold text-neon-blue w-12 text-center">{questions}</span>
             </div>
+            <p className="text-xs text-slate-500 mt-2">
+              Both of these apply to an import too — a file with more categories
+              or more questions than this is trimmed to fit, and you choose what
+              is kept.
+            </p>
           </div>
 
           <div className="pt-4 space-y-3">
             <Button onClick={handleGenerate} fullWidth variant="neon" disabled={passwordTooShort} className="flex items-center justify-center gap-2">
               GENERATE & REVIEW <ArrowRight />
             </Button>
-            <Button onClick={initImport} fullWidth variant="secondary" disabled={passwordTooShort} className="flex items-center justify-center gap-2 border-slate-600">
+            <Button onClick={handleImport} fullWidth variant="secondary" disabled={passwordTooShort} className="flex items-center justify-center gap-2 border-slate-600">
               <Upload size={18} /> IMPORT MY OWN QUESTIONS
             </Button>
             {/* The pool is not part of this game's setup — it is the standing

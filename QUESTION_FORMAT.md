@@ -27,10 +27,18 @@ are all the same column. Order does not matter.
 | `type` | no | Defaults to `MULTIPLE_CHOICE` |
 | `explanation` | no | Shown on the leaderboard after the question |
 
-Rounds appear in the order their category first appears in the file. A category
+Each distinct category becomes one category the wheel can land on. A category
 matching a built-in name — **Science, History, Geography, Pop Culture, Sports,
 Tech, Art, Literature, Music, Food** — gets that category's icon and colour on
 the wheel. Any other name still works, but shows as ❓ in grey.
+
+**The order in the file is not the order it is played.** After the file is read
+you are shown **WHAT TO PLAY**: tick the categories you want, and the rounds
+and questions-per-round numbers you set on the setup screen trim the rest away.
+Whatever survives is shuffled — categories, the questions inside each one, and
+the options under each multiple-choice question — and which category comes up
+in which round is then decided by the wheel, live. So a file can hold far more
+than one night's worth, and the same file gives a different game each time.
 
 ## Question types
 

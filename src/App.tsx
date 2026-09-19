@@ -5,6 +5,7 @@ import { isBroadcastView } from './services/broadcastBus';
 import StartScreen from './components/StartScreen';
 import HostConfigScreen from './components/HostConfigScreen';
 import ImportScreen from './components/ImportScreen';
+import ImportSelectScreen from './components/ImportSelectScreen';
 import ReviewScreen from './components/ReviewScreen';
 import JoinScreen from './components/JoinScreen';
 import HostResumeScreen from './components/HostResumeScreen';
@@ -28,6 +29,8 @@ const AppContent: React.FC = () => {
       return <HostConfigScreen />;
     case GamePhase.IMPORT:
       return <ImportScreen />;
+    case GamePhase.IMPORT_SELECT:
+      return <ImportSelectScreen />;
     case GamePhase.REVIEW:
       return <ReviewScreen />;
     case GamePhase.JOIN:

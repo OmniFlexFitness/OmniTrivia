@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { CATEGORIES } from "../constants";
 import { useGame } from "../context/GameContext";
+import { planSpin } from "../services/wheel";
 import { Category } from "../types";
 import Button from "./Button";
 import { ArrowRight } from "lucide-react";
@@ -141,7 +142,7 @@ const clamp = (value: number, min: number, max: number) =>
 
 const Wheel: React.FC = () => {
   const {
-    selectCategory,
+    startRound,
     beginWheelSpin,
     revealCategory,
     isHost,
@@ -154,7 +155,17 @@ const Wheel: React.FC = () => {
   const [rotation, setRotation] = useState(0);
   const [winningCategory, setWinningCategory] = useState<Category | null>(null);
   const [isSpinning, setIsSpinning] = useState(false);
-  const [hasValidSpin, setHasValidSpin] = useState(false);
+  /**
+   * The slices as they were when this spin started.
+   *
+   * Landing is a state change — the category the pointer stopped on is moved
+   * into this round's slot — and that reorders the very list the slices are
+   * drawn from. Without this the wheel silently re-labelled itself under a
+   * stationary pointer the instant it stopped, so the host read one category
+   * off the wheel while the game announced another. What was flicked is what
+   * stays on screen.
+   */
+  const [lockedSlices, setLockedSlices] = useState<Category[] | null>(null);
 
   // Drag state
   const [isDragging, setIsDragging] = useState(false);
@@ -165,20 +176,23 @@ const Wheel: React.FC = () => {
   const animationFrameRef = useRef<number | null>(null);
   const rotationRef = useRef(0);
 
-  // Get the target category for this round from config
-  const targetCategoryConfig = roundsConfig[currentRound - 1];
-  const targetCategory = targetCategoryConfig
-    ? targetCategoryConfig.category
-    : CATEGORIES[0];
-  // The wheel must show the categories this game is actually playing. An
-  // imported set is frequently not the built-in ten, and drawing the built-ins
-  // regardless meant findIndex below returned -1 for any custom category — the
-  // wheel then landed a slice off, pointing at one name while announcing
-  // another. Fall back to the built-ins only before a game is configured.
-  const activeCategories =
-    roundsConfig.length > 0
-      ? roundsConfig.map((round) => round.category)
-      : CATEGORIES;
+  /* The wheel draws what is still to be played, and nothing else.
+   *
+   * It must show the categories this game actually loaded — an imported set is
+   * frequently not the built-in ten — and it must show only the ones left,
+   * because a category is played once and its questions go with it. So the
+   * slices are `roundsConfig` from this round's slot onwards: ten categories
+   * in round one, nine in round two, and the last round is a wheel of one.
+   * Fall back to the built-ins only before a game is configured.
+   */
+  const firstUnplayed = Math.min(
+    Math.max(0, currentRound - 1),
+    Math.max(0, roundsConfig.length - 1),
+  );
+  const remaining = roundsConfig.slice(firstUnplayed);
+  const liveCategories =
+    remaining.length > 0 ? remaining.map((round) => round.category) : CATEGORIES;
+  const activeCategories = lockedSlices ?? liveCategories;
 
   const sliceCount = activeCategories.length;
   const sliceAngle = 360 / sliceCount;
@@ -251,67 +265,53 @@ const Wheel: React.FC = () => {
     [isDragging, isHost, getAngleFromCenter],
   );
 
-  // Run the spin animation and land on this round's pre-generated category.
+  /**
+   * Spin, and play whatever it lands on.
+   *
+   * The category is not chosen here and then animated to — it is read off the
+   * wheel once the wheel has stopped. `planSpin` turns how hard this was
+   * flicked, plus a full turn of random offset, into a resting rotation, and
+   * the slice under the pointer at that rotation is the round. Which is why
+   * `revealCategory` is handed an index rather than an id: the pointer is the
+   * authority, and the game moves that category into this round's slot.
+   */
   const triggerSpin = useCallback(
     (velocity: number) => {
       if (winningCategory || isSpinning) return;
 
       setIsSpinning(true);
-      setHasValidSpin(true);
+      // Hold the slices still for the rest of this round. Landing rewrites the
+      // list they come from, and a wheel that re-labels itself mid-spin is a
+      // wheel that lies about where it stopped.
+      setLockedSlices(activeCategories);
       // The broadcast window has no wheel of its own; this is what puts the
       // room on a suspense screen while the host spins.
       beginWheelSpin();
 
-      // Which slice to land on. The wheel draws one slice per configured
-      // round, in round order, and selectCategory() deals the round's questions
-      // from roundsConfig[currentRound - 1] regardless of the id it is handed —
-      // so that index, not an id lookup, is what the pointer has to agree with.
-      // Matching by id would also pick the wrong slice whenever a category
-      // repeats, which a game with more rounds than categories does.
-      const foundIndex =
-        roundsConfig.length > 0
-          ? currentRound - 1
-          : activeCategories.findIndex((c) => c.id === targetCategory.id);
-      const targetIndex = clamp(foundIndex, 0, sliceCount - 1);
-
-      // Land the pointer on the middle of the slice rather than its leading
-      // edge, which is where the old `-(index * sliceAngle)` left it: dead on
-      // the boundary between two categories.
-      const targetSliceRotation = -((targetIndex + 0.5) * sliceAngle);
-
-      // Add extra spins based on velocity
-      const spinMultiplier = Math.min(Math.floor(velocity / 400), 8);
-      const extraSpins = 360 * (3 + spinMultiplier);
-
-      // Calculate final rotation
-      const currentNormalized = rotationRef.current % 360;
-      const finalRotation =
-        rotationRef.current -
-        currentNormalized +
-        extraSpins +
-        targetSliceRotation;
+      const { finalRotation, landedIndex } = planSpin(
+        rotationRef.current,
+        velocity,
+        sliceCount,
+      );
 
       rotationRef.current = finalRotation;
       setRotation(finalRotation);
 
-      // Set winning category after animation completes
+      // Read the result off the wheel once it has come to rest. Announcing it
+      // any earlier would be the old behaviour wearing a different hat.
       setTimeout(() => {
         setIsSpinning(false);
-        setWinningCategory(targetCategory);
+        setWinningCategory(activeCategories[landedIndex] ?? null);
         // The room sees the category the moment the wheel stops, rather than
         // sitting on the spinning screen until the host presses START ROUND.
-        revealCategory();
+        revealCategory(landedIndex);
       }, 3000);
     },
     [
       winningCategory,
       isSpinning,
       activeCategories,
-      targetCategory,
-      roundsConfig,
-      currentRound,
       sliceCount,
-      sliceAngle,
       beginWheelSpin,
       revealCategory,
     ],
@@ -426,10 +426,16 @@ const Wheel: React.FC = () => {
     };
   }, []);
 
+  // A new round is a new wheel. Both screens that show this unmount it between
+  // rounds, so this is a belt to that braces — but a stale lock would draw the
+  // last round's categories, which is exactly the lie this is here to prevent.
+  useEffect(() => {
+    setLockedSlices(null);
+    setWinningCategory(null);
+  }, [currentRound]);
+
   const handleContinue = () => {
-    if (winningCategory) {
-      selectCategory(winningCategory.id);
-    }
+    if (winningCategory) startRound();
   };
 
   // Determine wheel cursor and transition style

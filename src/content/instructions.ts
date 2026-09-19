@@ -29,7 +29,7 @@ export const GLOSSARY: GlossaryEntry[] = [
   {
     term: "Round",
     definition:
-      "One spin of the wheel. The wheel picks the category, then every player still in the bracket is paired off into matchups.",
+      "One spin of the wheel. The wheel picks the category — really picks it, from the categories not yet played — and then every player still in the bracket is paired off into matchups.",
   },
   {
     term: "Matchup",
@@ -82,6 +82,7 @@ export type GuideKey =
   | "start"
   | "hostConfig"
   | "import"
+  | "importSelect"
   | "review"
   | "join"
   | "hostResume"
@@ -125,7 +126,19 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
     points: [
       "Required columns: category, question, option1–option4, correctAnswer. An explanation column is optional and shows on the reveal.",
       "A Google Sheet has to be shared as 'anyone with the link can view' before it can be read.",
+      "Bring the whole file. You choose how much of it to play on the next screen, so a library of twenty categories is fine for a three-round night.",
       "You review everything before a single player sees it.",
+    ],
+  },
+
+  importSelect: {
+    title: "Cutting the file down to a game",
+    lead: "A question file is usually a library. This is where it becomes the night you set up.",
+    points: [
+      "Keep the categories you want and drop the ones you do not — each kept category is one possible round.",
+      "Rounds and questions per round are ceilings. Keep more categories than rounds and the extras are drawn out at random, so the same file gives a different game each time.",
+      "A category with fewer questions than the ceiling just plays a shorter round. Nothing is padded and no question is repeated.",
+      "Which round is played when is still the wheel's decision, not this screen's.",
     ],
   },
 
@@ -133,8 +146,10 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
     title: "Before you open the lobby",
     lead: "This is the last look at the questions before a room is in front of you.",
     points: [
-      "Each block is one round, and the category at its head is what the wheel will land on for that round.",
-      "The ↻ on a question regenerates just that one, leaving the rest alone.",
+      "Each block is one category the wheel can land on. Which one comes up in which round is decided by the spin, so these are not in playing order.",
+      "The ↻ on a question writes a different one for that slot; the bin drops it. Rounds are allowed to end up different lengths.",
+      "'Drop category' takes a whole category out of the game — that is also how you get rid of a round you do not want.",
+      "Questions, answers and categories were all shuffled on the way in, so a regular never meets them in the order they were written.",
       "APPROVE & OPEN LOBBY gets you a PIN and a QR code, and seats you as a player.",
     ],
   },
@@ -178,7 +193,8 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
     title: "Round start",
     lead: "The wheel picks this round's category, then every match is dealt the same questions.",
     points: [
-      "One spin, one category, one round.",
+      "One spin, one category, one round. The spin genuinely decides it — whichever slice stops under the pointer is what you play.",
+      "The wheel only carries the categories still to be played, so it loses a slice every round and the last round is a wheel of one.",
       "The matchups for this round are on the big screen — that is who you are playing.",
       "START ROUND deals every match its questions and stops coordinating them. From there, nobody waits for anybody.",
     ],

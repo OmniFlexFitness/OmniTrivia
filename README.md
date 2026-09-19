@@ -19,7 +19,7 @@ exactly as they are defined here, and so does the code.
 | Term | What it means |
 | --- | --- |
 | **Game** | The whole night: one host, one PIN, and the set of rounds they have loaded. |
-| **Round** | One spin of the wheel. The wheel picks a category, then every player still in the bracket is paired off. A round has one category and one set of questions. |
+| **Round** | One spin of the wheel. The wheel picks a category — really picks it, from the ones not yet played — then every player still in the bracket is paired off. A round has one category and one set of questions. |
 | **Matchup** | One pairing for one round: you against one other player. Round one is drawn at random; from then on the bracket decides who you face, because it pairs the players who won. |
 | **Match** | A matchup actually being played — the round's questions, answered by the two people in it. A round has one match per matchup, and every match runs at its own pace. |
 | **Bracket** | Single elimination. The higher round score in a matchup advances; the other player is out. The odd player out each round gets a **bye** and advances unopposed — and a bye goes to whoever has had the fewest so far, so the same person cannot keep drawing them. |
@@ -31,8 +31,10 @@ exactly as they are defined here, and so does the code.
 
 1. The host loads questions, opens a lobby, and players join with the PIN.
 2. **START GAME** closes the lobby and draws the round-one matchups at random.
-3. Each round: the wheel picks the category, every matchup is dealt the round's
-   questions, and the matches play out.
+3. Each round: the wheel is spun, whichever slice stops under the pointer is
+   the category, every matchup is dealt that round's questions, and the matches
+   play out. The wheel carries only the categories still to be played, so it
+   loses a slice each round and the last round is a wheel of one.
 4. At the end of a round, every matchup is settled on that round's points. The
    winners are paired into next round's matchups; the losers are out of the
    bracket but stay on the leaderboard.
@@ -319,6 +321,7 @@ npm run preview
 | `npm run generate-questions` | Write a question CSV with Claude from Node, keeping the key off the browser |
 | `npm run check-key` | Diagnose why AI generation is returning placeholders |
 | `npm run check-round-pacing` | Play a round headlessly and assert nobody waits for anybody |
+| `npm run check-game-setup` | Assert shuffling, import trimming and the wheel's geometry all hold |
 | `npm run check-returns` | Take a lost game back headlessly, and check the wrong code cannot |
 | `npm run check-live` | Check the *deployed* site: sign-in, published rules, and the proxy's key |
 | `npm run rules:deploy` | Publish `firebase/database.rules.json` to the live database |
@@ -353,9 +356,9 @@ reaches the bundle or the room's Wi-Fi. It reads the same `.env`.
 `QUESTION_PROMPT.md` is a prompt you paste into Claude, ChatGPT or anything
 else you have open. It carries the whole column spec and the parser's rules,
 and returns a CSV you import directly. Change the `CATEGORIES` line and you
-change the rounds — the wheel draws whatever categories the imported file
-contains, so custom ones are first-class (they just show with a ❓ instead of
-a themed icon).
+change the categories on offer — the wheel draws whatever the imported file
+contains (minus anything you untick on the way in), so custom ones are
+first-class (they just show with a ❓ instead of a themed icon).
 
 ### Bring your own (no API key needed)
 
@@ -537,32 +540,43 @@ without the hash ever being readable, is in
    and questions per round. The name is what the room sees; the PIN is only the
    code players type. The password is the one thing on that screen that is not
    about the questions — it is what gets this game back if the window dies, so
-   write it down.
-2. **GENERATE & REVIEW**, or **IMPORT MY OWN QUESTIONS**. Read the review
-   screen — the ↻ on any question regenerates just that one.
-3. **APPROVE & OPEN LOBBY** → you get a PIN and a QR code, and you are seated
+   write it down. The two numbers are the shape of the game whichever way the
+   questions arrive — they apply to an import too.
+2. **GENERATE & REVIEW**, or **IMPORT MY OWN QUESTIONS**. An import stops at
+   **WHAT TO PLAY** first: tick the categories you want, and the rounds and
+   questions-per-round ceilings trim the rest away, drawn at random. A file of
+   twenty categories and fifty questions each is a library — this is where it
+   becomes a three-round night.
+3. Read the review screen. The ↻ on a question writes a different one for that
+   slot, the bin drops it, and **drop category** takes a whole category out of
+   the game. Rounds are allowed to end up different lengths. The blocks are not
+   in playing order — which category comes up in which round is the wheel's
+   decision.
+4. **APPROVE & OPEN LOBBY** → you get a PIN and a QR code, and you are seated
    as a player automatically. The lobby shows the host password one last time
    (behind an eye toggle, because a laptop on a bar table gets read over
    shoulders). **OPEN BROADCAST DISPLAY** and move it to the big screen.
    **EDIT MY PLAYER** renames your seat, **ADD BOT** adds opponents.
-4. **START GAME** → **SPIN THE WHEEL** each round, then **START ROUND**. That
+5. **START GAME** → **SPIN THE WHEEL** each round, then **START ROUND**. The
+   spin decides the category: whichever slice stops under the pointer is what
+   the room plays, and it comes off the wheel for the rest of the game. That
    deals every matchup its match, every player their own seat in it, and stops
    coordinating them. Your own match sits beside the controls, with an
    **answering on/off** toggle: off takes you out of the round so nothing waits
    on you, and brings the answer reference back.
-5. Every player runs themselves: their clock counts down, their question closes
+6. Every player runs themselves: their clock counts down, their question closes
    the moment they answer it, their answer goes up for them alone, and
    **NEXT QUESTION** takes them straight on. Somebody can be finished with the
    round while the person they are playing is on question two. **Pause**,
    **+10s** and **Reveal** act on one table — both seats at it — with "everyone"
    versions beside them.
-6. The projector follows the field: it holds whichever question the slowest
+7. The projector follows the field: it holds whichever question the slowest
    player is still on, and puts the answer up once everyone is through it.
    **MOVE THE ROOM ON** does that by hand when **auto-advance** is off.
-7. At the end of a round the broadcast shows the round's results, the standings,
+8. At the end of a round the broadcast shows the round's results, the standings,
    the bracket including who is up against whom next, and the **vote on what to
    play next time**. **START ROUND N** to carry on.
-8. **PLAY AGAIN** replays the same questions with scores reset — no
+9. **PLAY AGAIN** replays the same questions with scores reset — no
    regeneration, no API spend.
 
 Two host-only panels sit outside a game: **pool** edits the categories the
@@ -645,6 +659,22 @@ with no code at all, and a stranger who knows the name — and checks that only
 the right pair gets the seat, and that the phone which lost it stops being able
 to answer for it. `npm run check-room-rules` covers the database side of the
 same story against a local emulator.
+
+The other claim worth checking is that a game is put together the way this
+README says it is — shuffled, trimmed to the host's numbers, and played on
+whatever the wheel actually landed on:
+
+```bash
+npm run check-game-setup
+```
+
+It asserts that a shuffle never loses, duplicates or corrupts a question and
+that the correct answer follows its option around; that the four question types
+whose option order *is* the answer are left alone, checked against
+`questions.example.csv` through the real parser; that an import is trimmed to
+the categories the host kept and the ceilings they set; that the slice under
+the pointer is the slice the spin planned for, at every wheel size; and that
+the category a round is played on is the one the wheel stopped on.
 
 ## What this is not
 

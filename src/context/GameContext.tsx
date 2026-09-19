@@ -8,6 +8,7 @@ import React, {
 } from "react";
 import {
   Answer,
+  CategoryContent,
   GameState,
   GamePhase,
   GameMode,
@@ -29,6 +30,13 @@ import {
 } from "../constants";
 import { generateQuestions } from "../services/claudeService";
 import { parseImportData } from "../services/importService";
+import {
+  buildRoundsFromContent,
+  longestRound,
+  randomizeRounds,
+  renumberRounds,
+  shuffle,
+} from "../services/questionSet";
 import {
   activePlayerIds,
   buildFirstRound,
@@ -123,8 +131,31 @@ interface GameContextType extends GameState {
   toggleHostAnswering: () => void;
   clearJoinError: () => void;
   updateConfig: (rounds: number, questions: number) => void;
-  initImport: () => void;
+  /**
+   * Open the importer, carrying the shape the host has just dialled in. The
+   * rounds and questions-per-round sliders mean the same thing whether the
+   * questions come from Claude or from a spreadsheet, and an import that
+   * ignored them was the reason a 40-question file became a 40-question round.
+   */
+  initImport: (rounds: number, questions: number) => void;
   importGame: (csvData: string) => void;
+  /**
+   * Turn the parsed import into a game: which categories to keep, how many of
+   * them to play, and how many questions each round carries.
+   */
+  applyImportSelection: (selection: {
+    categoryIds: string[];
+    rounds: number;
+    questionsPerRound: number;
+  }) => void;
+  /** Back from the trimming screen to the file picker, keeping nothing. */
+  cancelImport: () => void;
+  /**
+   * Back from the review screen to the import's WHAT TO PLAY, with the whole
+   * file still in hand. Null-safe to call: it does nothing when this game did
+   * not come from an import.
+   */
+  reopenImportSelection: () => void;
   goBackToConfig: () => void;
   joinGame: (
     name: string,
@@ -141,9 +172,20 @@ interface GameContextType extends GameState {
   hostJoinAsPlayer: (name: string, avatar: string) => void;
   addBot: () => void;
   startGame: () => void;
-  selectCategory: (category: string) => Promise<void>; // Kept for compatibility but modified
+  /**
+   * Deal the round on whatever the wheel landed on. No argument: the category
+   * was settled by `revealCategory` when the wheel stopped, and passing it
+   * again would just be a second chance to disagree with the pointer.
+   */
+  startRound: () => void;
   beginWheelSpin: () => void;
-  revealCategory: () => void;
+  /**
+   * The wheel has stopped on `landedIndex` — a position among the categories
+   * still to be played, which is what the wheel draws. This is where the
+   * round's category is actually decided: the landed category is moved into
+   * this round's slot and everything downstream reads it from there.
+   */
+  revealCategory: (landedIndex: number) => void;
   submitAnswer: (answer: Answer) => void;
   /**
    * Take the next question now instead of waiting out the rest of the reveal.
@@ -163,10 +205,19 @@ interface GameContextType extends GameState {
   nextRound: () => void;
   restartGame: () => void;
   playAgain: () => void;
+  /**
+   * Rewrite one question in place. Returns false when generation failed and the
+   * question was left alone, so the review screen can say so rather than
+   * spinning and quietly changing nothing.
+   */
   regenerateQuestion: (
-    categoryId: string,
+    roundNumber: number,
     questionIndex: number,
-  ) => Promise<void>;
+  ) => Promise<boolean>;
+  /** Drop one question from a round. */
+  removeQuestion: (roundNumber: number, questionIndex: number) => void;
+  /** Drop a whole round — the category and every question under it. */
+  removeRound: (roundNumber: number) => void;
 
   /* --- host controls for running a live round --- *
    * Every question-level control now names the matchup it applies to: there is
@@ -340,6 +391,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     totalRounds: 3,
     questionsPerRound: 5,
     roundsConfig: [],
+    importPreview: null,
     currentRound: 0,
     questionsQueue: [],
     usedCategories: [],
@@ -1191,18 +1243,13 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     }));
 
     try {
-      // Select random unique categories
-      const shuffledCats = [...CATEGORIES].sort(() => 0.5 - Math.random());
-      const selectedCats = shuffledCats.slice(0, rounds);
-
-      // If we requested more rounds than categories, we might reuse, but for now assume rounds <= categories
-      if (selectedCats.length < rounds) {
-        // Fill with randoms if needed
-        while (selectedCats.length < rounds) {
-          selectedCats.push(
-            CATEGORIES[Math.floor(Math.random() * CATEGORIES.length)],
-          );
-        }
+      // A properly shuffled draw of distinct categories, topped up with repeats
+      // only if the host asked for more rounds than there are categories.
+      const selectedCats = shuffle(CATEGORIES).slice(0, rounds);
+      while (selectedCats.length < rounds) {
+        selectedCats.push(
+          CATEGORIES[Math.floor(Math.random() * CATEGORIES.length)],
+        );
       }
 
       // Generate every round concurrently. Sequential calls made a 5-round game
@@ -1213,11 +1260,16 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         ),
       );
 
-      const newRoundsConfig: RoundConfig[] = results.map((result, i) => ({
-        roundNumber: i + 1,
-        category: selectedCats[i],
-        questions: result.questions,
-      }));
+      // Shuffled on the way in: the model writes a set in the order it thought
+      // of it, and a room that plays two games off the same generator should
+      // not meet the same question in the same seat twice.
+      const newRoundsConfig: RoundConfig[] = randomizeRounds(
+        results.map((result, i) => ({
+          roundNumber: i + 1,
+          category: selectedCats[i],
+          questions: result.questions,
+        })),
+      );
 
       // Warn the host that they are about to run placeholders in front of a room.
       const failed = results.filter((r) => r.usedFallback);
@@ -1243,11 +1295,17 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   };
 
-  const initImport = () => {
+  const initImport = (rounds: number, questions: number) => {
     setState((prev) => ({
       ...prev,
       isHost: true,
       error: null,
+      // The sliders the host has just set are the shape of the game whichever
+      // way the questions arrive, so they travel into the importer rather than
+      // being discarded at its door.
+      totalRounds: rounds,
+      questionsPerRound: questions,
+      importPreview: null,
       phase: GamePhase.IMPORT,
     }));
   };
@@ -1256,34 +1314,47 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     setState((prev) => ({
       ...prev,
       error: null,
+      importPreview: null,
       phase: GamePhase.HOST_CONFIG,
     }));
   };
 
+  const cancelImport = () => {
+    setState((prev) => ({
+      ...prev,
+      error: null,
+      importPreview: null,
+      phase: GamePhase.IMPORT,
+    }));
+  };
+
+  /**
+   * Read a file and show the host what is in it.
+   *
+   * This deliberately stops short of building a game. A question file is
+   * usually a library — twenty categories, fifty questions each — and turning
+   * all of it into rounds is how a three-round night became however many
+   * categories the spreadsheet happened to contain. What it produces is the
+   * menu; `applyImportSelection` orders from it.
+   */
   const importGame = (csvData: string) => {
     try {
       const parsed = parseImportData(csvData);
-      const categoryContents = Object.values(parsed);
-
-      const newRoundsConfig: RoundConfig[] = categoryContents.map(
-        (content, i) => ({
-          roundNumber: i + 1,
-          category: content.category,
-          questions: content.questions,
-        }),
+      const categoryContents: CategoryContent[] = Object.values(parsed).filter(
+        (content) => content.questions.length > 0,
       );
+
+      if (categoryContents.length === 0) {
+        throw new Error("No valid questions could be parsed from the data.");
+      }
 
       setState((prev) => ({
         ...prev,
         loading: false,
         error: null,
         contentWarning: null,
-        roundsConfig: newRoundsConfig,
-        totalRounds: newRoundsConfig.length,
-        questionsPerRound: Math.max(
-          ...newRoundsConfig.map((r) => r.questions.length),
-        ),
-        phase: GamePhase.REVIEW,
+        importPreview: categoryContents,
+        phase: GamePhase.IMPORT_SELECT,
       }));
     } catch (error: any) {
       setState((prev) => ({
@@ -1292,6 +1363,61 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         error: error?.message || "Failed to import questions.",
       }));
     }
+  };
+
+  /**
+   * Go back and re-cut the file.
+   *
+   * The whole parsed import is still held, so a host who gets to the review
+   * screen and decides they want different categories does not have to find
+   * the file again — which, mid-setup with a room filling up, is the
+   * difference between changing your mind and living with it.
+   */
+  const reopenImportSelection = () => {
+    setState((prev) =>
+      prev.importPreview && prev.importPreview.length > 0
+        ? { ...prev, error: null, phase: GamePhase.IMPORT_SELECT }
+        : prev,
+    );
+  };
+
+  const applyImportSelection = ({
+    categoryIds,
+    rounds,
+    questionsPerRound,
+  }: {
+    categoryIds: string[];
+    rounds: number;
+    questionsPerRound: number;
+  }) => {
+    setState((prev) => {
+      const contents = prev.importPreview ?? [];
+      const roundsConfig = buildRoundsFromContent(contents, {
+        categoryIds,
+        maxCategories: rounds,
+        maxQuestions: questionsPerRound,
+      });
+
+      if (roundsConfig.length === 0) {
+        return {
+          ...prev,
+          error: "Keep at least one category with at least one question.",
+        };
+      }
+
+      // A category can be short of the ceiling the host set, so what the lobby
+      // advertises is the longest round rather than the number they asked for.
+      return {
+        ...prev,
+        error: null,
+        contentWarning: null,
+        roundsConfig,
+        totalRounds: roundsConfig.length,
+        questionsPerRound: longestRound(roundsConfig),
+        importPreview: contents,
+        phase: GamePhase.REVIEW,
+      };
+    });
   };
 
   const confirmGame = async () => {
@@ -1777,16 +1903,45 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
   };
 
   /**
-   * The wheel has landed. This is the beat the room is watching for, and it
-   * happens when the animation ends — not later, when the host gets around to
-   * pressing START ROUND.
+   * The wheel has landed, and *this* is where the round's category is decided.
+   *
+   * The wheel draws the categories still to be played — `roundsConfig` from
+   * this round's slot onwards — so `landedIndex` is a position in that
+   * remainder. Committing it is a swap: the landed category is moved into this
+   * round's slot, and the one that was sitting there goes back into the
+   * remainder to be spun for again later.
+   *
+   * Everything downstream already reads the round's category and questions out
+   * of `roundsConfig[currentRound - 1]`, so moving it here is what makes the
+   * pointer the thing that chooses. It used to be the other way round: the
+   * category was fixed when the game was generated and the spin was animated
+   * to agree with it.
    */
-  const revealCategory = () => {
-    setState((prev) => ({
-      ...prev,
-      wheelSpinning: false,
-      categoryRevealed: true,
-    }));
+  const revealCategory = (landedIndex: number) => {
+    setState((prev) => {
+      const from = Math.max(0, prev.currentRound - 1);
+      const remaining = prev.roundsConfig.length - from;
+      if (remaining <= 0) {
+        return { ...prev, wheelSpinning: false, categoryRevealed: true };
+      }
+
+      const picked = from + Math.min(Math.max(landedIndex, 0), remaining - 1);
+      const roundsConfig = [...prev.roundsConfig];
+      [roundsConfig[from], roundsConfig[picked]] = [
+        roundsConfig[picked],
+        roundsConfig[from],
+      ];
+
+      return {
+        ...prev,
+        // Renumbered so a round's label keeps matching the round it is, which
+        // is also what every edit on the review screen names it by.
+        roundsConfig: renumberRounds(roundsConfig),
+        selectedCategory: roundsConfig[from].category.id,
+        wheelSpinning: false,
+        categoryRevealed: true,
+      };
+    });
   };
 
   /**
@@ -1796,7 +1951,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
    * matchup and then stops coordinating them. From here each pairing is on its
    * own clock, and the only thing they share is the list of questions.
    */
-  const selectCategory = async (_categoryId: string) => {
+  const startRound = () => {
     setState((prev) => {
       const roundConfig = prev.roundsConfig[prev.currentRound - 1];
       if (!roundConfig) {
@@ -2106,6 +2261,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
       currentPlayerId: null,
       roomWarning: null,
       roundsConfig: [],
+      importPreview: null,
       bracket: [],
       championId: null,
       lanes: [],
@@ -2156,39 +2312,106 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     }));
   };
 
+  /**
+   * Rewrite one question in place.
+   *
+   * Rounds are named by their number rather than by their category, here and
+   * in the two functions below. A game with more rounds than categories plays
+   * one twice, and an id lookup would have edited whichever copy came first
+   * however many times the host clicked — on a round they were not looking at.
+   */
   const regenerateQuestion = async (
-    categoryId: string,
+    roundNumber: number,
     questionIndex: number,
-  ) => {
-    // Find the round config for this category
-    const roundIndex = state.roundsConfig.findIndex(
-      (rc) => rc.category.id === categoryId,
+  ): Promise<boolean> => {
+    const roundIndex = stateRef.current.roundsConfig.findIndex(
+      (rc) => rc.roundNumber === roundNumber,
     );
-    if (roundIndex === -1) return;
+    if (roundIndex === -1) return false;
 
-    const roundConfig = state.roundsConfig[roundIndex];
+    const roundConfig = stateRef.current.roundsConfig[roundIndex];
+    if (!roundConfig.questions[questionIndex]) return false;
+
     try {
-      // Generate a single new question
       const result = await generateQuestions(roundConfig.category.name, 1);
-      if (result.usedFallback || result.questions.length === 0) return;
+      // A placeholder is not a replacement. Leaving the original in place and
+      // saying so beats swapping a real question for "generation failed".
+      if (result.usedFallback || result.questions.length === 0) return false;
 
-      // Replace the question at the specified index
-      const updatedQuestions = [...roundConfig.questions];
-      updatedQuestions[questionIndex] = result.questions[0];
+      setState((prev) => {
+        const target = prev.roundsConfig.findIndex(
+          (rc) => rc.roundNumber === roundNumber,
+        );
+        if (target === -1) return prev;
 
-      const updatedRoundsConfig = [...state.roundsConfig];
-      updatedRoundsConfig[roundIndex] = {
-        ...roundConfig,
-        questions: updatedQuestions,
-      };
+        const questions = [...prev.roundsConfig[target].questions];
+        if (!questions[questionIndex]) return prev;
+        questions[questionIndex] = result.questions[0];
 
-      setState((prev) => ({
-        ...prev,
-        roundsConfig: updatedRoundsConfig,
-      }));
+        const roundsConfig = [...prev.roundsConfig];
+        roundsConfig[target] = { ...roundsConfig[target], questions };
+        return { ...prev, roundsConfig };
+      });
+      return true;
     } catch (error) {
       console.error("Error regenerating question:", error);
+      return false;
     }
+  };
+
+  /**
+   * Drop one question from a round.
+   *
+   * Rounds are allowed to end up different lengths — the round a match plays
+   * is whatever `questionsQueue` holds, not a fixed count — so this needs no
+   * backfill. The last question in a round is kept: an empty round is a spin
+   * of the wheel onto nothing, and the way to get rid of it is `removeRound`.
+   */
+  const removeQuestion = (roundNumber: number, questionIndex: number) => {
+    setState((prev) => {
+      const target = prev.roundsConfig.findIndex(
+        (rc) => rc.roundNumber === roundNumber,
+      );
+      if (target === -1) return prev;
+
+      const round = prev.roundsConfig[target];
+      if (round.questions.length <= 1) return prev;
+      if (!round.questions[questionIndex]) return prev;
+
+      const roundsConfig = [...prev.roundsConfig];
+      roundsConfig[target] = {
+        ...round,
+        questions: round.questions.filter((_, i) => i !== questionIndex),
+      };
+
+      return {
+        ...prev,
+        roundsConfig,
+        questionsPerRound: longestRound(roundsConfig),
+      };
+    });
+  };
+
+  /** Drop a whole round: its category leaves the wheel with it. */
+  const removeRound = (roundNumber: number) => {
+    setState((prev) => {
+      // The last round standing is kept for the same reason the last question
+      // in a round is: a game with nothing in it cannot be opened, and the
+      // host is one click from RESTART if that is what they meant.
+      if (prev.roundsConfig.length <= 1) return prev;
+
+      const roundsConfig = renumberRounds(
+        prev.roundsConfig.filter((rc) => rc.roundNumber !== roundNumber),
+      );
+      if (roundsConfig.length === prev.roundsConfig.length) return prev;
+
+      return {
+        ...prev,
+        roundsConfig,
+        totalRounds: roundsConfig.length,
+        questionsPerRound: longestRound(roundsConfig),
+      };
+    });
   };
 
   return (
@@ -2210,12 +2433,15 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         updateConfig,
         initImport,
         importGame,
+        applyImportSelection,
+        cancelImport,
+        reopenImportSelection,
         goBackToConfig,
         joinGame,
         hostJoinAsPlayer,
         addBot,
         startGame,
-        selectCategory,
+        startRound,
         beginWheelSpin,
         revealCategory,
         submitAnswer,
@@ -2227,6 +2453,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         restartGame,
         playAgain,
         regenerateQuestion,
+        removeQuestion,
+        removeRound,
         revealLaneNow,
         toggleLanePaused,
         addLaneTime,

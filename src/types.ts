@@ -2,6 +2,9 @@ export enum GamePhase {
   START = "START",
   HOST_CONFIG = "HOST_CONFIG",
   IMPORT = "IMPORT", // Importing questions from CSV / Google Sheets
+  // Choosing which of an imported file's categories to play, and how much
+  // of each. A file is usually a library rather than a game.
+  IMPORT_SELECT = "IMPORT_SELECT",
   REVIEW = "REVIEW", // New phase for reviewing questions
   JOIN = "JOIN",
   /** The host is coming back to a game they were already running. */
@@ -260,6 +263,15 @@ export interface GameState {
   totalRounds: number;
   questionsPerRound: number;
   roundsConfig: RoundConfig[]; // Store pre-generated rounds
+  /**
+   * Everything an import parsed, before the host has said how much of it to
+   * play. Kept separate from `roundsConfig` so the trimming screen can offer
+   * the whole file back — including the categories and questions that were cut
+   * — without the game itself ever carrying more than it will use.
+   *
+   * Null outside the import flow.
+   */
+  importPreview: CategoryContent[] | null;
 
   // Current Progress
   currentRound: number;
