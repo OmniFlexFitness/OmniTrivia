@@ -85,6 +85,10 @@ export the sheet as CSV. It needs working internet and a sheet shared as
 "Anyone with the link can view" — so export it to a CSV file ahead of time if
 the venue Wi-Fi cannot be trusted.
 
+Bring the whole file. The importer shows you everything it found and you choose
+how much of it to play, so a library of twenty categories is a fine source for
+a three-round night.
+
 See **QUESTION_FORMAT.md** for the column spec, and `questions.example.csv` for
 a working file covering all five question types.
 
@@ -92,14 +96,19 @@ a working file covering all five question types.
 
 1. **HOST GAME** → name the game, then pick rounds and questions per round.
    The name is what the room sees; the PIN is only the code players type.
-2. **GENERATE & REVIEW** (or **IMPORT MY OWN QUESTIONS**). Read the review
-   screen; the ↻ button on any question regenerates just that one.
+2. **GENERATE & REVIEW** (or **IMPORT MY OWN QUESTIONS**). An import stops at
+   **WHAT TO PLAY** first, where you tick the categories to keep and the rounds
+   and questions-per-round numbers trim the rest away. Then read the review
+   screen: ↻ writes a different question for that slot, the bin drops it, and
+   **drop category** takes a whole category out of the game.
 3. **APPROVE & OPEN LOBBY** → you get a PIN and a QR code, and you are seated
    as a player automatically. **OPEN BROADCAST DISPLAY**, drag that window onto
    the projector and put it full screen. **EDIT MY PLAYER** renames your seat,
    **ADD BOT** adds opponents.
 4. **START GAME** → **SPIN THE WHEEL** each round (or flick the wheel), then
-   **START ROUND**.
+   **START ROUND**. The spin decides the category: whichever slice stops under
+   the pointer is what the room plays, and it comes off the wheel for the rest
+   of the game.
 5. Every player then runs themselves, at their own pace. Each has their own
    clock and their own question: it closes the moment they answer it, they see
    the answer and what it scored, and **NEXT QUESTION** takes them straight on

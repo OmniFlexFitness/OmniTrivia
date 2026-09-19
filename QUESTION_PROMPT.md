@@ -50,7 +50,9 @@ type,category,question,option1,option2,option3,option4,option5,correctAnswer,exp
 
 One question per line. Every line has all 10 fields, so unused option columns
 are left empty (adjacent commas). Group all of a category's rows together;
-each distinct category becomes one round, in the order it first appears.
+each distinct category becomes one category the game's wheel can land on. The
+order rows appear in does not matter — the host picks which categories to play
+on import, and everything is shuffled after that.
 
 WHAT THE COLUMNS MEAN, PER TYPE
 

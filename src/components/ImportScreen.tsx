@@ -13,7 +13,10 @@ const ImportScreen: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
+    // Held rather than read off the event later: the reader's callbacks run
+    // long after this handler has returned.
+    const input = event.target;
+    const file = input.files?.[0];
     if (file) {
       setLoading(true);
       setLocalError(null);
@@ -21,11 +24,18 @@ const ImportScreen: React.FC = () => {
       reader.onload = (e) => {
         const text = e.target?.result as string;
         importGame(text);
-        // The context will handle phase change, so loading will be managed there
+        // A parse that fails leaves this screen up, so the spinner has to come
+        // off here — it used to be left on, which disabled the only button out
+        // and made a bad header look like a hung importer.
+        setLoading(false);
+        // The same file twice in a row should still open the importer: without
+        // this the input keeps its value and fires no change event.
+        input.value = '';
       };
       reader.onerror = () => {
         setLocalError("Failed to read the file.");
         setLoading(false);
+        input.value = '';
       };
       reader.readAsText(file);
     }
@@ -41,6 +51,7 @@ const ImportScreen: React.FC = () => {
     try {
       const csvData = await fetchFromGoogleSheet(sheetUrl);
       importGame(csvData);
+      setLoading(false);
     } catch (e: any) {
       setLocalError(e.message || "An error occurred while fetching the sheet.");
       setLoading(false);
