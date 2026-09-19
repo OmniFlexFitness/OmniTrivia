@@ -5,11 +5,14 @@ import Button from './Button';
 import AvatarDisplay from './AvatarDisplay';
 import JoinCode from './JoinCode';
 import Instructions from './Instructions';
-import { Users, Zap, Settings, UserPlus, PlayCircle, Monitor } from 'lucide-react';
+import { Users, Zap, Settings, UserPlus, PlayCircle, Monitor, KeyRound, Eye, EyeOff } from 'lucide-react';
 
 const LobbyScreen: React.FC = () => {
-  const { players, startGame, isHost, totalRounds, questionsPerRound, gamePin, gameName, addBot, hostJoinAsPlayer, currentPlayerId, openBroadcast, broadcastConnected, roomWarning } = useGame();
+  const { players, startGame, isHost, totalRounds, questionsPerRound, gamePin, gameName, hostPassword, addBot, hostJoinAsPlayer, currentPlayerId, openBroadcast, broadcastConnected, roomWarning } = useGame();
   const [showJoinModal, setShowJoinModal] = useState(false);
+  // Held back by default: this screen is the host's, but a laptop on a desk in
+  // a bar is read over shoulders, and the password is the game itself.
+  const [showPassword, setShowPassword] = useState(false);
   const [hostName, setHostName] = useState('Host');
   const [hostAvatar, setHostAvatar] = useState(AVATARS[0]);
 
@@ -137,6 +140,33 @@ const LobbyScreen: React.FC = () => {
                 <span>{questionsPerRound}</span>
               </div>
             </div>
+
+            {/* The last time this is on a screen. A host who loses this window
+                needs the PIN and this to get the game back, and the window
+                that knows it is the one that might be about to disappear. */}
+            {isHost && hostPassword && (
+              <div className="mt-4 pt-4 border-t border-slate-700">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs text-slate-500 uppercase flex items-center gap-1.5">
+                    <KeyRound size={12} className="text-neon-yellow" /> host password
+                  </span>
+                  <button
+                    onClick={() => setShowPassword((shown) => !shown)}
+                    className="text-slate-500 hover:text-white transition-colors"
+                    aria-label={showPassword ? 'Hide host password' : 'Show host password'}
+                  >
+                    {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                </div>
+                <div className="font-mono text-lg text-neon-yellow tracking-widest select-all">
+                  {showPassword ? hostPassword : '•'.repeat(hostPassword.length)}
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1 leading-snug">
+                  Write it down. With the PIN it takes this game back from any
+                  device if this window goes away.
+                </p>
+              </div>
+            )}
           </div>
 
           {isHost ? (

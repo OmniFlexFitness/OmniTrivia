@@ -123,13 +123,40 @@ const loadRules = async () => {
   }
 };
 
-/** Rooms left behind by an earlier run would look like PINs already taken. */
+/** Anything left behind by an earlier run would look like a PIN already taken. */
 const clearRooms = async () => {
-  await fetch(`http://${DB_HOST}/rooms.json?ns=${PROJECT}`, {
-    method: "DELETE",
-    headers: { Authorization: "Bearer owner" },
-  });
+  await Promise.all(
+    ["rooms", "roomSecrets", "roomClaims", "hostState"].map((path) =>
+      fetch(`http://${DB_HOST}/${path}.json?ns=${PROJECT}`, {
+        method: "DELETE",
+        headers: { Authorization: "Bearer owner" },
+      }),
+    ),
+  );
 };
+
+/** Backdate a room's heartbeat, the way a host walking out backdates it. */
+const abandonRoom = async (pin, ageMs) => {
+  const response = await fetch(
+    `http://${DB_HOST}/rooms/${pin}/meta/updatedAt.json?ns=${PROJECT}`,
+    {
+      method: "PUT",
+      headers: { Authorization: "Bearer owner", "Content-Type": "application/json" },
+      body: JSON.stringify(Date.now() - ageMs),
+    },
+  );
+  if (!response.ok) {
+    console.error(`could not age room ${pin}: ${await response.text()}`);
+    process.exit(1);
+  }
+};
+
+/** The resume window, as `remoteRoom.ts` and the rules both define it. */
+const RESUME_MS = 30 * 60 * 1000;
+
+/** What a host password hashes to. The value is opaque to the rules. */
+const SECRET = "a".repeat(64);
+const WRONG_SECRET = "b".repeat(64);
 
 const main = async () => {
   await loadRules();
@@ -138,6 +165,9 @@ const main = async () => {
   const host = await device("host");
   const player = await device("player");
   const intruder = await device("intruder");
+  // The host on a different machine: a new identity, nothing to show for
+  // itself but the password.
+  const returning = await device("returning");
 
   console.log("\nRules are live");
 
@@ -337,21 +367,200 @@ const main = async () => {
     await denied(set(ref(player.db, `rooms/${PIN}/sneaky`), { hello: "world" })),
   );
 
-  console.log("\nTeardown");
+  console.log("\nThe host password");
 
   ok(
-    "a player cannot delete the room",
+    "the host records what its password hashes to",
+    !(await denied(set(ref(host.db, `roomSecrets/${PIN}`), { hash: SECRET }))),
+  );
+
+  ok(
+    "nobody can read it — not a player, not the host that wrote it",
+    (await denied(get(ref(player.db, `roomSecrets/${PIN}`)))) &&
+      (await denied(get(ref(host.db, `roomSecrets/${PIN}`)))),
+    "the hash is readable, so it could be echoed back as a claim",
+  );
+
+  ok(
+    "a player cannot record a password for somebody's room",
+    await denied(set(ref(player.db, `roomSecrets/${PIN}`), { hash: WRONG_SECRET })),
+  );
+
+  console.log("\nClaiming a room back");
+
+  ok(
+    "a wrong password is refused",
+    await denied(set(ref(intruder.db, `roomClaims/${PIN}/${intruder.uid}`), WRONG_SECRET)),
+    "the rules accepted a claim that does not match the stored hash",
+  );
+
+  ok(
+    "a claim cannot be filed in somebody else's name",
+    await denied(set(ref(intruder.db, `roomClaims/${PIN}/${player.uid}`), SECRET)),
+  );
+
+  ok(
+    "the right password is accepted",
+    !(await denied(set(ref(returning.db, `roomClaims/${PIN}/${returning.uid}`), SECRET))),
+  );
+
+  ok(
+    "claims are not readable either",
+    await denied(get(ref(player.db, `roomClaims/${PIN}`))),
+  );
+
+  console.log("\nThe saved game");
+
+  const hostState = {
+    hostId: "host-window-1",
+    uid: host.uid,
+    at: serverTimestamp(),
+    payload: JSON.stringify({ state: { phase: "PLAYING" }, seats: [["p1", "uid1"]] }),
+  };
+
+  ok(
+    "the host can publish the running game",
+    !(await denied(set(ref(host.db, `hostState/${PIN}`), hostState))),
+  );
+
+  ok(
+    "the host can read it back",
+    (await get(ref(host.db, `hostState/${PIN}`))).val()?.hostId === "host-window-1",
+  );
+
+  // The saved game is the whole game, correct answers included. A player being
+  // able to read it would be a player reading ahead all night.
+  ok(
+    "a player cannot read the running game",
+    await denied(get(ref(player.db, `hostState/${PIN}`))),
+    "every answer in the game was readable by anyone in the room",
+  );
+
+  ok(
+    "a player cannot write over it",
+    await denied(
+      set(ref(player.db, `hostState/${PIN}`), { ...hostState, uid: player.uid }),
+    ),
+  );
+
+  ok(
+    "a device that proved the password can read it",
+    (await get(ref(returning.db, `hostState/${PIN}`))).val()?.hostId === "host-window-1",
+    "a host on a new device could not recover their own game",
+  );
+
+  console.log("\nTaking the room over");
+
+  ok(
+    "a device with no claim cannot take the room",
+    await denied(
+      set(ref(intruder.db, `rooms/${PIN}/meta`), {
+        hostId: "intruder",
+        hostUid: intruder.uid,
+        gameName: "hijack",
+        open: true,
+        updatedAt: serverTimestamp(),
+      }),
+    ),
+  );
+
+  ok(
+    "a device that proved the password can",
+    !(await denied(
+      set(ref(returning.db, `rooms/${PIN}/meta`), {
+        hostId: "host-window-1",
+        hostUid: returning.uid,
+        gameName: "Nectar Lab Trivia Test",
+        open: true,
+        updatedAt: serverTimestamp(),
+      }),
+    )),
+  );
+
+  ok(
+    "and can then publish the game, which is the point of taking it back",
+    !(await denied(
+      set(
+        ref(returning.db, `rooms/${PIN}/snapshot`),
+        envelope(returning, { type: "snapshot", snapshot }),
+      ),
+    )),
+  );
+
+  ok(
+    "while the window it replaced can no longer publish",
+    await denied(
+      set(
+        ref(host.db, `rooms/${PIN}/snapshot`),
+        envelope(host, { type: "snapshot", snapshot }),
+      ),
+    ),
+    "two windows could both drive the same room",
+  );
+
+  console.log("\nA room nobody came back for");
+
+  ok(
+    "a live room cannot be cleared away by a passer-by",
     await denied(remove(ref(intruder.db, `rooms/${PIN}`))),
   );
 
-  ok("the host can delete the room", !(await denied(remove(ref(host.db, `rooms/${PIN}`)))));
-  ok("the room is gone", (await get(ref(host.db, `rooms/${PIN}`))).val() === null);
+  // A host's window closing no longer deletes the room — that is what makes
+  // coming back possible — so something else has to clear out the ones nobody
+  // returns to, or every PIN they held would be burned for good.
+  await abandonRoom(PIN, RESUME_MS + 60000);
+
+  ok(
+    "one abandoned past the resume window can",
+    !(await denied(remove(ref(intruder.db, `rooms/${PIN}`)))),
+    "an abandoned room would hold its PIN forever",
+  );
+
+  ok(
+    "and its password and saved game go with it",
+    !(await denied(remove(ref(intruder.db, `roomSecrets/${PIN}`)))) &&
+      !(await denied(remove(ref(intruder.db, `roomClaims/${PIN}`)))) &&
+      !(await denied(remove(ref(intruder.db, `hostState/${PIN}`)))),
+    "last night's answers would sit in the database with nothing owning them",
+  );
+
+  ok(
+    "a room still inside the window is still its host's",
+    await (async () => {
+      await set(ref(host.db, `rooms/9997/meta`), {
+        hostId: "host-window-1",
+        hostUid: host.uid,
+        gameName: "Recently abandoned",
+        open: true,
+        updatedAt: serverTimestamp(),
+      });
+      // Long enough that no phone would call it live, well short of the window.
+      await abandonRoom("9997", 60000);
+      return denied(remove(ref(intruder.db, `rooms/9997`)));
+    })(),
+    "a host who stepped out for a minute lost their game to a passer-by",
+  );
+
+  console.log("\nTeardown");
+
+  ok(
+    "a player cannot delete a room",
+    await denied(remove(ref(intruder.db, `rooms/9997`))),
+  );
+
+  ok("the host can delete the room", !(await denied(remove(ref(host.db, `rooms/9997`)))));
+  ok("the room is gone", (await get(ref(host.db, `rooms/9997`))).val() === null);
 
   console.log(
     `\n${checks - failures}/${checks} checks passed${failures ? ` — ${failures} FAILED` : ""}`,
   );
 
-  await Promise.all([deleteApp(host.app), deleteApp(player.app), deleteApp(intruder.app)]);
+  await Promise.all([
+    deleteApp(host.app),
+    deleteApp(player.app),
+    deleteApp(intruder.app),
+    deleteApp(returning.app),
+  ]);
   process.exit(failures ? 1 : 0);
 };
 

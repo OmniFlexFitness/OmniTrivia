@@ -1,17 +1,28 @@
 import { BroadcastMessage, BroadcastSnapshot, RoomRecord } from "../types";
 import {
   attachRoom,
+  claimRemoteRoom,
   currentUid,
   detachRoom,
   lastRoomFailure,
   publishRemote,
+  publishRoomSecret,
+  readRemoteHostState,
   registerRemoteRoom,
   releaseRemoteRoom,
   remoteEnabled,
   remotePinTaken,
   whenConnected,
+  writeRemoteHostState,
 } from "./remoteRoom";
-import type { MessageMeta } from "./remoteRoom";
+import type {
+  ClaimResult,
+  HostWriteResult,
+  MessageMeta,
+  RemoteHostState,
+} from "./remoteRoom";
+
+export type { ClaimResult, HostWriteResult, RemoteHostState };
 
 /**
  * A message, and who the database says sent it. `meta` is absent for anything
@@ -50,7 +61,68 @@ const ROOMS_KEY = "omnitrivia:rooms";
  */
 const ROOM_TTL_MS = 20000;
 
+/**
+ * The shape of the snapshot, bumped whenever a field moves or disappears.
+ *
+ * This number is the contract between the host's build and every screen
+ * rendering what it publishes, and those are not always the same build: the
+ * site is redeployed while a game is running, a phone holds the previous
+ * bundle in its cache, and the two meet in the middle of a round. Reading a
+ * snapshot written by a newer build is how a phone ends up blank — a field
+ * that moved reads as `undefined`, the render throws, and React takes the
+ * whole page down. So the version travels with every snapshot and is checked
+ * before anything is rendered from it.
+ */
 export const SNAPSHOT_VERSION = 3;
+
+/** How a snapshot's version compares to what this build can render. */
+export type SnapshotFit = "ok" | "sender-is-newer" | "sender-is-older";
+
+export const snapshotFit = (snapshot: BroadcastSnapshot): SnapshotFit => {
+  const version = typeof snapshot?.version === "number" ? snapshot.version : 0;
+  if (version > SNAPSHOT_VERSION) return "sender-is-newer";
+  if (version < SNAPSHOT_VERSION) return "sender-is-older";
+  return "ok";
+};
+
+/** Do not try the same reload over and over if it does not take. */
+const RELOAD_KEY = "omnitrivia:build-reload-at";
+const RELOAD_COOLDOWN_MS = 60000;
+
+/**
+ * Leave a stale build behind.
+ *
+ * Both the page and its bundle are cached for ten minutes, so a browser that
+ * loaded the site just before a deploy keeps running the old one — against a
+ * host that has already moved on. Reloading against a URL it has never seen
+ * gets the current page, and with it the current bundle.
+ *
+ * Returns false when it has already tried recently, so the caller can ask the
+ * person to do it by hand rather than sitting in a reload loop.
+ */
+export const reloadForNewBuild = (): boolean => {
+  const now = Date.now();
+
+  try {
+    const last = Number(window.sessionStorage.getItem(RELOAD_KEY) ?? 0);
+    if (Number.isFinite(last) && now - last < RELOAD_COOLDOWN_MS) return false;
+    window.sessionStorage.setItem(RELOAD_KEY, String(now));
+  } catch {
+    // No session storage means no way to remember an attempt, and a reload
+    // loop in front of a room is worse than a message asking for one.
+    return false;
+  }
+
+  try {
+    const url = new URL(window.location.href);
+    url.searchParams.set("v", now.toString(36));
+    window.location.replace(url.toString());
+  } catch {
+    window.location.reload();
+  }
+
+  return true;
+};
 
 /** Query param that turns this window into the projector view. */
 export const BROADCAST_VIEW_PARAM = "view";
@@ -269,11 +341,32 @@ export const registerRoom = (
   hostId: string,
   gameName: string,
   open = true,
-): void => {
+): Promise<HostWriteResult> => {
   const others = readRooms().filter((room) => room.hostId !== hostId);
   writeRooms([...others, { pin, hostId, gameName, updatedAt: Date.now() }]);
-  void registerRemoteRoom(pin, hostId, gameName, open);
+  return registerRemoteRoom(pin, hostId, gameName, open);
 };
+
+/* ------------------------------------------------------------------ *
+ * Getting a game back
+ *
+ * A host's window is the game, so losing it used to lose the night. These
+ * carry the password's proof and a copy of the running game into the room, and
+ * back out again for whoever can prove they are its host. The plumbing is in
+ * `remoteRoom`; the derivation is in `hostSession`.
+ * ------------------------------------------------------------------ */
+
+/** Record what this room's host password hashes to. Host only, room must exist. */
+export const publishHostSecret = publishRoomSecret;
+
+/** Prove this device knows the room's host password. */
+export const claimRoomAsHost = claimRemoteRoom;
+
+/** Publish the running game where only its host can read it back. */
+export const publishHostState = writeRemoteHostState;
+
+/** The running game this room is holding for its host. */
+export const fetchHostState = readRemoteHostState;
 
 /** Give the PIN back when a host closes its game. */
 export const releaseRoom = (hostId: string, pin?: string | null): void => {

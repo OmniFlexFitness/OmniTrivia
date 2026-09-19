@@ -933,6 +933,7 @@ const HostControlScreen: React.FC = () => {
     categoryLikes,
     championId,
     loading,
+    roomWarning,
   } = useGame();
 
   const [showPool, setShowPool] = React.useState(false);
@@ -960,6 +961,17 @@ const HostControlScreen: React.FC = () => {
     <div className="min-h-screen bg-slate-900 text-white p-4 md:p-6">
       {showPool && <CategoryPoolManager onClose={() => setShowPool(false)} />}
       {showInsights && <InsightsPanel onClose={() => setShowInsights(false)} />}
+
+      {/* A room that cannot be reached, or one this window no longer owns
+          because another device took the game back with the host password.
+          Either way the host is looking at a screen that is no longer driving
+          anything, and has to be told rather than left to work it out from a
+          table of players who have stopped responding. */}
+      {roomWarning && (
+        <p className="mb-4 text-sm text-amber-300 border border-amber-500/40 bg-amber-500/10 rounded-lg px-3 py-2">
+          {roomWarning}
+        </p>
+      )}
 
       {/* Header */}
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-5">

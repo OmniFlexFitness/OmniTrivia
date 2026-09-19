@@ -18,6 +18,58 @@ const shuffle = <T,>(items: T[]): T[] => {
   return copy;
 };
 
+/** Has this matchup no opponent in it — a bye rather than a duel? */
+const isBye = (matchup: Matchup): boolean => matchup.playerBId === null;
+
+/**
+ * How many byes each player has already been handed this game.
+ *
+ * Read from the bracket itself rather than tracked alongside it: the bracket
+ * is the record of what happened, and a second copy of that record is a second
+ * thing to keep in step.
+ */
+export const byeCounts = (rounds: BracketRound[]): Map<string, number> => {
+  const counts = new Map<string, number>();
+
+  rounds.forEach((round) =>
+    round.matchups.filter(isBye).forEach((matchup) => {
+      counts.set(matchup.playerAId, (counts.get(matchup.playerAId) ?? 0) + 1);
+    }),
+  );
+
+  return counts;
+};
+
+/**
+ * Put the player who should sit this one out at the end of the list, where
+ * `pair` hands out the bye.
+ *
+ * Without this the bye falls to whoever is last in the advancing list — and
+ * the player who won a bye is *always* last, because their matchup is the last
+ * one in the round. So one unlucky draw in round one became a free pass
+ * through the entire bracket: in a five-player game the same person took a bye
+ * in round one and round two and reached the final without facing anybody.
+ *
+ * The bye goes to whoever has had the fewest so far, and ties break on bracket
+ * order rather than chance — after round one nothing about the draw should be
+ * random.
+ */
+const withByeLast = (
+  advancingIds: string[],
+  playedRounds: BracketRound[],
+): string[] => {
+  if (advancingIds.length % 2 === 0) return advancingIds;
+
+  const counts = byeCounts(playedRounds);
+  const byesFor = (id: string) => counts.get(id) ?? 0;
+
+  const sitsOut = advancingIds.reduce((fewest, id) =>
+    byesFor(id) < byesFor(fewest) ? id : fewest,
+  );
+
+  return [...advancingIds.filter((id) => id !== sitsOut), sitsOut];
+};
+
 /** Pair an ordered list of player ids into matchups, last one out gets a bye. */
 const pair = (roundNumber: number, playerIds: string[]): Matchup[] => {
   const matchups: Matchup[] = [];
@@ -53,13 +105,21 @@ export const buildFirstRound = (players: Player[]): BracketRound => ({
   resolved: false,
 });
 
-/** Re-pair the winners of the previous round, in bracket order. */
+/**
+ * Re-pair the winners of the previous round, in bracket order.
+ *
+ * Nothing here is random: round one is drawn from a hat, and from then on the
+ * bracket decides who plays whom — the winner of the first matchup meets the
+ * winner of the second, and so on. `playedRounds` is only read to work out who
+ * is owed a bye when the field is an odd size.
+ */
 export const buildNextRound = (
   roundNumber: number,
   advancingIds: string[],
+  playedRounds: BracketRound[] = [],
 ): BracketRound => ({
   roundNumber,
-  matchups: pair(roundNumber, advancingIds),
+  matchups: pair(roundNumber, withByeLast(advancingIds, playedRounds)),
   resolved: false,
 });
 

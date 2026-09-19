@@ -9,9 +9,12 @@ import {
   Question,
 } from "../types";
 import { useGame } from "../context/GameContext";
+import { seatsOf } from "../services/snapshot";
 import {
   postMessage,
   readStoredSnapshot,
+  reloadForNewBuild,
+  snapshotFit,
   subscribeToMessages,
 } from "../services/broadcastBus";
 import AvatarDisplay from "./AvatarDisplay";
@@ -70,7 +73,7 @@ const OpponentStrip: React.FC<{
   const opponent = opponentId
     ? snapshot.players.find((p) => p.id === opponentId)
     : null;
-  const opponentSeat = lane.seats.find((seat) => seat.playerId === opponentId);
+  const opponentSeat = seatsOf(lane).find((seat) => seat.playerId === opponentId);
   const me = snapshot.players.find((p) => p.id === playerId);
 
   return (
@@ -118,7 +121,7 @@ const SeatProgress: React.FC<{
 }> = ({ seat, snapshot }) => {
   const total = snapshot.questionsInRound || 1;
   const ahead = snapshot.lanes
-    .flatMap((lane) => lane.seats)
+    .flatMap(seatsOf)
     .filter(
       (other) =>
         other.playerId !== seat.playerId && other.completed > seat.completed,
@@ -169,6 +172,7 @@ const PlayerScreen: React.FC = () => {
   });
   const [hostSeenAt, setHostSeenAt] = useState(0);
   const [now, setNow] = useState(Date.now());
+  const [outOfDate, setOutOfDate] = useState(false);
   const latchedHost = useRef<string | null>(null);
 
   useEffect(() => {
@@ -177,6 +181,18 @@ const PlayerScreen: React.FC = () => {
       // the player's screen over.
       if (message.type === "snapshot") {
         if (message.snapshot.gamePin !== clientPin) return;
+
+        // A snapshot from a build this one does not understand is not rendered
+        // — it is what turns a phone black in the middle of a round. Fields
+        // move between versions, and a moved field reads as `undefined` right
+        // up until something calls a method on it.
+        if (snapshotFit(message.snapshot) !== "ok") {
+          setOutOfDate(true);
+          // The game has been redeployed under this phone; go and get it.
+          reloadForNewBuild();
+          return;
+        }
+
         latchedHost.current = message.snapshot.hostId;
         setSnapshot(message.snapshot);
         setHostSeenAt(Date.now());
@@ -217,8 +233,9 @@ const PlayerScreen: React.FC = () => {
   );
   const seat = useMemo(
     () =>
-      lane?.seats.find((candidate) => candidate.playerId === currentPlayerId) ??
-      null,
+      (lane ? seatsOf(lane) : []).find(
+        (candidate) => candidate.playerId === currentPlayerId,
+      ) ?? null,
     [lane, currentPlayerId],
   );
   const question = useMemo(
@@ -278,7 +295,7 @@ const PlayerScreen: React.FC = () => {
     if (seat.status === LaneStatus.DONE) {
       const stillGoing = snapshot
         ? snapshot.lanes
-            .flatMap((other) => other.seats)
+            .flatMap(seatsOf)
             .filter((other) => other.status !== LaneStatus.DONE).length
         : 0;
 
@@ -374,6 +391,28 @@ const PlayerScreen: React.FC = () => {
   };
 
   const body = () => {
+    if (outOfDate) {
+      return (
+        <div className="text-center py-16 space-y-4">
+          <div className="text-2xl font-black text-white">
+            This page is out of date
+          </div>
+          <p className="text-slate-400 max-w-sm mx-auto">
+            The game was updated while you had it open, so this phone is
+            running an older version of it. Reload to join back in — your seat
+            and your score are kept.
+          </p>
+          <Button
+            onClick={() => window.location.reload()}
+            variant="neon"
+            className="mx-auto"
+          >
+            RELOAD
+          </Button>
+        </div>
+      );
+    }
+
     if (!snapshot) {
       return (
         <div className="text-center text-slate-400 py-16">

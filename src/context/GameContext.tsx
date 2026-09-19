@@ -61,12 +61,31 @@ import {
 } from "../services/insights";
 import { buildSnapshot } from "../services/snapshot";
 import { clearSeat, readSeat, saveSeat } from "../services/seat";
-import { maySpeakFor, seatHeldByAnother } from "../services/seats";
+import {
+  applyHostState,
+  captureHostState,
+  clearHostSession,
+  parseHostEnvelope,
+  readHostSession,
+  saveHostSession,
+} from "../services/hostSession";
+import type { PersistedHostState } from "../services/hostSession";
+import {
+  PLAYER_CODE_LENGTH,
+  hostProof,
+  playerProof,
+  suggestHostPassword,
+} from "../services/proof";
+import { maySpeakFor, resolveJoinRequest } from "../services/seats";
 import type { SeatBindings } from "../services/seats";
 import {
   allocatePin,
+  claimRoomAsHost,
   clearStoredSnapshot,
+  fetchHostState,
   openBroadcastWindow,
+  publishHostSecret,
+  publishHostState,
   postMessage,
   publishSnapshot,
   registerRoom,
@@ -88,6 +107,19 @@ interface GameContextType extends GameState {
   generateGame: (rounds: number, questions: number) => Promise<void>;
   confirmGame: () => void;
   setGameName: (name: string) => void;
+  /** Choose the password that gets this game back. Set before the lobby opens. */
+  setHostPassword: (password: string) => void;
+  /** Open the door back into a game this host was already running. */
+  initHostResume: () => void;
+  /**
+   * Take a game back with its PIN and its host password.
+   *
+   * Works from the window that lost it and from a device that never had it:
+   * the password is the proof, and the game comes back from whichever copy is
+   * newer — this machine's, or the room's.
+   */
+  resumeHosting: (pin: string, password: string) => Promise<void>;
+  clearResumeError: () => void;
   toggleHostAnswering: () => void;
   clearJoinError: () => void;
   updateConfig: (rounds: number, questions: number) => void;
@@ -100,6 +132,11 @@ interface GameContextType extends GameState {
     avatarColor?: string,
     avatarAccessory?: string,
     pin?: string,
+    /**
+     * The player's own code, chosen on their first join and typed again to get
+     * back into the same seat from a device that remembers nothing.
+     */
+    rejoinCode?: string,
   ) => void;
   hostJoinAsPlayer: (name: string, avatar: string) => void;
   addBot: () => void;
@@ -163,6 +200,24 @@ const REMOTE_JOIN_TIMEOUT_MS = 6000;
 /** Used when the host never names the game. */
 const DEFAULT_GAME_NAME = "OmniTrivia Night";
 
+/* How often the running game is written down, so a host who loses their window
+ * loses at most a moment of it rather than the night. Neither copy is written
+ * per state change: during a round that is once a second, and the game carries
+ * every question in it. */
+const LOCAL_SAVE_INTERVAL_MS = 2000;
+const REMOTE_SAVE_INTERVAL_MS = 6000;
+
+/**
+ * The largest game the room will hold, matching the payload limit in
+ * `firebase/database.rules.json`. A game past it still saves to the host's own
+ * machine, which is the copy that covers the case this is all for.
+ */
+const MAX_HOST_STATE_LENGTH = 786432;
+
+/** Shown when this window's room has been reclaimed somewhere else. */
+const DISPLACED_WARNING =
+  "Another device has taken over hosting this game with the host password. This window is no longer running it — close it, or start a new game.";
+
 /* ------------------------------------------------------------------ *
  * Pure transitions
  *
@@ -210,9 +265,12 @@ const finishRound = (prev: GameState): GameState => {
   const hasMoreRounds = prev.currentRound < prev.totalRounds;
 
   if (!decided && hasMoreRounds) {
+    // Every round played so far, this one included, so the draw can see who
+    // has already had a bye and give the next one to somebody else.
     bracket[roundIndex + 1] = buildNextRound(
       prev.currentRound + 1,
       advancingIds,
+      bracket.slice(0, roundIndex + 1),
     );
   }
 
@@ -269,10 +327,16 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     isHost: false,
     gamePin: null,
     gameName: "",
+    // Offered rather than demanded: a host who never thinks about this still
+    // ends up with a game they can get back, and can overwrite it with
+    // something they will remember if they would rather.
+    hostPassword: suggestHostPassword(),
     clientPin: null,
     clientPlayerId: null,
     joining: false,
     joinError: null,
+    resuming: false,
+    resumeError: null,
     totalRounds: 3,
     questionsPerRound: 5,
     roundsConfig: [],
@@ -303,11 +367,20 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
   const broadcastSeenAt = useRef(0);
   // Identifies this host window on the shared channel. Two host tabs in one
   // browser would otherwise both publish into the same projector.
-  const hostId = useRef(
+  const hostId = useRef<string>(
     globalThis.crypto?.randomUUID?.() ?? `host-${Math.random().toString(36).slice(2)}`,
   );
   const stateRef = useRef(state);
   stateRef.current = state;
+
+  /**
+   * What this room's host password hashes to, once there is a room.
+   *
+   * Held rather than recomputed because the password itself is deliberately
+   * forgotten: a window that resumed a game knows the proof it got in with and
+   * never learns what was typed to produce it.
+   */
+  const hostProofRef = useRef<string | null>(null);
 
   /**
    * Which signed-in device holds each seat, for players who joined from one.
@@ -556,6 +629,78 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     publishSnapshot(buildSnapshot(state, hostId.current));
   }, [state]);
 
+  /* ---------------------------------------------------------------- *
+   * Keeping the game where the host can get it back
+   *
+   * The host window *is* the game — the questions, the scores, the bracket and
+   * every clock in the round live in this state and nowhere else. So it is
+   * written down as it goes: on this machine, and in the room itself where a
+   * device that can prove the host password may read it. Neither copy is
+   * written on every change, because during a round there is one a second and
+   * each carries the whole round's questions with it.
+   * ---------------------------------------------------------------- */
+  const savedLocallyAt = useRef(0);
+  const savedRemotelyAt = useRef(0);
+  const savedPhase = useRef<GamePhase | null>(null);
+
+  const persistHostSession = useCallback(
+    (snapshot: GameState, force = false): void => {
+      const pin = snapshot.gamePin;
+      const proof = hostProofRef.current;
+      if (!snapshot.isHost || !pin || !proof) return;
+
+      // A phase change is the interesting kind of change — a round starting, a
+      // round settling, the game ending — and worth both copies immediately.
+      const turned = savedPhase.current !== snapshot.phase;
+      savedPhase.current = snapshot.phase;
+
+      const now = Date.now();
+      const state = captureHostState(snapshot);
+
+      if (force || turned || now - savedLocallyAt.current >= LOCAL_SAVE_INTERVAL_MS) {
+        savedLocallyAt.current = now;
+        saveHostSession({
+          pin,
+          hostId: hostId.current,
+          proof,
+          seats: [...seatUids.current.entries()],
+          state,
+        });
+      }
+
+      if (
+        canReachOtherDevices() &&
+        (force || turned || now - savedRemotelyAt.current >= REMOTE_SAVE_INTERVAL_MS)
+      ) {
+        savedRemotelyAt.current = now;
+        const payload = JSON.stringify({
+          state,
+          seats: [...seatUids.current.entries()],
+        });
+        if (payload.length <= MAX_HOST_STATE_LENGTH) {
+          void publishHostState(pin, hostId.current, payload);
+        }
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    persistHostSession(state);
+  }, [state, persistHostSession]);
+
+  // A page being closed is the whole reason any of this exists, and it is the
+  // one moment there is no time to wait for an interval. localStorage is
+  // synchronous, so this copy always lands; the room's may not, which is why
+  // the two are kept in step during play rather than only here.
+  useEffect(() => {
+    if (!state.isHost || !state.gamePin) return;
+
+    const save = () => persistHostSession(stateRef.current, true);
+    window.addEventListener("pagehide", save);
+    return () => window.removeEventListener("pagehide", save);
+  }, [state.isHost, state.gamePin, persistHostSession]);
+
   useEffect(() => {
     if (!state.isHost) return;
     const beat = setInterval(
@@ -634,33 +779,61 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
       if (message.type === "player-join") {
         if (message.pin !== current.gamePin) return;
 
-        // A player already in this room is coming back, not arriving late —
-        // a phone that locked its screen or reloaded. Turning them away would
-        // strand their seat and their score for the rest of the game.
-        const returning = current.players.some((p) => p.id === message.playerId);
-
-        // ...unless a different device is asking for that seat, in which case
-        // the one holding it is the one who keeps it.
-        const seatTaken = seatHeldByAnother(
-          seatUids.current,
-          message.playerId,
+        // Who this is — a new player, a phone that reloaded, or somebody
+        // coming back with the code they chose — is one decision, and it is
+        // made in `services/seats` where it can be tested without a room.
+        const decision = resolveJoinRequest({
+          players: current.players,
+          seats: seatUids.current,
+          lobbyOpen: current.phase === GamePhase.LOBBY,
+          request: {
+            playerId: message.playerId,
+            name: message.name,
+            rejoinProof: message.rejoinProof,
+          },
           meta,
-        );
+        });
 
-        const accepted =
-          !seatTaken && (current.phase === GamePhase.LOBBY || returning);
+        const { accepted, seatId } = decision;
 
-        if (accepted && meta) seatUids.current.set(message.playerId, meta.uid);
+        if (accepted && meta) seatUids.current.set(seatId, meta.uid);
 
         if (accepted) {
           setState((prev) => {
-            if (prev.players.some((p) => p.id === message.playerId)) return prev;
+            const existing = prev.players.find((p) => p.id === seatId);
+
+            // A returning player keeps their score, their streak and their
+            // place in the bracket, and gets whatever they look like now: a
+            // new phone is a new avatar picker, and the room should see the
+            // person rather than the device.
+            if (existing) {
+              return {
+                ...prev,
+                players: prev.players.map((p) =>
+                  p.id === seatId
+                    ? {
+                        ...p,
+                        name: message.name || p.name,
+                        avatar: message.avatar || p.avatar,
+                        avatarColor: message.avatarColor ?? p.avatarColor,
+                        avatarAccessory:
+                          message.avatarAccessory ?? p.avatarAccessory,
+                        // Set on a first join and kept on every later one, so
+                        // a reload cannot quietly drop a player's way back in.
+                        rejoinProof: message.rejoinProof ?? p.rejoinProof,
+                      }
+                    : p,
+                ),
+              };
+            }
+
             const player: Player = {
-              id: message.playerId,
+              id: seatId,
               name: message.name,
               avatar: message.avatar,
               avatarColor: message.avatarColor,
               avatarAccessory: message.avatarAccessory,
+              rejoinProof: message.rejoinProof,
               score: 0,
               roundScore: 0,
               isBot: false,
@@ -674,11 +847,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
           type: "player-join-result",
           clientId: message.clientId,
           accepted,
-          reason: accepted
-            ? undefined
-            : seatTaken
-              ? "That seat is being played on another device."
-              : "The game has already started.",
+          playerId: accepted ? seatId : undefined,
+          rejoined: accepted ? decision.rejoined : undefined,
+          reason: decision.reason,
           hostId: hostId.current,
           gameName: current.gameName,
           pin: current.gamePin,
@@ -747,8 +918,17 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     return unsubscribe;
   }, [recordAnswer]);
 
-  // Keep this room's claim on its PIN fresh, and hand the PIN back when the
-  // host window goes away.
+  /**
+   * Keep this room's claim on its PIN fresh.
+   *
+   * It no longer hands the PIN back when the window goes away. That was the
+   * whole bug: every way a host leaves a page — a reload, the back button, a
+   * closed tab, a sleeping laptop — looks identical to being finished, and
+   * treating them the same took the game down with the window. The room now
+   * stays claimed and stops being refreshed, which reads as "no host is
+   * answering" to a joining phone and as "still yours" to a host coming back
+   * with the PIN and the password. `restartGame` is what actually ends it.
+   */
   useEffect(() => {
     if (!state.isHost || !state.gamePin) return;
 
@@ -759,18 +939,38 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     // `open` is read fresh on every beat rather than keyed into this effect,
     // so the room's advertised state follows the game without the heartbeat
     // being torn down and rebuilt at every phase change.
-    const beat = () =>
-      registerRoom(pin, id, name, stateRef.current.phase === GamePhase.LOBBY);
+    const beat = async () => {
+      const result = await registerRoom(
+        pin,
+        id,
+        name,
+        stateRef.current.phase === GamePhase.LOBBY,
+      );
 
-    beat();
-    const keepAlive = setInterval(beat, 2000);
-    const drop = () => releaseRoom(id, pin);
-    window.addEventListener("pagehide", drop);
+      // Refused means another device reclaimed this room with the host
+      // password — which is a thing a host may legitimately do from a phone
+      // when this window is the one that went wrong. This window is no longer
+      // driving anything, and has to say so rather than carry on looking like
+      // it is.
+      if (result === "denied") {
+        // And it stops writing the game down. Both copies are keyed to the
+        // proof, so dropping it here is what keeps a window that is no longer
+        // hosting from saving its own frozen version over the one the live
+        // host is still advancing.
+        hostProofRef.current = null;
 
-    return () => {
-      clearInterval(keepAlive);
-      window.removeEventListener("pagehide", drop);
+        setState((prev) =>
+          prev.roomWarning === DISPLACED_WARNING
+            ? prev
+            : { ...prev, roomWarning: DISPLACED_WARNING },
+        );
+      }
     };
+
+    void beat();
+    const keepAlive = setInterval(() => void beat(), 2000);
+
+    return () => clearInterval(keepAlive);
   }, [state.isHost, state.gamePin, state.gameName]);
 
 
@@ -785,6 +985,199 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const initJoin = () => {
     setState((prev) => ({ ...prev, isHost: false, phase: GamePhase.JOIN }));
+  };
+
+  /* ---------------------------------------------------------------- *
+   * Taking a game back
+   * ---------------------------------------------------------------- */
+
+  const setHostPassword = (password: string) =>
+    setState((prev) => ({ ...prev, hostPassword: password }));
+
+  const initHostResume = () =>
+    setState((prev) => ({
+      ...prev,
+      phase: GamePhase.HOST_RESUME,
+      resuming: false,
+      resumeError: null,
+    }));
+
+  const clearResumeError = () =>
+    setState((prev) => ({ ...prev, resumeError: null }));
+
+  /**
+   * Seed the insight baselines from a game that was already under way.
+   *
+   * The durable record of likes, votes and rounds played is written by diffing
+   * committed state against what has already been banked. A restored game
+   * arrives with all of it in state and none of it in the baselines, so
+   * without this a host walking back in would bank every like in the game a
+   * second time and every round they had already played again.
+   */
+  const adoptInsightBaselines = (restored: PersistedHostState): void => {
+    likeBaseline.current = new Map(
+      restored.categoryLikes.map((tally) => [
+        tally.category.id,
+        new Set(tally.playerIds),
+      ]),
+    );
+
+    ballotId.current = restored.categoryPoll?.id ?? null;
+    voteBaseline.current = new Map(
+      Object.entries(restored.categoryPoll?.votes ?? {}),
+    );
+
+    // A round is banked when it ends, so the round in progress is not one of
+    // them — recording it here would be the one that never got counted.
+    const banked =
+      restored.phase === GamePhase.ROUND_END ||
+      restored.phase === GamePhase.GAME_OVER
+        ? restored.currentRound
+        : restored.currentRound - 1;
+
+    roundsRecorded.current = new Set(
+      restored.roundsConfig
+        .slice(0, Math.max(0, banked))
+        .map(
+          (round, index) =>
+            `${restored.gamePin}:${index + 1}:${round.category.id}`,
+        ),
+    );
+  };
+
+  /**
+   * Take a game back with its PIN and its host password.
+   *
+   * Two things have to come back, and they come from different places. The
+   * *room* is reclaimed by proving the password to the database, which is what
+   * makes this work from a device that has never seen this game. The *game* is
+   * restored from whichever saved copy is newer: this machine's, or the one in
+   * the room. Either alone is enough to host from.
+   */
+  const resumeHosting = async (pin: string, password: string): Promise<void> => {
+    const code = pin.trim();
+    const secret = password.trim();
+
+    if (!/^\d{4}$/.test(code)) {
+      setState((prev) => ({
+        ...prev,
+        resumeError: "Enter the game's four-digit PIN.",
+      }));
+      return;
+    }
+
+    if (!secret) {
+      setState((prev) => ({
+        ...prev,
+        resumeError: "Enter the host password from when you opened the game.",
+      }));
+      return;
+    }
+
+    setState((prev) => ({ ...prev, resuming: true, resumeError: null }));
+
+    const stop = (resumeError: string): void => {
+      setState((prev) => ({ ...prev, resuming: false, resumeError }));
+    };
+
+    const proof = hostProof(code, secret);
+
+    // This machine's own copy. Its proof is a full check of the password on
+    // its own, which is what lets a host get their game back on screen even
+    // with the database unreachable.
+    const local = readHostSession(code);
+    const localMatches = Boolean(local && local.proof === proof);
+
+    const remoteConfigured = canReachOtherDevices();
+    const connected = remoteConfigured ? await roomChannelReady() : false;
+    const claim = connected ? await claimRoomAsHost(code, proof) : null;
+
+    if (claim !== "ok" && !localMatches) {
+      stop(
+        claim === "denied"
+          ? `That host password does not match the game on PIN ${code}. A game opened before the password existed cannot be taken back this way — the room has nothing to check against.`
+          : claim === "missing"
+            ? `No game is waiting on PIN ${code}. A game nobody comes back to is cleared after half an hour, and a game the host ended is gone for good.`
+            : remoteConfigured
+              ? "Could not reach the game server, and this browser is not holding that game either. Check this device's internet connection, or come back on the machine that was hosting."
+              : local
+                ? `That host password does not match the game this browser was hosting on PIN ${local.pin}.`
+                : `This browser is not holding a game on PIN ${code}, and without multiplayer configured there is nowhere else to look. A game can only be taken back on the machine that was hosting it.`,
+      );
+      return;
+    }
+
+    let restored = localMatches ? (local?.state ?? null) : null;
+    let resumedHostId = localMatches ? (local?.hostId ?? null) : null;
+    let seats: [string, string][] = localMatches ? (local?.seats ?? []) : [];
+
+    if (claim === "ok") {
+      const held = await fetchHostState(code);
+      const fromRoom = parseHostEnvelope(held?.payload);
+
+      // The room's copy wins when it is the newer of the two: the host may
+      // have carried on from another device after this machine last saved.
+      if (fromRoom && held && (!restored || held.at > (local?.at ?? 0))) {
+        restored = fromRoom.state;
+        resumedHostId = held.hostId || resumedHostId;
+        seats = fromRoom.seats;
+      }
+    }
+
+    const game = restored;
+    if (!game) {
+      stop(
+        `PIN ${code} is yours, but no saved copy of that game could be found — not on this machine and not in the room. There is nothing to carry on from.`,
+      );
+      return;
+    }
+
+    const attached = await attachRoomChannel(code, true);
+
+    // Publish under the id this game was already published with, so a
+    // projector window that is still open keeps following it instead of
+    // waiting to be re-opened and re-latched.
+    if (resumedHostId) hostId.current = resumedHostId;
+    hostProofRef.current = proof;
+    seatUids.current = new Map(seats);
+    adoptInsightBaselines(game);
+
+    // Nothing has been saved by *this* window yet, so the first state change
+    // after the resume should write both copies rather than wait out an
+    // interval it never started.
+    savedLocallyAt.current = 0;
+    savedRemotelyAt.current = 0;
+    savedPhase.current = null;
+
+    const roomWarning =
+      !remoteConfigured || (attached && claim === "ok")
+        ? null
+        : "This game is back on this screen, but the room could not be reached — players' phones cannot reconnect until it is. Check this device's internet connection.";
+
+    if (claim === "ok" && attached) {
+      await registerRoom(
+        code,
+        hostId.current,
+        game.gameName,
+        game.phase === GamePhase.LOBBY,
+      );
+    }
+
+    setState((prev) => ({
+      ...applyHostState(prev, game, code),
+      roomWarning,
+    }));
+
+    // Whichever bindings came back, they are a snapshot of a moment that has
+    // passed: a player who joined after the last save is not in them, and a
+    // phone that came back on a new identity is in them under the old one.
+    // Asking the room to re-introduce itself settles all of it in one round
+    // trip, and costs one message.
+    postMessage({
+      type: "host-reclaimed",
+      pin: code,
+      hostId: hostId.current,
+    });
   };
 
   const generateGame = async (rounds: number, questions: number) => {
@@ -926,7 +1319,14 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     // registered another host could allocate the same code, and a snapshot
     // published into an unclaimed room is a room with no owner.
     const gameName = stateRef.current.gameName.trim() || DEFAULT_GAME_NAME;
-    registerRoom(pin, hostId.current, gameName, true);
+    await registerRoom(pin, hostId.current, gameName, true);
+
+    // What it will take to get this game back. The room only accepts a secret
+    // from the room's own host, which is why this waits on the claim above
+    // rather than racing it.
+    const password = stateRef.current.hostPassword.trim() || suggestHostPassword();
+    hostProofRef.current = hostProof(pin, password);
+    void publishHostSecret(pin, hostProofRef.current);
 
     setState((prev) => {
       // The host is always seated as a player so they can run the whole game
@@ -949,6 +1349,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         ...prev,
         gamePin: pin,
         gameName,
+        hostPassword: password,
         roomWarning,
         players: alreadySeated ? prev.players : [...prev.players, hostPlayer],
         currentPlayerId: alreadySeated ? prev.currentPlayerId : hostPlayer.id,
@@ -1011,6 +1412,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     avatarColor?: string;
     avatarAccessory?: string;
     pin: string;
+    /** The rejoin code this player chose, four digits, typed on the join form. */
+    rejoinCode?: string;
     playerId?: string;
     silent?: boolean;
   }): Promise<void> => {
@@ -1019,6 +1422,20 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
       setState((prev) => ({ ...prev, joinError: "Enter the game's PIN." }));
       return;
     }
+
+    const rejoinCode = params.rejoinCode?.trim() ?? "";
+    if (rejoinCode && rejoinCode.length !== PLAYER_CODE_LENGTH) {
+      setState((prev) => ({
+        ...prev,
+        joinError: `A rejoin code is ${PLAYER_CODE_LENGTH} digits.`,
+      }));
+      return;
+    }
+
+    // Hashed on this device, so the code itself never goes anywhere. It is
+    // both halves of the handshake at once: what the host files against a new
+    // seat, and what unlocks that seat later.
+    const rejoinProof = rejoinCode ? playerProof(code, rejoinCode) : undefined;
 
     const clientId = `client-${Math.random().toString(36).slice(2)}`;
     const playerId =
@@ -1072,8 +1489,10 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
       // The host that owns this PIN answers the query; anyone else stays quiet.
       if (message.type === "room-offer" && message.nonce === nonce) {
         // A returning player is admitted whatever the phase, so a closed lobby
-        // is only a dead end for someone who never had a seat.
-        if (!message.open && !params.playerId) {
+        // is only a dead end for someone who never had a seat — and someone
+        // holding a rejoin code may well have one, which only the host can
+        // say. Their request goes through rather than being turned back here.
+        if (!message.open && !params.playerId && !rejoinProof) {
           finish({
             joinError: `"${message.gameName}" has already started. Ask the host to open a new game.`,
           });
@@ -1088,6 +1507,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
           avatar: params.avatar,
           avatarColor: params.avatarColor,
           avatarAccessory: params.avatarAccessory,
+          rejoinProof,
         });
         return;
       }
@@ -1105,24 +1525,32 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
           return;
         }
 
+        // The host decides which seat this is. A player who came back with
+        // their code is put into the one they already had — with their score
+        // and their place in the bracket — so the id to play under is the
+        // host's answer, not the one this device generated on the way in.
+        const seatId = message.playerId ?? playerId;
+
         // Remembered so a reload lands back in this seat rather than opening
         // a second one beside it.
         void deviceIdentity().then((uid) =>
           saveSeat({
             pin: message.pin,
-            playerId,
+            playerId: seatId,
             name: params.name,
             avatar: params.avatar,
             avatarColor: params.avatarColor,
             avatarAccessory: params.avatarAccessory,
             uid: uid ?? undefined,
+            proof: rejoinProof,
+            code: rejoinCode || undefined,
           }),
         );
 
         finish({
           clientPin: message.pin,
-          clientPlayerId: playerId,
-          currentPlayerId: playerId,
+          clientPlayerId: seatId,
+          currentPlayerId: seatId,
           gamePin: message.pin,
           gameName: message.gameName,
           isHost: false,
@@ -1158,6 +1586,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     avatarColor?: string,
     avatarAccessory?: string,
     pin?: string,
+    rejoinCode?: string,
   ) => {
     void attemptJoin({
       name,
@@ -1165,6 +1594,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
       avatarColor,
       avatarAccessory,
       pin: pin ?? "",
+      rejoinCode,
     });
   };
 
@@ -1190,6 +1620,10 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         avatarColor: seat.avatarColor,
         avatarAccessory: seat.avatarAccessory,
         pin,
+        // Sent even here: a browser that has been cleared signs in as somebody
+        // new, and the code is then the only thing that still says this seat
+        // is theirs.
+        rejoinCode: seat.code,
         playerId: seat.playerId,
         silent: true,
       });
@@ -1197,6 +1631,43 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     // Mount only: rejoining is something that happens as the page comes up.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /**
+   * Answer a host that has just taken this room back.
+   *
+   * A player tab keeps playing straight through a host swap — it renders
+   * whatever snapshot arrives under its PIN — but the *host* has to be told
+   * again which device holds this seat, or every answer this phone sends will
+   * be dropped as coming from somebody who cannot prove the seat is theirs.
+   * The ordinary join request is what says so, and the host treats it as the
+   * returning player it is.
+   */
+  useEffect(() => {
+    const pin = state.clientPin;
+    const playerId = state.clientPlayerId;
+    if (!pin || !playerId) return;
+
+    return subscribeToMessages((message) => {
+      if (message.type !== "host-reclaimed" || message.pin !== pin) return;
+
+      const seat = readSeat(pin);
+      postMessage({
+        type: "player-join",
+        pin,
+        // Nobody is waiting on the result: this is a re-introduction, not a
+        // join, and the tab is already in the game.
+        clientId: `rebind-${Math.random().toString(36).slice(2)}`,
+        playerId,
+        // Empty is safe — the host keeps what it already has for a player it
+        // recognises — and is what a phone with no storage has to offer.
+        name: seat?.name ?? "",
+        avatar: seat?.avatar ?? "",
+        avatarColor: seat?.avatarColor,
+        avatarAccessory: seat?.avatarAccessory,
+        rejoinProof: seat?.proof,
+      });
+    });
+  }, [state.clientPin, state.clientPlayerId]);
 
   const clearJoinError = () =>
     setState((prev) => ({ ...prev, joinError: null }));
@@ -1591,11 +2062,27 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
   };
 
   const restartGame = () => {
-    clearStoredSnapshot();
+    const wasHosting = stateRef.current.isHost;
+
     clearSeat();
+
+    // Only the host tears the game down, and the check matters more than it
+    // looks: a guest tab and the host window share this browser's storage, so
+    // a player leaving used to reach for the host's own room, published
+    // snapshot and — now that there is one — their saved game.
+    if (wasHosting) {
+      clearStoredSnapshot();
+      // Ending a game is the one thing that closes the door behind it: the
+      // room goes and so does the saved copy of it. A game nobody is playing
+      // should not still be reclaimable, and tonight's answers should not
+      // still be sitting on this machine or in the database.
+      clearHostSession();
+      hostProofRef.current = null;
+      releaseRoom(hostId.current, stateRef.current.gamePin);
+    }
+
     seatUids.current.clear();
     resetInsightBaselines();
-    releaseRoom(hostId.current, stateRef.current.gamePin);
     void detachRoomChannel();
     setState((prev) => ({
       ...prev,
@@ -1612,6 +2099,10 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
       clientPlayerId: null,
       joining: false,
       joinError: null,
+      resuming: false,
+      resumeError: null,
+      // A fresh suggestion for the next game rather than the last game's.
+      hostPassword: suggestHostPassword(),
       currentPlayerId: null,
       roomWarning: null,
       roundsConfig: [],
@@ -1710,6 +2201,10 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         generateGame,
         confirmGame,
         setGameName,
+        setHostPassword,
+        initHostResume,
+        resumeHosting,
+        clearResumeError,
         toggleHostAnswering,
         clearJoinError,
         updateConfig,
