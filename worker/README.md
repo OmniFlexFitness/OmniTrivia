@@ -240,6 +240,32 @@ Until both secrets exist the workflow fails on its first step and says which one
 is missing, deliberately — a workflow that skipped quietly would be the same
 silent non-deploy all over again.
 
+### When the deploy step fails with "exit code 1"
+
+```
+Error: The process '/usr/local/bin/npx' failed with exit code 1
+Error: 🚨 Action failed
+```
+
+That is the action reporting that wrangler exited non-zero, and nothing else.
+wrangler's real message is inside the collapsed `Running Wrangler Commands`
+group — expand it — and with debug logging on it is somewhere in a thousand
+lines of `##[debug]`.
+
+Rather than leave you to find it, the run now ends with a `Say why the deploy
+failed` step that asks Cloudflare directly and names the cause. Read the red
+annotation at the top of the run. Almost always it is the token:
+
+| What it says | What to do |
+| --- | --- |
+| Valid token, cannot read this account's Workers | Missing account-level `Workers Scripts`. Recreate from the **Edit Cloudflare Workers** template. |
+| Rejected before any permission was checked | Revoked, expired, or mistyped. Recreate it. |
+| Can read Workers, so it is narrower | Usually the zone-level `Workers Routes` for `omniflexfitness.com`, which the `[[routes]]` custom domains need. |
+
+A failing deploy does **not** take the live Worker down — it keeps serving
+whatever was last deployed successfully. `npm run worker:deploy` from a
+checkout of `master` is always the escape hatch.
+
 ### Deploying by hand
 
 Still works, and is still the way to deploy from a branch or to test a change
