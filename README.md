@@ -13,8 +13,8 @@ push. See [DEPLOYMENT.md](DEPLOYMENT.md) for hosting and
 
 ## Rules and terminology
 
-Four words in this game sound alike and mean different things. The app uses
-them exactly as they are defined here, and so does the code.
+Some of these words sound alike and mean different things. The app uses them
+exactly as they are defined here, and so does the code.
 
 | Term | What it means |
 | --- | --- |
@@ -24,6 +24,8 @@ them exactly as they are defined here, and so does the code.
 | **Match** | A matchup actually being played — the round's questions, answered by the two people in it. A round has one match per matchup, and every match runs at its own pace. |
 | **Bracket** | Single elimination. The higher round score in a matchup advances; the other player is out. The odd player out each round gets a **bye** and advances unopposed — and a bye goes to whoever has had the fewest so far, so the same person cannot keep drawing them. |
 | **Category pool** | The host's own standing list of categories. The end-of-round vote draws its options from it. It is separate from the questions a game happens to be loaded with. |
+| **Rejoin code** | Four digits a player picks when they join. Their name and that code get them back into the same seat — score, streak and place in the bracket — from any phone, at any point in the game. |
+| **Host password** | What the host sets when they open the game. With the PIN it takes the running game back on any device if the host's window closes, reloads or dies. |
 
 ### How a game runs
 
@@ -270,6 +272,13 @@ The app now handles this itself:
 If you are looking at a blank screen on a build from before those landed,
 reload the page — on iOS, close the tab and open the link again.
 
+A reload is not the end of a game for anybody. A player's phone comes back to
+its own seat on its own; the **host's** window comes back through
+[Getting a lost game back](#getting-a-lost-game-back) — the start screen offers
+the game by its PIN, and the host password finishes it. That is worth knowing
+before it happens, because the reload is automatic and the password is not
+recoverable after the fact.
+
 ### 6. Two-Screen Hosting Procedure
 
 OmniTrivia uses a dual-screen architecture where host controls and player-facing visuals stay separate:
@@ -460,6 +469,12 @@ into a room of its own.
 A trivia night has two ways of falling apart mid-round, and both are somebody
 losing a page they cannot get back to. Both are recoverable with something
 typed, because something remembered is exactly what has just been lost.
+
+Losing the page is not always a choice, either: a page whose build has been
+replaced underneath it reloads itself (see
+[A screen went blank](#5b-a-screen-went-blank)), which puts a host back on the
+start screen mid-game. When that happens the start screen offers the game it
+was hosting by PIN, and the password takes it back.
 
 ### The host: PIN + host password
 

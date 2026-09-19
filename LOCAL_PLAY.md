@@ -149,8 +149,9 @@ A PIN now means something:
 Two pages can go wrong on a trivia night, and neither one ends the game any
 more.
 
-- **The host's.** A reload, the back button, a closed tab or a sleeping laptop
-  used to take the whole game with it. Now the game is written down as it goes,
+- **The host's.** A reload, the back button, a closed tab, a sleeping laptop —
+  or the app reloading itself because the build changed underneath it — used to
+  take the whole game with it. Now the game is written down as it goes,
   and **RESUME HOSTING** on the start screen asks for the PIN and the **host
   password** set during setup — the lobby shows it one last time, behind an eye
   toggle. The game comes back mid-round: every score, the bracket, the clock

@@ -36,6 +36,9 @@ import { resolveJoinRequest, maySpeakFor } from "../../src/services/seats";
 import type { SeatBindings } from "../../src/services/seats";
 import { buildRoundLanes, recordLaneAnswer } from "../../src/services/lanes";
 import { buildSnapshot } from "../../src/services/snapshot";
+import { buildNextRound, byeCounts } from "../../src/services/bracket";
+import { SNAPSHOT_VERSION, snapshotFit } from "../../src/services/broadcastBus";
+import type { BracketRound } from "../../src/types";
 
 let failures = 0;
 
@@ -335,6 +338,21 @@ check(
   "the host password reached every phone in the room",
 );
 
+// Every screen checks a snapshot's version before rendering a field from it,
+// and treats a mismatch as "my build is out of date" — it stops rendering and
+// goes to fetch another build. So nothing here may change the published shape
+// without moving that number: a phone would otherwise be sent to reload, come
+// back on the same build, and be sent away again.
+check(
+  "the snapshot this build publishes is one this build will render",
+  snapshotFit(published) === "ok",
+  `version ${published.version} against ${SNAPSHOT_VERSION}`,
+);
+check(
+  "a snapshot from a build ahead of this one is refused rather than rendered",
+  snapshotFit({ ...published, version: SNAPSHOT_VERSION + 1 }) === "sender-is-newer",
+);
+
 /* ------------------------------------------------------------------ *
  * A player's way back
  * ------------------------------------------------------------------ */
@@ -485,6 +503,120 @@ check(
 check(
   "and nobody else may either",
   !maySpeakFor(afterRejoin, "p-dave", { uid: "uid-stranger" }),
+);
+
+/* ------------------------------------------------------------------ *
+ * What a resumed game owes the rest of the bracket
+ *
+ * Who is owed a bye is worked out from the bracket itself — the record of
+ * what has already happened — rather than from a tally kept beside it. That
+ * makes the bracket load-bearing across a resume: a restored game that came
+ * back without its history would hand the next bye to whoever is last in the
+ * advancing list, which is always the player who just took one. The bug that
+ * fix was written for would come back, only now it would need a host to drop
+ * their window to reproduce.
+ * ------------------------------------------------------------------ */
+
+section("A resumed game still spreads its byes");
+
+// Round one of a five-player game, with "e" the odd one out.
+const playedRound: BracketRound = {
+  roundNumber: 1,
+  resolved: true,
+  matchups: [
+    {
+      id: "r1-m1",
+      roundNumber: 1,
+      playerAId: "a",
+      playerBId: "b",
+      winnerId: "a",
+      scoreA: 200,
+      scoreB: 100,
+      tiebreak: null,
+    },
+    {
+      id: "r1-m2",
+      roundNumber: 1,
+      playerAId: "c",
+      playerBId: "d",
+      winnerId: "c",
+      scoreA: 200,
+      scoreB: 100,
+      tiebreak: null,
+    },
+    {
+      id: "r1-m3",
+      roundNumber: 1,
+      playerAId: "e",
+      playerBId: null,
+      winnerId: "e",
+      scoreA: 0,
+      scoreB: null,
+      tiebreak: "Bye",
+    },
+  ],
+};
+
+const midBracket: GameState = {
+  ...liveGame(),
+  phase: GamePhase.ROUND_END,
+  bracket: [playedRound],
+};
+
+saveHostSession({
+  pin: PIN,
+  hostId: "host-window-1",
+  proof,
+  seats: bindings,
+  state: captureHostState(midBracket),
+});
+
+const afterResume = applyHostState(
+  { ...liveGame(), phase: GamePhase.START, isHost: false },
+  readHostSession(PIN)!.state,
+  PIN,
+);
+
+check(
+  "the round that was played comes back whole",
+  afterResume.bracket.length === 1 &&
+    afterResume.bracket[0].matchups.length === 3,
+);
+check(
+  "and it still remembers who took the bye",
+  byeCounts(afterResume.bracket).get("e") === 1,
+  "a resumed game forgot its bye history — the next one would land on e again",
+);
+
+const nextRound = buildNextRound(2, ["a", "c", "e"], afterResume.bracket);
+const nextByes = nextRound.matchups.filter((m) => m.playerBId === null);
+
+check(
+  "so the next bye goes to somebody else",
+  nextByes.length === 1 && nextByes[0].playerAId !== "e",
+  `round two's bye went to ${nextByes[0]?.playerAId}`,
+);
+check(
+  "and the player who sat out round one is playing round two",
+  nextRound.matchups.some(
+    (m) => m.playerBId !== null && (m.playerAId === "e" || m.playerBId === "e"),
+  ),
+);
+
+// The same draw off the restored bracket as off the original: a resume must
+// not change who plays whom.
+check(
+  "a resumed bracket draws exactly what the original would",
+  JSON.stringify(
+    buildNextRound(2, ["a", "c", "e"], afterResume.bracket).matchups.map(
+      (m) => `${m.playerAId}v${m.playerBId ?? "bye"}`,
+    ),
+  ) ===
+    JSON.stringify(
+      buildNextRound(2, ["a", "c", "e"], [playedRound]).matchups.map(
+        (m) => `${m.playerAId}v${m.playerBId ?? "bye"}`,
+      ),
+    ),
 );
 
 clearHostSession();
