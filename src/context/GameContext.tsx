@@ -210,9 +210,12 @@ const finishRound = (prev: GameState): GameState => {
   const hasMoreRounds = prev.currentRound < prev.totalRounds;
 
   if (!decided && hasMoreRounds) {
+    // Every round played so far, this one included, so the draw can see who
+    // has already had a bye and give the next one to somebody else.
     bracket[roundIndex + 1] = buildNextRound(
       prev.currentRound + 1,
       advancingIds,
+      bracket.slice(0, roundIndex + 1),
     );
   }
 

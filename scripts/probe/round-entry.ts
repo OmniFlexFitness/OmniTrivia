@@ -31,6 +31,7 @@ import {
   tickRound,
 } from "../../src/services/lanes";
 import { buildSnapshot } from "../../src/services/snapshot";
+import { buildNextRound, byeCounts, resolveRound } from "../../src/services/bracket";
 import {
   applyCategoryLike,
   applyCategoryVote,
@@ -325,6 +326,131 @@ check(
   "the table beside it carries on",
   seat(desk, "p3")?.status === LaneStatus.ANSWERING &&
     seat(desk, "p4")?.status === LaneStatus.ANSWERING,
+);
+
+/* ------------------------------------------------------------------ *
+ * 6b. The bracket: byes are spread, and nothing after round one is random
+ *
+ * The five-player game this is modelled on handed the same player a bye in
+ * round one and again in round two, so they reached the final unopposed. The
+ * cause was positional: a bye winner is always last in the advancing list, and
+ * the last player is exactly who `pair` hands the next bye to.
+ * ------------------------------------------------------------------ */
+
+const roundOf = (roundNumber: number, ids: string[], byePlayer?: string) => ({
+  roundNumber,
+  matchups: ids.reduce<
+    { id: string; roundNumber: number; playerAId: string; playerBId: string | null;
+      winnerId: string | null; scoreA: number | null; scoreB: number | null;
+      tiebreak: string | null }[]
+  >((matchups, id, index) => {
+    if (id === byePlayer) {
+      matchups.push({
+        id: `r${roundNumber}-m${matchups.length + 1}`,
+        roundNumber,
+        playerAId: id,
+        playerBId: null,
+        winnerId: id,
+        scoreA: 0,
+        scoreB: null,
+        tiebreak: "Bye",
+      });
+      return matchups;
+    }
+    const last = matchups[matchups.length - 1];
+    if (last && last.playerBId === null && last.tiebreak !== "Bye") {
+      last.playerBId = id;
+      return matchups;
+    }
+    matchups.push({
+      id: `r${roundNumber}-m${matchups.length + 1}`,
+      roundNumber,
+      playerAId: id,
+      playerBId: null,
+      winnerId: null,
+      scoreA: null,
+      scoreB: null,
+      tiebreak: null,
+    });
+    return matchups;
+  }, []),
+  resolved: true,
+});
+
+// Round one of the reported game: five players, and "e" draws the bye.
+const firstRound = roundOf(1, ["a", "b", "c", "d", "e"], "e");
+firstRound.matchups[0].winnerId = "a";
+firstRound.matchups[1].winnerId = "c";
+
+const secondRound = buildNextRound(2, ["a", "c", "e"], [firstRound]);
+const secondByes = secondRound.matchups.filter((m) => m.playerBId === null);
+
+check(
+  "the bye moves to somebody who has not had one",
+  secondByes.length === 1 && secondByes[0].playerAId !== "e",
+  `round two's bye went to ${secondByes[0]?.playerAId}`,
+);
+check(
+  "the player who sat out round one is now playing",
+  secondRound.matchups.some(
+    (m) => m.playerBId !== null && (m.playerAId === "e" || m.playerBId === "e"),
+  ),
+);
+check(
+  "an even field gets no bye at all",
+  buildNextRound(2, ["a", "b", "c", "d"], [firstRound]).matchups.every(
+    (m) => m.playerBId !== null,
+  ),
+);
+check(
+  "byes are counted off the bracket itself",
+  byeCounts([firstRound]).get("e") === 1,
+);
+
+// Nothing after round one may be drawn from a hat: the same winners must
+// always produce the same pairings.
+const drawn = Array.from({ length: 8 }, () =>
+  buildNextRound(2, ["a", "c", "e"], [firstRound])
+    .matchups.map((m) => `${m.playerAId}v${m.playerBId ?? "bye"}`)
+    .join("|"),
+);
+check(
+  "the draw after round one is fixed, not random",
+  new Set(drawn).size === 1,
+  drawn[0],
+);
+
+// And the run the whole complaint came from: five players, three rounds,
+// nobody should collect two byes while somebody else has none.
+let history = [firstRound];
+let standing = ["a", "c", "e"];
+for (let roundNumber = 2; standing.length > 1; roundNumber++) {
+  const next = buildNextRound(roundNumber, standing, history);
+  const settled = resolveRound(
+    next,
+    standing.map((id) => ({
+      id,
+      name: id,
+      avatar: "🐼",
+      // A stable, made-up finish: the earlier a player advanced, the better
+      // they do, so the run is deterministic rather than coin-flipped.
+      score: 100 - standing.indexOf(id),
+      roundScore: 100 - standing.indexOf(id),
+      isBot: false,
+      streak: 0,
+    })),
+  );
+  history = [...history, settled.round];
+  standing = settled.advancingIds;
+}
+
+const spread = byeCounts(history);
+const most = Math.max(...[...spread.values()], 0);
+const withNone = ["a", "b", "c", "d", "e"].filter((id) => !spread.has(id));
+check(
+  "no player takes a second bye while another has had none",
+  most <= 1 || withNone.length === 0,
+  `most byes ${most}, players with none: ${withNone.join(", ") || "nobody"}`,
 );
 
 /* ------------------------------------------------------------------ *

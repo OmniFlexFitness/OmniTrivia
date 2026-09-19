@@ -260,6 +260,17 @@ const toPublicLane = (lane: MatchupLane, state: GameState): PublicLane => {
   };
 };
 
+/**
+ * A published match's seats, never undefined.
+ *
+ * Every screen walks these arrays, and a single missing one takes the page
+ * down to a blank screen — which is precisely how a field that moved between
+ * two builds gets reported as "my phone went black". The version handshake
+ * should stop a mismatched snapshot reaching a render at all; this is what
+ * keeps the damage to a missing row if one ever does.
+ */
+export const seatsOf = (lane: PublicLane): PublicSeat[] => lane.seats ?? [];
+
 /** The likes this game has collected, ready for a phone or a projector. */
 const toPublicLikes = (state: GameState): PublicCategoryLike[] =>
   state.categoryLikes

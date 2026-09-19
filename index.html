@@ -42,6 +42,47 @@
         font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
         overflow-x: hidden;
       }
+      /* What the page shows before React mounts — and, if the bundle never
+         arrives, what it shows instead of nothing at all. */
+      .boot {
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        text-align: center;
+        padding: 24px;
+      }
+      .boot-mark {
+        font-size: 2rem;
+        font-weight: 900;
+        letter-spacing: -0.03em;
+        color: #00ffff;
+      }
+      .boot-mark span {
+        color: #fff;
+      }
+      .boot-note {
+        color: #94a3b8;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.8rem;
+        letter-spacing: 0.15em;
+        text-transform: uppercase;
+        max-width: 28rem;
+        line-height: 1.6;
+      }
+      .boot-action {
+        margin-top: 8px;
+        padding: 12px 24px;
+        border-radius: 12px;
+        border: 2px solid #ff00ff;
+        background: transparent;
+        color: #ff00ff;
+        font-weight: 700;
+        font-size: 1rem;
+        cursor: pointer;
+      }
       .neon-text {
         text-shadow:
           0 0 5px #fff,
@@ -82,7 +123,113 @@
     </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div class="boot">
+        <div class="boot-mark">OMNI<span>TRIVIA</span></div>
+        <div class="boot-note" id="boot-note">Loading…</div>
+        <button class="boot-action" id="boot-reload" hidden>Reload the page</button>
+      </div>
+    </div>
+
+    <script>
+      /**
+       * The blank-screen guard.
+       *
+       * Every deploy renames the bundle, and this page is cached for ten
+       * minutes. A phone that opened the site just before a deploy therefore
+       * asks for a file that no longer exists — and because the host serves a
+       * copy of this page for anything it cannot find, the browser is handed
+       * HTML where it expected JavaScript, refuses it, and renders nothing.
+       * The result is a dark, empty screen in someone's hand in the middle of
+       * a game, with no way to tell it apart from a dead connection.
+       *
+       * So: notice that the app never started, and reload once against a fresh
+       * URL. One reload only — a loop would be worse than the blank screen —
+       * and if that does not fix it, say so in words with a button.
+       */
+      (function () {
+        var RECOVERY_KEY = "omnitrivia:recovered-once";
+        var GRACE_MS = 8000;
+        var recovering = false;
+
+        var booted = function () {
+          var root = document.getElementById("root");
+          return !!root && root.getAttribute("data-booted") === "1";
+        };
+
+        var already = function () {
+          try {
+            return sessionStorage.getItem(RECOVERY_KEY) === "1";
+          } catch (error) {
+            // Private mode: no memory of a previous attempt, so err towards
+            // the message rather than risking a reload loop.
+            return true;
+          }
+        };
+
+        var giveUp = function () {
+          var note = document.getElementById("boot-note");
+          var button = document.getElementById("boot-reload");
+          if (note) {
+            note.textContent =
+              "This page could not load the game. Close the tab and open the link again — or reload below.";
+          }
+          if (button) {
+            button.hidden = false;
+            button.onclick = function () {
+              try {
+                sessionStorage.removeItem(RECOVERY_KEY);
+              } catch (error) {
+                /* nothing to clear */
+              }
+              window.location.reload();
+            };
+          }
+        };
+
+        var recover = function () {
+          if (recovering || booted()) return;
+          recovering = true;
+
+          if (already()) {
+            giveUp();
+            return;
+          }
+
+          try {
+            sessionStorage.setItem(RECOVERY_KEY, "1");
+          } catch (error) {
+            /* see `already` */
+          }
+
+          var note = document.getElementById("boot-note");
+          if (note) note.textContent = "Updating to the latest version…";
+
+          // A changed query string is a different URL, so the cached copy of
+          // this page is bypassed and the new bundle name comes with it.
+          var url = new URL(window.location.href);
+          url.searchParams.set("v", Date.now().toString(36));
+          window.location.replace(url.toString());
+        };
+
+        // A module script that 404s, or that the browser refuses because it
+        // was served as HTML, reports here.
+        window.addEventListener(
+          "error",
+          function (event) {
+            var target = event.target;
+            if (target && target.tagName === "SCRIPT" && target.src) recover();
+          },
+          true,
+        );
+
+        // And a backstop, for the failures that report nothing at all.
+        window.setTimeout(function () {
+          if (!booted()) recover();
+        }, GRACE_MS);
+      })();
+    </script>
+
     <script type="module" src="/src/index.tsx"></script>
   </body>
 </html>

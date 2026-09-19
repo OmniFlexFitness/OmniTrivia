@@ -22,7 +22,7 @@ them exactly as they are defined here, and so does the code.
 | **Round** | One spin of the wheel. The wheel picks a category, then every player still in the bracket is paired off. A round has one category and one set of questions. |
 | **Matchup** | One pairing for one round: you against one other player. Round one is drawn at random; from then on the bracket decides who you face, because it pairs the players who won. |
 | **Match** | A matchup actually being played — the round's questions, answered by the two people in it. A round has one match per matchup, and every match runs at its own pace. |
-| **Bracket** | Single elimination. The higher round score in a matchup advances; the other player is out. The odd player out each round gets a **bye** and advances unopposed. |
+| **Bracket** | Single elimination. The higher round score in a matchup advances; the other player is out. The odd player out each round gets a **bye** and advances unopposed — and a bye goes to whoever has had the fewest so far, so the same person cannot keep drawing them. |
 | **Category pool** | The host's own standing list of categories. The end-of-round vote draws its options from it. It is separate from the questions a game happens to be loaded with. |
 
 ### How a game runs
@@ -34,6 +34,11 @@ them exactly as they are defined here, and so does the code.
 4. At the end of a round, every matchup is settled on that round's points. The
    winners are paired into next round's matchups; the losers are out of the
    bracket but stay on the leaderboard.
+   **Only round one is drawn at random.** After that the bracket decides it:
+   the winner of the first matchup meets the winner of the second, and so on.
+   When the field is an odd size somebody takes a bye, and it goes to whoever
+   has had the fewest byes — otherwise it lands on the same player every round,
+   because a bye winner is always last in the list of who advanced.
 5. The game ends when one player is left standing, or when the rounds run out —
    whichever comes first. If the rounds run out first, the highest score among
    the players still in it takes the night.
@@ -241,6 +246,29 @@ If AI question generation returns placeholder questions:
    - **macOS**: System Settings → Network → Firewall → Options → Allow `node`
    - **Linux (ufw)**: `sudo ufw allow 5173/tcp`
 3. **Router AP Isolation**: Some commercial guest Wi-Fi networks block device-to-device communication. If so, connect all devices to a personal mobile Wi-Fi hotspot, or deploy remotely via Google Cloud Run.
+
+### 5b. A screen went blank
+
+Almost always a build that changed underneath an open page. The site is
+redeployed on every push to `master`, and both the page and its bundle are
+cached for ten minutes — so a phone or a projector window that loaded just
+before a deploy can still be running the previous build while the host has
+already moved to the new one.
+
+The app now handles this itself:
+
+- A page whose bundle no longer exists reloads once against a fresh URL, and
+  says so in words with a **Reload** button if that does not fix it — instead
+  of showing nothing at all.
+- A screen that receives game data from a newer build fetches that build rather
+  than trying to render fields it does not have. Rendering them is what turned
+  a phone black mid-round: a field that moved reads as `undefined`, the render
+  throws, and React takes the whole page down.
+- Anything that still manages to crash shows what broke and a **Reload**
+  button, on a screen rather than in a console nobody can open.
+
+If you are looking at a blank screen on a build from before those landed,
+reload the page — on iOS, close the tab and open the link again.
 
 ### 6. Two-Screen Hosting Procedure
 
@@ -515,8 +543,10 @@ asserts what matters: a question closes for the player who answered it and
 nobody else, the next one is available immediately, a faster correct answer
 scores more, the projector refuses to reveal while anyone could still be
 looking, and the round only ends once the big screen has caught up. It also
-covers the likes and the ballot — that a re-sent like still counts once, and
-that every screen is published the same four options.
+covers the bracket — that a bye moves to somebody who has not had one, and
+that the draw after round one is fixed rather than redrawn — and the likes and
+the ballot, that a re-sent like still counts once and that every screen is
+published the same four options.
 
 ## What this is not
 

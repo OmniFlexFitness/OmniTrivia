@@ -11,8 +11,11 @@ import {
 import {
   postMessage,
   readStoredSnapshot,
+  reloadForNewBuild,
+  snapshotFit,
   subscribeToMessages,
 } from "../services/broadcastBus";
+import { seatsOf } from "../services/snapshot";
 import AvatarDisplay from "./AvatarDisplay";
 import BracketView, { MatchupCard } from "./BracketView";
 import JoinCode from "./JoinCode";
@@ -226,8 +229,8 @@ const LaneRace: React.FC<{
   // top of the board.
   const ordered = [...lanes].sort(
     (a, b) =>
-      Math.max(0, ...b.seats.map((seat) => seat.completed)) -
-      Math.max(0, ...a.seats.map((seat) => seat.completed)),
+      Math.max(0, ...seatsOf(b).map((seat) => seat.completed)) -
+      Math.max(0, ...seatsOf(a).map((seat) => seat.completed)),
   );
 
   return (
@@ -241,7 +244,7 @@ const LaneRace: React.FC<{
             key={lane.id}
             className="space-y-1.5 border-l-2 border-slate-800 pl-2"
           >
-            {lane.seats.map((seat) => {
+            {seatsOf(lane).map((seat) => {
               const player = playerOf(seat.playerId);
               const done = seat.status === LaneStatus.DONE;
 
@@ -275,7 +278,7 @@ const LaneRace: React.FC<{
                 </div>
               );
             })}
-            {lane.seats.length === 0 && (
+            {seatsOf(lane).length === 0 && (
               <div className="text-xs font-mono uppercase tracking-widest text-slate-600">
                 nobody answering at this table
               </div>
@@ -697,7 +700,7 @@ const QuestionStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
   const waiting = Math.max(0, snapshot.lanesInPlay - snapshot.lanesCompleted);
   // Everyone still answering is paused, so the room's clock is too.
   const answering = snapshot.lanes
-    .flatMap((lane) => lane.seats)
+    .flatMap(seatsOf)
     .filter((seat) => seat.status === LaneStatus.ANSWERING);
   const paused = answering.length > 0 && answering.every((seat) => seat.timerPaused);
 
@@ -984,6 +987,7 @@ const BroadcastScreen: React.FC = () => {
   );
   const [hostSeenAt, setHostSeenAt] = useState(0);
   const [now, setNow] = useState(Date.now());
+  const [outOfDate, setOutOfDate] = useState(false);
   // The channel is shared by the whole origin, so a second host tab would
   // otherwise flip this screen between two different games. Follow the first
   // host we hear from, and only switch once it has gone quiet.
@@ -1009,6 +1013,15 @@ const BroadcastScreen: React.FC = () => {
 
     const unsubscribe = subscribeToMessages((message) => {
       if (message.type === "snapshot") {
+        // Rendering a snapshot from a build this window does not understand is
+        // how a projector goes black in front of a room. Fetch the build that
+        // wrote it instead.
+        if (snapshotFit(message.snapshot) !== "ok") {
+          setOutOfDate(true);
+          reloadForNewBuild();
+          return;
+        }
+
         if (!claim(message.snapshot.hostId)) return;
         setSnapshot(message.snapshot);
         setHostSeenAt(Date.now());
@@ -1042,6 +1055,23 @@ const BroadcastScreen: React.FC = () => {
   const hostLive = hostSeenAt > 0 && now - hostSeenAt < HOST_TIMEOUT_MS;
 
   const stage = useMemo(() => {
+    if (outOfDate) {
+      return (
+        <div className="flex-1 flex flex-col items-center justify-center text-center gap-5">
+          <div className="text-5xl font-black text-white">
+            This display is out of date
+          </div>
+          <p className="text-2xl text-slate-400 max-w-3xl">
+            The game was updated while this window was open. Reload it — the
+            host's screen and the players are unaffected.
+          </p>
+          <div className="text-xl font-mono uppercase tracking-widest text-neon-blue animate-pulse">
+            Trying to update itself…
+          </div>
+        </div>
+      );
+    }
+
     if (!snapshot) return <StandbyStage snapshot={null} />;
 
     switch (snapshot.phase) {
@@ -1060,7 +1090,7 @@ const BroadcastScreen: React.FC = () => {
       default:
         return <StandbyStage snapshot={snapshot} />;
     }
-  }, [snapshot]);
+  }, [snapshot, outOfDate]);
 
   return (
     <div className="min-h-screen h-screen bg-slate-900 text-white p-6 flex flex-col overflow-hidden">
