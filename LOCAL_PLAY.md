@@ -100,17 +100,21 @@ a working file covering all five question types.
    **ADD BOT** adds opponents.
 4. **START GAME** → **SPIN THE WHEEL** each round (or flick the wheel), then
    **START ROUND**.
-5. Every matchup then runs itself, at its own pace. Each one has its own clock
-   and its own question: it closes as soon as both of its players are in, shows
-   those two the answer, and moves on — so a fast pair can finish the round
-   while another pair is still on question two. **Pause**, **+10s** and
-   **Reveal** sit on each matchup's card, with "every table" versions above
-   them.
-6. The projector holds whichever question the slowest matchup is still on and
+5. Every player then runs themselves, at their own pace. Each has their own
+   clock and their own question: it closes the moment they answer it, they see
+   the answer and what it scored, and **NEXT QUESTION** takes them straight on
+   — so somebody can finish the round while the person they are playing is
+   still on question two. **Pause**, **+10s** and **Reveal** sit on each
+   match's card and act on both seats at it, with "everyone" versions above.
+6. The projector holds whichever question the slowest player is still on and
    puts the answer up once the whole field is through it. The **auto-advance**
    toggle decides whether it moves on by itself or waits for **MOVE THE ROOM
    ON**.
-7. **PLAY AGAIN** replays the same questions with scores reset — it does not
+7. At the end of a round, everyone can **like** the category just played and
+   **vote** on one of four categories to play in future. Both are collected for
+   the host under **data** on the control screen; the four options come from
+   the **pool**, which is the host's own editable list.
+8. **PLAY AGAIN** replays the same questions with scores reset — it does not
    regenerate, so it costs no API calls.
 
 ### Joining a game
@@ -143,22 +147,24 @@ A PIN now means something:
 ### Hosting and playing at the same time
 
 The host is always seated as a player, and the control screen runs two panes
-side by side: the lane board on one, **your matchup** on the other. That pane
-follows your own matchup rather than the room, so a single person can click
-through a whole round — reading the question, locking in an answer, watching
-the answer come up and the next question arrive — which is the fastest way to
-feel whether the pacing holds up before a room is in front of you.
+side by side: the board of matches on one, **your match** on the other. That
+pane follows your own seat rather than the room, so a single person can click
+through a whole round — reading the question, locking in an answer, seeing the
+answer immediately and taking the next one with **NEXT QUESTION** — which is
+the fastest way to feel whether the pacing holds up before a room is in front
+of you.
 
 The **answering on/off** toggle on that pane decides whether you are playing:
 
-- **On** — you are in your matchup's answer count, and every answer on the
-  control screen is held back until your own matchup is through that question.
-- **Off** — you are running the show. Your matchup stops waiting for you, and
+- **On** — you are in the round, and every answer on the control screen is held
+  back until you have been through that question yourself.
+- **Off** — you are running the show. Nothing in the round waits on you, and
   the whole reading copy is visible again.
 
-Turning it off mid-round takes effect immediately, and a matchup left with
-nobody to answer in it is retired rather than holding the projector up for the
-rest of the round. Turning it back on takes effect from the next round.
+Turning it off mid-round takes effect immediately: your seat is retired rather
+than holding the projector up for the rest of the round. Turning it back on
+puts you in from the next round — a round already in flight would otherwise
+hand you a question everybody else has had fifteen seconds on.
 
 ### Setting up the two screens
 

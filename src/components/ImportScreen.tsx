@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { useGame } from '../context/GameContext';
 import { fetchFromGoogleSheet } from '../services/importService';
 import Button from './Button';
+import Instructions from './Instructions';
 import { ArrowLeft, Upload, Link, Loader2, AlertTriangle } from 'lucide-react';
 
 const ImportScreen: React.FC = () => {
@@ -56,10 +57,12 @@ const ImportScreen: React.FC = () => {
         <button onClick={goBackToConfig} className="absolute top-4 left-4 text-slate-400 hover:text-white">
           <ArrowLeft />
         </button>
-        <div className="text-center mb-8">
+        <div className="text-center mb-6">
           <h2 className="text-3xl font-bold text-white">IMPORT TRIVIA</h2>
           <p className="text-slate-400 mt-2">Upload a CSV file or link a public Google Sheet.</p>
         </div>
+
+        <Instructions guide="import" className="mb-6" />
 
         {(localError || error) && (
           <div className="bg-red-900/50 border border-red-500 text-red-300 p-4 rounded-lg mb-6 flex items-center gap-3">

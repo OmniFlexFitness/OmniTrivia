@@ -6,7 +6,7 @@ export enum GamePhase {
   JOIN = "JOIN",
   LOBBY = "LOBBY",
   CATEGORY_SELECT = "CATEGORY_SELECT",
-  PLAYING = "PLAYING", // The round is live; every matchup runs at its own pace
+  PLAYING = "PLAYING", // The round is live; every match runs at its own pace
   ROUND_END = "ROUND_END",
   GAME_OVER = "GAME_OVER",
 }
@@ -33,11 +33,14 @@ export enum QuestionType {
 export type Answer = number | string | string[];
 
 /**
- * Why a question stopped. The room is told which it was, so this is recorded
- * when it happens rather than guessed afterwards from the clock — a host who
- * reveals early leaves time on it, and so does the last player answering.
+ * Why a question stopped *for one player*. The room is told which it was, so
+ * this is recorded when it happens rather than guessed afterwards from the
+ * clock.
+ *
+ * "answered" is the ordinary case: a player locks an answer in and their
+ * question closes there and then, whatever their opponent is doing.
  */
-export type RevealReason = "all-in" | "time" | "host";
+export type RevealReason = "answered" | "time" | "host";
 
 export interface Player {
   id: string;
@@ -74,13 +77,13 @@ export interface RoundConfig {
   questions: Question[];
 }
 
-/** One player's answer to the question their matchup is currently on. */
+/** One player's answer to the question their match is currently on. */
 export interface AnswerRecord {
   playerId: string;
   answer: Answer;
   isCorrect: boolean;
   points: number;
-  /** Seconds left on the clock when they locked it in — drives the time bonus. */
+  /** Seconds left on their own clock when they locked it in — the time bonus. */
   timeLeft: number;
 }
 
@@ -112,11 +115,11 @@ export interface BracketRound {
 }
 
 /**
- * Where a matchup has got to in the round it is playing.
+ * Where one player has got to in the round.
  *
- * ANSWERING: the question is live and the lane is waiting on its players.
- * REVEAL:    the answer is up for the two players in it, nobody else.
- * DONE:      the lane has been through every question in the round.
+ * ANSWERING: their question is live and their own clock is running.
+ * REVEAL:    they are looking at the answer to the question they just closed.
+ * DONE:      they are through every question in the round.
  */
 export enum LaneStatus {
   ANSWERING = "ANSWERING",
@@ -125,48 +128,89 @@ export enum LaneStatus {
 }
 
 /**
- * One matchup's run through a round — its own question, its own clock, its own
- * reveal.
+ * One player's seat in a match: their question, their clock, their reveal.
  *
- * This is what makes a round asynchronous: the round hands every matchup the
- * same list of questions and then stops coordinating. A pair who answer in
- * four seconds each are on question five while the pair beside them are still
- * reading question two, and neither is waiting on the other. Nothing outside a
- * lane may move it along.
+ * This is the unit the whole round now moves in. A player who answers in three
+ * seconds sees the answer immediately and is on the next question while the
+ * person they are playing is still reading the last one — nothing waits on
+ * anyone else, because speed is worth points and a fast answer should buy a
+ * head start rather than a pause.
+ */
+export interface LaneSeat {
+  playerId: string;
+  /** Index into the round's questions. Equals the round length once DONE. */
+  questionIndex: number;
+  status: LaneStatus;
+  timeLeft: number;
+  /**
+   * How long this seat's current question was given in total. Tracked rather
+   * than assumed from TIMER_DURATION because the host can add time, and the
+   * bars and rings measure against what the player was actually given.
+   */
+  questionDuration: number;
+  timerPaused: boolean;
+  /**
+   * Seconds the answer stays up before this seat moves on by itself. A player
+   * who has read it can skip the rest of that wait and take the next question
+   * straight away.
+   */
+  revealSecondsLeft: number;
+  /** Why this seat's question ended. Null while one is running. */
+  revealReason: RevealReason | null;
+}
+
+/**
+ * One match: the two players of a matchup working through the round's
+ * questions.
+ *
+ * A match is a container, not a clock. Everything that ticks lives on the
+ * seats inside it, so the two players in a matchup are never waiting on each
+ * other — they are compared on the points they finish the round with, not on
+ * the pace they got there at. Nothing outside a seat may move that seat along.
  */
 export interface MatchupLane {
   /** The matchup's id, or a synthetic one for a game with no bracket. */
   id: string;
-  /** The bracket matchup this lane runs. Null when the game has no bracket. */
+  /** The bracket matchup this match plays out. Null when there is no bracket. */
   matchupId: string | null;
-  /** Both sides of the pairing — who the lane is *about*. */
+  /** Both sides of the pairing — who the match is *about*. */
   playerIds: string[];
   /**
-   * Who the lane actually waits on. The same as `playerIds` except for a host
-   * who has switched answering off; a lane with nobody left to answer is
+   * Who the match actually waits on. The same as `playerIds` except for a host
+   * who has switched answering off; a match with nobody left to answer is
    * retired rather than run through the round on an empty clock.
    */
   answeringIds: string[];
-  /** Index into the round's questions. Equals the round length once DONE. */
-  questionIndex: number;
-  status: LaneStatus;
+  /** One seat per answering player. This is where the round actually runs. */
+  seats: LaneSeat[];
   /**
    * Answers indexed by question, so a finished question keeps its record for
-   * the broadcast's aggregate tally. `answers[questionIndex]` is the live one.
+   * the broadcast's aggregate tally. Both players' answers to one question sit
+   * in the same bucket even though they arrived at it at different times.
    */
   answers: AnswerRecord[][];
-  timeLeft: number;
-  /**
-   * How long this lane's current question was given in total. Tracked rather
-   * than assumed from TIMER_DURATION because the host can add time to a single
-   * lane, and its bars and rings measure against what it was actually given.
-   */
-  questionDuration: number;
-  timerPaused: boolean;
-  /** Seconds the answer stays up in this lane before it moves on. */
-  revealSecondsLeft: number;
-  /** Why this lane's question ended. Null while one is running. */
-  revealReason: RevealReason | null;
+}
+
+/**
+ * One category people can be asked to vote on, and the pool they are drawn
+ * from. The pool is the host's own list — editable, and separate from the
+ * categories a given game happens to have loaded.
+ */
+export interface CategoryPoll {
+  /** New for every poll, so a stale vote from the last round cannot land. */
+  id: string;
+  roundNumber: number;
+  /** Drawn once, by the host, and published — so the whole room sees the same
+   * four options rather than four rooms' worth of different ones. */
+  options: Category[];
+  /** playerId -> category id. One vote each, changeable while the poll is up. */
+  votes: Record<string, string>;
+}
+
+/** How many people have liked one category in this game. */
+export interface CategoryLikeTally {
+  category: Category;
+  playerIds: string[];
 }
 
 export interface GameState {
@@ -194,7 +238,7 @@ export interface GameState {
 
   // Current Progress
   currentRound: number;
-  /** The round's questions. Every matchup works through this same list. */
+  /** The round's questions. Every match works through this same list. */
   questionsQueue: Question[];
   usedCategories: string[];
   selectedCategory: string | null;
@@ -204,7 +248,7 @@ export interface GameState {
   championId: string | null;
 
   /**
-   * One lane per matchup, drawn when the round starts and emptied when it
+   * One match per matchup, drawn when the round starts and emptied when it
    * ends. This — not a single question and a single clock — is where a live
    * round's progress lives.
    */
@@ -212,9 +256,9 @@ export interface GameState {
 
   /* --- what the room sees, which trails the field rather than driving it --- */
   /**
-   * The question on the projector. It is the one the slowest matchup is still
-   * working on, so the big screen can never show a lane a question it has not
-   * reached, and the answer only goes up once every lane is through it.
+   * The question on the projector. It is the one the slowest player is still
+   * working on, so the big screen can never show anyone a question they have
+   * not reached, and the answer only goes up once every player is through it.
    */
   broadcastQuestionIndex: number;
   /** The answer to `broadcastQuestionIndex` is up on the projector. */
@@ -223,7 +267,7 @@ export interface GameState {
   broadcastRevealSecondsLeft: number;
 
   // When false the room's screen holds on each answer until the host clicks
-  // through. Matchups always advance themselves — that is the point of a lane.
+  // through. Players always advance themselves — that is the point of a seat.
   autoAdvance: boolean;
   // The host plays along from their own screen for testing. Turning this off
   // takes them out of the answer count so a round does not wait on them.
@@ -235,6 +279,11 @@ export interface GameState {
   // hide it is how the room ends up reading the category off the projector
   // before the host has spun for it.
   categoryRevealed: boolean;
+
+  /** Who has liked which category in this game. Totals are kept on disk too. */
+  categoryLikes: CategoryLikeTally[];
+  /** The end-of-round vote on what to play in future, while one is open. */
+  categoryPoll: CategoryPoll | null;
 
   loading: boolean;
   error: string | null;
@@ -319,35 +368,75 @@ export interface RevealDetail {
 }
 
 /**
- * One matchup's lane, as published.
+ * One player's seat, as published. This is what a player's own phone renders:
+ * their question, their clock, and — only once they have closed it — their
+ * answer.
+ */
+export interface PublicSeat {
+  playerId: string;
+  status: LaneStatus;
+  /** 1-based position in the round, clamped to the round's length. */
+  questionNumber: number;
+  /** How many of the round's questions this player is through. */
+  completed: number;
+  question: PublicQuestion | null;
+  /** Non-null only while this player is looking at their own answer. */
+  reveal: RevealDetail | null;
+  /** They are in on the question they are currently on. */
+  answered: boolean;
+  /** Whether they got it — published only once they are past the question. */
+  wasCorrect: boolean | null;
+  /** Points their last closed question earned them. */
+  lastPoints: number | null;
+  timeLeft: number;
+  timerDuration: number;
+  timerPaused: boolean;
+  revealSecondsLeft: number;
+  revealReason: RevealReason | null;
+}
+
+/**
+ * One match, as published.
  *
- * Every lane is in the snapshot because the host desk and the projector both
- * draw the whole field, and because a player's own tab has to find its lane in
- * here to know which question it is on. A lane carries its own question and —
- * only while it is revealing — its own answer.
+ * Every match is in the snapshot because the host desk and the projector both
+ * draw the whole field, and because a player's own tab has to find their seat
+ * in here to know which question they are on.
  */
 export interface PublicLane {
   id: string;
   matchupId: string | null;
   playerIds: string[];
   answeringIds: string[];
+  /** The match as a whole: ANSWERING until every seat in it is through. */
   status: LaneStatus;
-  /** 1-based position in the round, clamped to the round's length. */
+  /** Where the slower of the two players is, 1-based. */
   questionNumber: number;
-  /** How many of the round's questions this lane is through. */
+  /** Questions both players are through. */
   completed: number;
-  question: PublicQuestion | null;
-  /** Non-null only while this lane is showing its answer. */
-  reveal: RevealDetail | null;
-  timeLeft: number;
-  timerDuration: number;
-  timerPaused: boolean;
-  revealSecondsLeft: number;
-  revealReason: RevealReason | null;
-  /** Who is in on this lane's current question. */
-  answeredPlayerIds: string[];
-  /** Who got it — published only once this lane is revealing. */
-  correctPlayerIds: string[];
+  seats: PublicSeat[];
+}
+
+/** One category's likes, as the room sees them. */
+export interface PublicCategoryLike {
+  categoryId: string;
+  name: string;
+  icon: string;
+  color: string;
+  count: number;
+  /** So a phone can show whether this player is one of them. */
+  playerIds: string[];
+}
+
+/** The end-of-round vote on what to play next, as the room sees it. */
+export interface PublicCategoryPoll {
+  id: string;
+  roundNumber: number;
+  options: Category[];
+  /** category id -> votes. */
+  tallies: Record<string, number>;
+  /** playerId -> category id, so a phone can show its own pick. */
+  votes: Record<string, string>;
+  totalVotes: number;
 }
 
 export interface BroadcastSnapshot {
@@ -370,23 +459,23 @@ export interface BroadcastSnapshot {
   category: Category | null;
   wheelSpinning: boolean;
 
-  /* --- the room's question: the one the slowest matchup is still on --- */
+  /* --- the room's question: the one the slowest player is still on --- */
   questionNumber: number;
   questionsInRound: number;
   question: PublicQuestion | null;
-  /** Set once every matchup is through the room's question, and not before. */
+  /** Set once every player is through the room's question, and not before. */
   reveal: RevealDetail | null;
-  /** Longest a lane still on the room's question has left on its clock. */
+  /** Longest a player still on the room's question has left on their clock. */
   timeLeft: number;
   timerDuration: number;
   /** Seconds the room's screen holds this answer before moving on. */
   revealSecondsLeft: number;
   autoAdvance: boolean;
 
-  /** How many matchups are through the room's question, out of how many. */
+  /** How many matches are through the room's question, out of how many. */
   lanesCompleted: number;
   lanesInPlay: number;
-  /** Every matchup's lane, so both the desk and the room can see the field. */
+  /** Every match, so both the desk and the room can see the field. */
   lanes: PublicLane[];
 
   /** Who is competing this round, who is through the room's question, and
@@ -396,9 +485,9 @@ export interface BroadcastSnapshot {
   correctPlayerIds: string[];
 
   /**
-   * How many players picked each public option, across every matchup. Sent
+   * How many players picked each public option, across every match. Sent
    * only with the reveal — a live tally would tell the room where the crowd is
-   * going, and would leak to lanes that have not reached the question yet.
+   * going, and would leak to players who have not reached the question yet.
    */
   optionTallies: number[] | null;
 
@@ -407,6 +496,11 @@ export interface BroadcastSnapshot {
   /** Pairings for the round after this one, shown at the end of a round. */
   nextRoundMatchups: Matchup[] | null;
   championId: string | null;
+
+  /** Likes on the categories this game has played. */
+  categoryLikes: PublicCategoryLike[];
+  /** The vote on what to play in future, open at the end of a round. */
+  categoryPoll: PublicCategoryPoll | null;
 }
 
 /** Messages on the host <-> broadcast channel. */
@@ -446,6 +540,23 @@ export type BroadcastMessage =
       pin: string;
     }
   | { type: "player-answer"; pin: string; playerId: string; answer: Answer }
+  // "I have read the answer, give me the next question." A player never has to
+  // sit through the rest of their own reveal.
+  | { type: "player-advance"; pin: string; playerId: string }
+  | {
+      type: "category-like";
+      pin: string;
+      playerId: string;
+      categoryId: string;
+      liked: boolean;
+    }
+  | {
+      type: "category-vote";
+      pin: string;
+      playerId: string;
+      pollId: string;
+      categoryId: string;
+    }
   | { type: "player-leave"; pin: string; playerId: string }
   // `hostId` names the host this display is following, so a host that is not
   // being watched does not light up its BROADCAST LIVE pill. Null while the

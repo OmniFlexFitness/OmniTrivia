@@ -4,6 +4,7 @@ import { AVATARS } from '../constants';
 import Button from './Button';
 import AvatarDisplay from './AvatarDisplay';
 import JoinCode from './JoinCode';
+import Instructions from './Instructions';
 import { Users, Zap, Settings, UserPlus, PlayCircle, Monitor } from 'lucide-react';
 
 const LobbyScreen: React.FC = () => {
@@ -82,6 +83,8 @@ const LobbyScreen: React.FC = () => {
           <span className="font-mono text-2xl font-bold">{players.length}</span>
         </div>
       </header>
+
+      <Instructions guide="lobby" className="w-full max-w-6xl mb-4" />
 
       <div className="w-full max-w-6xl flex-1 flex flex-col md:flex-row gap-6 overflow-hidden">
         {/* Players Grid */}

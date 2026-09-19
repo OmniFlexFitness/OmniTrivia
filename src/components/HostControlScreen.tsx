@@ -2,38 +2,51 @@ import React from "react";
 import { useGame } from "../context/GameContext";
 import {
   GamePhase,
+  LaneSeat,
   LaneStatus,
   MatchupLane,
   Player,
   Question,
   QuestionType,
 } from "../types";
-import { buildReveal, publicOptions } from "../services/snapshot";
+import { buildReveal, publicOptions, publicPoll } from "../services/snapshot";
 import {
+  answerBy,
   broadcastIndex,
   everyLaneCompleted,
-  laneAnswers,
   laneCompletedCount,
   laneForPlayer,
   laneHasCompleted,
-  liveAnswers,
+  laneIsRunning,
+  laneStatus,
+  seatCompletedCount,
+  seatFor,
 } from "../services/lanes";
 import Button from "./Button";
 import AvatarDisplay from "./AvatarDisplay";
 import BracketView from "./BracketView";
 import QuestionCard from "./QuestionCard";
 import Wheel from "./Wheel";
+import Instructions from "./Instructions";
+import CategoryLikeButton from "./CategoryLikeButton";
+import CategoryVotePanel from "./CategoryVotePanel";
+import CategoryPoolManager from "./CategoryPoolManager";
+import InsightsPanel from "./InsightsPanel";
 import {
   ArrowRight,
+  BarChart3,
   CheckCircle2,
   Crown,
   Eye,
   EyeOff,
   Flag,
+  Heart,
+  ListPlus,
   Monitor,
   Pause,
   Play,
   RotateCcw,
+  Shuffle,
   SkipForward,
   Swords,
   Trophy,
@@ -45,12 +58,11 @@ import {
  * The hosting interface: everything needed to run a round, and nothing the
  * room is meant to see.
  *
- * A round is no longer one question the host walks the room through — every
- * matchup runs at its own pace — so this screen is a board of tables rather
- * than a single set of transport controls. Each matchup gets its own card with
- * its own clock, its own answer and its own pause/reveal, and the panel on the
- * right shows what the projector is currently holding up, which trails the
- * fastest tables by design.
+ * A round is not one question the host walks the room through, and it is not
+ * even one question per table: every player is on their own question, on their
+ * own clock. So this screen is a board of tables, each showing both seats at
+ * it, plus a panel showing what the projector is holding up — which trails the
+ * fastest players by design.
  */
 
 const CHOICE_LETTERS = ["A", "B", "C", "D", "E", "F"];
@@ -75,12 +87,12 @@ const Panel: React.FC<{
 );
 
 /**
- * How far the host's own matchup has got.
+ * How far the host's own seat has got.
  *
  * A host who is also playing must not read an answer off their own desk before
- * their table has been through the question. Once they are knocked out, or
- * have switched answering off, they are running the game rather than playing
- * it and the whole reading copy comes back.
+ * they have been through the question themselves. Once they are knocked out,
+ * or have switched answering off, they are running the game rather than
+ * playing it and the whole reading copy comes back.
  */
 const useHostProgress = (): number | null => {
   const { players, currentPlayerId, lanes, questionsQueue, hostAnsweringEnabled } =
@@ -90,16 +102,15 @@ const useHostProgress = (): number | null => {
   if (!hostPlayer || hostPlayer.eliminated || !hostAnsweringEnabled) return null;
 
   const lane = laneForPlayer(lanes, hostPlayer.id);
-  if (!lane || !lane.answeringIds.includes(hostPlayer.id)) return null;
+  const seat = lane ? seatFor(lane, hostPlayer.id) : undefined;
+  if (!lane || !seat) return null;
 
-  const completed = laneCompletedCount(lane, questionsQueue.length);
-  // A question their matchup has closed is already theirs to read. The live
-  // one joins it the moment they lock an answer in, and not before — which is
-  // only ever a question their lane is still answering, so the count must not
-  // be nudged again for a lane that is revealing or done.
+  const completed = seatCompletedCount(seat, questionsQueue.length);
+  // A question they have closed is already theirs to read. The live one joins
+  // it the moment they lock an answer in, and not before.
   const readingTheirOwn =
-    lane.status === LaneStatus.ANSWERING &&
-    liveAnswers(lane).some((a) => a.playerId === hostPlayer.id);
+    seat.status === LaneStatus.ANSWERING &&
+    Boolean(answerBy(lane, hostPlayer.id, seat.questionIndex));
 
   return completed + (readingTheirOwn ? 1 : 0);
 };
@@ -159,7 +170,7 @@ const QuestionReference: React.FC<{
           </div>
           {withheld ? (
             <div className="text-slate-500 italic text-sm">
-              Held back until your own matchup is through this one.
+              Held back until you are through this one yourself.
             </div>
           ) : showAnswer ? (
             <>
@@ -181,9 +192,101 @@ const QuestionReference: React.FC<{
   );
 };
 
+/** One player's row inside a match: where they are and what they are doing. */
+const SeatRow: React.FC<{
+  seat: LaneSeat;
+  lane: MatchupLane;
+  player: Player | undefined;
+  questionsInRound: number;
+}> = ({ seat, lane, player, questionsInRound }) => {
+  if (!player) return null;
+
+  const record = answerBy(lane, seat.playerId, seat.questionIndex);
+  const completed = seatCompletedCount(seat, questionsInRound);
+
+  const state = () => {
+    switch (seat.status) {
+      case LaneStatus.DONE:
+        return (
+          <span className="flex items-center gap-1 text-[10px] font-mono uppercase tracking-widest text-slate-400">
+            <Flag size={11} /> through the round
+          </span>
+        );
+      case LaneStatus.REVEAL:
+        return (
+          <span
+            className={`flex items-center gap-1 text-[10px] font-mono uppercase tracking-widest ${
+              record?.isCorrect ? "text-green-400" : "text-red-400"
+            }`}
+          >
+            <CheckCircle2 size={11} />
+            {record?.isCorrect
+              ? `+${record.points}`
+              : record
+                ? "missed"
+                : "timed out"}{" "}
+            · {seat.revealSecondsLeft}s
+          </span>
+        );
+      default:
+        return (
+          <span
+            className={`text-[10px] font-mono uppercase tracking-widest ${
+              seat.timerPaused
+                ? "text-neon-yellow"
+                : seat.timeLeft <= 5
+                  ? "text-red-400"
+                  : "text-neon-blue"
+            }`}
+          >
+            {seat.timerPaused ? "paused" : `${seat.timeLeft}s left`}
+            {record ? " · in" : ""}
+          </span>
+        );
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-2 min-w-0">
+      <AvatarDisplay
+        avatar={player.avatar}
+        color={player.avatarColor}
+        accessory={player.avatarAccessory}
+        size="sm"
+      />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="font-bold text-white truncate">{player.name}</span>
+          <span className="font-mono font-black text-neon-green shrink-0">
+            {player.roundScore}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-mono uppercase tracking-widest text-slate-500">
+            Q{Math.min(completed + 1, questionsInRound)}/{questionsInRound}
+          </span>
+          {state()}
+        </div>
+      </div>
+      {seat.status === LaneStatus.ANSWERING && (
+        <div className="w-16 h-1.5 bg-slate-800 rounded-full overflow-hidden shrink-0">
+          <div
+            className={`h-full transition-all duration-1000 ease-linear ${
+              seat.timeLeft < 5 ? "bg-red-500" : "bg-neon-blue"
+            }`}
+            style={{
+              width: `${Math.min(100, (seat.timeLeft / seat.questionDuration) * 100)}%`,
+            }}
+          />
+        </div>
+      )}
+    </div>
+  );
+};
+
 /**
- * One matchup's table: where it has got to, who is in, and the controls that
- * act on it alone.
+ * One match: both seats, where each of them is, and the controls that act on
+ * the table as a whole.
  */
 const LaneCard: React.FC<{ lane: MatchupLane }> = ({ lane }) => {
   const {
@@ -195,133 +298,90 @@ const LaneCard: React.FC<{ lane: MatchupLane }> = ({ lane }) => {
   } = useGame();
   const hostProgress = useHostProgress();
 
-  const question = questionsQueue[lane.questionIndex];
-  const answers = laneAnswers(lane, lane.questionIndex);
+  const status = laneStatus(lane);
+  const running = laneIsRunning(lane);
   const completed = laneCompletedCount(lane, questionsQueue.length);
-  const answeredIds = new Set(answers.map((a) => a.playerId));
   const playerOf = (id: string): Player | undefined =>
     players.find((p) => p.id === id);
 
-  const statusPill = () => {
-    switch (lane.status) {
-      case LaneStatus.DONE:
-        return (
-          <span className="flex items-center gap-1 px-2 py-1 rounded-full bg-slate-700/60 text-slate-300 text-[10px] font-mono uppercase tracking-widest">
-            <Flag size={11} /> through the round
-          </span>
-        );
-      case LaneStatus.REVEAL:
-        return (
-          <span className="flex items-center gap-1 px-2 py-1 rounded-full bg-green-600/20 text-green-400 text-[10px] font-mono uppercase tracking-widest">
-            <CheckCircle2 size={11} /> answer up · {lane.revealSecondsLeft}s
-          </span>
-        );
-      default:
-        return (
-          <span
-            className={`px-2 py-1 rounded-full text-[10px] font-mono uppercase tracking-widest ${
-              lane.timerPaused
-                ? "bg-neon-yellow/10 text-neon-yellow"
-                : "bg-neon-blue/10 text-neon-blue"
-            }`}
-          >
-            {lane.timerPaused ? "paused" : `${lane.timeLeft}s left`}
-          </span>
-        );
-    }
-  };
+  // The host's reading copy follows the table's slowest seat, which is the
+  // furthest-behind question anybody at it might still be looking at.
+  const slowest = lane.seats.reduce<number>(
+    (lowest, seat) => Math.min(lowest, seat.questionIndex),
+    questionsQueue.length,
+  );
+  const question = questionsQueue[Math.min(slowest, questionsQueue.length - 1)];
 
   return (
     <div
       className={`rounded-2xl border p-4 space-y-3 ${
-        lane.status === LaneStatus.DONE
+        status === LaneStatus.DONE
           ? "bg-slate-900/40 border-slate-800"
           : "bg-slate-900 border-slate-700"
       }`}
     >
-      {/* Who, and where they stand this round */}
-      <div className="flex items-center gap-2">
-        {lane.playerIds.map((playerId, index) => {
-          const player = playerOf(playerId);
-          if (!player) return null;
-          const isIn = answeredIds.has(playerId);
-          const answering = lane.answeringIds.includes(playerId);
-
-          return (
-            <React.Fragment key={playerId}>
-              {index > 0 && (
-                <Swords size={12} className="text-neon-pink shrink-0" />
-              )}
-              <div className="flex items-center gap-2 min-w-0">
-                <div className="relative shrink-0">
-                  <AvatarDisplay
-                    avatar={player.avatar}
-                    color={player.avatarColor}
-                    accessory={player.avatarAccessory}
-                    size="sm"
-                  />
-                  {lane.status === LaneStatus.ANSWERING && answering && isIn && (
-                    <CheckCircle2
-                      size={14}
-                      className="absolute -bottom-1 -right-1 text-neon-green bg-slate-900 rounded-full"
-                    />
-                  )}
-                </div>
-                <span
-                  className={`font-bold truncate ${answering ? "text-white" : "text-slate-500"}`}
-                >
-                  {player.name}
-                </span>
-                <span className="font-mono font-black text-neon-green shrink-0">
-                  {player.roundScore}
-                </span>
-              </div>
-            </React.Fragment>
-          );
-        })}
-        {lane.playerIds.length < 2 && (
-          <span className="italic text-slate-500 text-sm">· bye</span>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[11px] font-mono uppercase tracking-widest text-slate-500">
+          {lane.playerIds.length < 2 ? "bye" : "matchup"} · {completed}/
+          {questionsQueue.length} both through
+        </span>
+        {status === LaneStatus.DONE && (
+          <span className="flex items-center gap-1 px-2 py-1 rounded-full bg-slate-700/60 text-slate-300 text-[10px] font-mono uppercase tracking-widest">
+            <Flag size={11} /> match over
+          </span>
         )}
       </div>
 
-      <div className="flex items-center justify-between">
-        <span className="text-[11px] font-mono uppercase tracking-widest text-slate-500">
-          Q{Math.min(completed + 1, questionsQueue.length)} of{" "}
-          {questionsQueue.length} · {completed} done
-        </span>
-        {statusPill()}
+      <div className="space-y-2">
+        {lane.seats.map((seat, index) => (
+          <React.Fragment key={seat.playerId}>
+            {index > 0 && (
+              <div className="flex items-center gap-2 text-neon-pink">
+                <div className="flex-1 h-px bg-slate-800" />
+                <Swords size={12} />
+                <div className="flex-1 h-px bg-slate-800" />
+              </div>
+            )}
+            <SeatRow
+              seat={seat}
+              lane={lane}
+              player={playerOf(seat.playerId)}
+              questionsInRound={questionsQueue.length}
+            />
+          </React.Fragment>
+        ))}
+
+        {/* Someone in the pairing who is not answering — a host with answering
+            off, or a player who left — still belongs on the card. */}
+        {lane.playerIds
+          .filter((id) => !lane.seats.some((seat) => seat.playerId === id))
+          .map((id) => (
+            <div
+              key={id}
+              className="text-[11px] font-mono uppercase tracking-widest text-slate-600"
+            >
+              {playerOf(id)?.name ?? "Unknown"} · not answering
+            </div>
+          ))}
       </div>
 
-      {lane.status === LaneStatus.ANSWERING && (
-        <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
-          <div
-            className={`h-full transition-all duration-1000 ease-linear ${
-              lane.timeLeft < 5 ? "bg-red-500" : "bg-neon-blue"
-            }`}
-            style={{
-              width: `${Math.min(100, (lane.timeLeft / lane.questionDuration) * 100)}%`,
-            }}
-          />
-        </div>
-      )}
-
-      {question && lane.status !== LaneStatus.DONE && (
+      {question && status !== LaneStatus.DONE && (
         <QuestionReference
           question={question}
           compact
-          withheld={hostProgress !== null && lane.questionIndex >= hostProgress}
+          withheld={hostProgress !== null && slowest >= hostProgress}
         />
       )}
 
-      {lane.status === LaneStatus.ANSWERING && (
+      {status !== LaneStatus.DONE && (
         <div className="grid grid-cols-3 gap-2">
           <Button
             variant="secondary"
             onClick={() => toggleLanePaused(lane.id)}
             className="flex items-center justify-center gap-1 py-1.5 text-xs"
           >
-            {lane.timerPaused ? <Play size={14} /> : <Pause size={14} />}
-            {lane.timerPaused ? "Resume" : "Pause"}
+            {running ? <Pause size={14} /> : <Play size={14} />}
+            {running ? "Pause" : "Resume"}
           </Button>
           <Button
             variant="secondary"
@@ -339,21 +399,11 @@ const LaneCard: React.FC<{ lane: MatchupLane }> = ({ lane }) => {
           </Button>
         </div>
       )}
-
-      {lane.status === LaneStatus.REVEAL && (
-        <div className="text-[11px] font-mono uppercase tracking-widest text-slate-500">
-          {lane.revealReason === "all-in"
-            ? "both in — moving on by itself"
-            : lane.revealReason === "host"
-              ? "revealed from the desk"
-              : "time ran out"}
-        </div>
-      )}
     </div>
   );
 };
 
-/** Every matchup, side by side. */
+/** Every match, side by side. */
 const LaneBoard: React.FC = () => {
   const { lanes, setAllLanesPaused, addTimeToAllLanes, revealAllLanesNow } =
     useGame();
@@ -364,9 +414,7 @@ const LaneBoard: React.FC = () => {
     );
   }
 
-  const anyRunning = lanes.some(
-    (lane) => lane.status === LaneStatus.ANSWERING && !lane.timerPaused,
-  );
+  const anyRunning = lanes.some(laneIsRunning);
 
   return (
     <div className="space-y-4">
@@ -377,14 +425,14 @@ const LaneBoard: React.FC = () => {
           className="flex items-center gap-2 py-1.5 px-3 text-xs"
         >
           {anyRunning ? <Pause size={14} /> : <Play size={14} />}
-          {anyRunning ? "Pause every table" : "Resume every table"}
+          {anyRunning ? "Pause every clock" : "Resume every clock"}
         </Button>
         <Button
           variant="secondary"
           onClick={() => addTimeToAllLanes(10)}
           className="py-1.5 px-3 text-xs"
         >
-          +10s to every table
+          +10s to everyone
         </Button>
         <Button
           variant="secondary"
@@ -408,8 +456,8 @@ const LaneBoard: React.FC = () => {
  * What the projector is holding up.
  *
  * The room's screen deliberately trails the field: it stays on whichever
- * question the slowest matchup is still working on, and only puts the answer
- * up once every table is through it. This panel is where the host watches that
+ * question the slowest player is still working on, and only puts the answer up
+ * once everyone is through it. This panel is where the host watches that
  * happen, and steps in if they would rather move the room along themselves.
  */
 const RoomScreenPanel: React.FC = () => {
@@ -428,7 +476,7 @@ const RoomScreenPanel: React.FC = () => {
   const question = questionsQueue[index];
   const through = lanes.filter((lane) => laneHasCompleted(lane, index)).length;
   const revealing = broadcastRevealing && everyLaneCompleted(lanes, index);
-  const allDone = lanes.every((lane) => lane.status === LaneStatus.DONE);
+  const allDone = lanes.every((lane) => laneStatus(lane) === LaneStatus.DONE);
 
   if (!question) {
     return <p className="text-slate-500 text-sm">Nothing on the big screen.</p>;
@@ -441,7 +489,7 @@ const RoomScreenPanel: React.FC = () => {
           Showing Q{index + 1} of {questionsQueue.length}
         </span>
         <span className={revealing ? "text-green-400" : "text-neon-yellow"}>
-          {through}/{lanes.length} matchups through it
+          {through}/{lanes.length} matches through it
         </span>
       </div>
 
@@ -473,8 +521,8 @@ const RoomScreenPanel: React.FC = () => {
         </>
       ) : (
         <div className="text-xs font-mono uppercase tracking-widest text-slate-500">
-          Waiting on the slowest matchup — the answer goes up when every table
-          is through it.
+          Waiting on the slowest player — the answer goes up when everyone is
+          through it.
         </div>
       )}
 
@@ -500,13 +548,18 @@ const RoundProgressPanel: React.FC = () => {
     return <p className="text-slate-500 text-sm">No questions dealt yet.</p>;
   }
 
+  const seats = lanes.flatMap((lane) => lane.seats);
+
   return (
     <div className="space-y-1.5">
       {questionsQueue.map((question, index) => {
-        const through = lanes.filter((lane) =>
-          laneHasCompleted(lane, index),
+        const through = seats.filter((seat) =>
+          seat.status === LaneStatus.DONE
+            ? true
+            : seat.questionIndex > index ||
+              (seat.questionIndex === index && seat.status === LaneStatus.REVEAL),
         ).length;
-        const share = lanes.length ? (through / lanes.length) * 100 : 0;
+        const share = seats.length ? (through / seats.length) * 100 : 0;
 
         return (
           <div
@@ -524,11 +577,80 @@ const RoundProgressPanel: React.FC = () => {
               {question.text}
             </span>
             <span className="relative font-mono text-slate-400">
-              {through}/{lanes.length}
+              {through}/{seats.length}
             </span>
           </div>
         );
       })}
+    </div>
+  );
+};
+
+/** The ballot the room is voting on, with the host's own controls for it. */
+const BallotPanel: React.FC = () => {
+  const { categoryPoll, currentPlayerId, voteForCategory, redrawCategoryPoll } =
+    useGame();
+  const poll = publicPoll(categoryPoll);
+
+  if (!poll) {
+    return (
+      <p className="text-slate-500 text-sm">
+        No ballot this round — the category pool is empty. Add categories to it
+        and the next round will offer a vote.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <CategoryVotePanel
+        poll={poll}
+        myVote={currentPlayerId ? (poll.votes[currentPlayerId] ?? null) : null}
+        onVote={(categoryId) => voteForCategory(poll.id, categoryId)}
+      />
+      <button
+        onClick={redrawCategoryPoll}
+        className="flex items-center gap-2 text-[11px] font-mono uppercase tracking-widest text-slate-500 hover:text-white"
+        title="Draw four different options. Votes already cast stay in your data."
+      >
+        <Shuffle size={13} /> draw different options
+      </button>
+    </div>
+  );
+};
+
+/** Liking the round that has just been played, from the host's own seat. */
+const HostLikeStrip: React.FC = () => {
+  const {
+    roundsConfig,
+    currentRound,
+    categoryLikes,
+    currentPlayerId,
+    setCategoryLike,
+  } = useGame();
+
+  const category = roundsConfig[currentRound - 1]?.category;
+  if (!category) return null;
+
+  const row = categoryLikes.find((tally) => tally.category.id === category.id);
+  const liked = Boolean(
+    currentPlayerId && row?.playerIds.includes(currentPlayerId),
+  );
+
+  return (
+    <div className="flex items-center gap-3 flex-wrap">
+      <CategoryLikeButton
+        category={category}
+        count={row?.playerIds.length ?? 0}
+        liked={liked}
+        onToggle={(next) => setCategoryLike(category.id, next)}
+        compact
+      />
+      <span className="text-[11px] font-mono uppercase tracking-widest text-slate-500">
+        {row?.playerIds.length
+          ? `${row.playerIds.length} liked this round`
+          : "no likes on this one yet"}
+      </span>
     </div>
   );
 };
@@ -549,19 +671,25 @@ const RoundEndControls: React.FC = () => {
 
   return (
     <div className="space-y-4">
-      <div className="bg-slate-900 border border-slate-700 rounded-2xl p-5">
-        <h2 className="text-2xl font-black text-white mb-1">
-          Round {currentRound} complete
-        </h2>
-        <p className="text-slate-400 text-sm mb-4">
-          {championId
-            ? "The bracket is decided — one player is left standing."
-            : next
-              ? `${next.matchups.length} matchup(s) drawn for round ${currentRound + 1}.`
-              : currentRound < totalRounds
-                ? `Round ${currentRound + 1} of ${totalRounds} is up next.`
-                : "No further rounds are configured."}
-        </p>
+      <Instructions guide="roundEnd" />
+
+      <div className="bg-slate-900 border border-slate-700 rounded-2xl p-5 space-y-4">
+        <div>
+          <h2 className="text-2xl font-black text-white mb-1">
+            Round {currentRound} complete
+          </h2>
+          <p className="text-slate-400 text-sm">
+            {championId
+              ? "The bracket is decided — one player is left standing."
+              : next
+                ? `${next.matchups.length} matchup(s) drawn for round ${currentRound + 1}.`
+                : currentRound < totalRounds
+                  ? `Round ${currentRound + 1} of ${totalRounds} is up next.`
+                  : "No further rounds are configured."}
+          </p>
+        </div>
+
+        <HostLikeStrip />
 
         {round && (
           <BracketView
@@ -571,6 +699,10 @@ const RoundEndControls: React.FC = () => {
           />
         )}
       </div>
+
+      <Panel title="What the room wants next">
+        <BallotPanel />
+      </Panel>
 
       <Button
         variant="neon"
@@ -585,13 +717,17 @@ const RoundEndControls: React.FC = () => {
   );
 };
 
-const GameOverControls: React.FC = () => {
+const GameOverControls: React.FC<{ onShowInsights: () => void }> = ({
+  onShowInsights,
+}) => {
   const { players, bracket, currentRound, championId, playAgain, restartGame } =
     useGame();
   const champion = players.find((p) => p.id === championId);
 
   return (
     <div className="space-y-4">
+      <Instructions guide="gameOver" />
+
       <div className="bg-slate-900 border border-yellow-600/50 rounded-2xl p-5 text-center">
         <Crown size={40} className="mx-auto text-yellow-400 mb-2" />
         <div className="text-xs font-mono uppercase tracking-[0.3em] text-yellow-400">
@@ -602,6 +738,10 @@ const GameOverControls: React.FC = () => {
         </div>
       </div>
 
+      <Panel title="What the room wants next">
+        <BallotPanel />
+      </Panel>
+
       {bracket.length > 0 && (
         <BracketView
           bracket={bracket}
@@ -611,7 +751,14 @@ const GameOverControls: React.FC = () => {
         />
       )}
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-3 gap-3">
+        <Button
+          variant="secondary"
+          onClick={onShowInsights}
+          className="flex items-center justify-center gap-2"
+        >
+          <BarChart3 size={18} /> DATA
+        </Button>
         <Button
           variant="secondary"
           onClick={playAgain}
@@ -635,9 +782,9 @@ const GameOverControls: React.FC = () => {
  * The host's own seat at the game.
  *
  * The host is always a player, so this pane runs beside the controls rather
- * than replacing them — and it follows the host's own matchup, not the room's
- * screen, which is what lets a host click through a whole round solo and feel
- * exactly what the pacing is like for one of the tables.
+ * than replacing them — and it follows their own seat, not the room's screen,
+ * which is what lets a host click through a whole round solo and feel exactly
+ * what the pacing is like for somebody at a table.
  */
 const HostPlayerPane: React.FC = () => {
   const {
@@ -648,40 +795,46 @@ const HostPlayerPane: React.FC = () => {
     questionsQueue,
     hostAnsweringEnabled,
     toggleHostAnswering,
+    advanceMyQuestion,
   } = useGame();
 
   const hostPlayer = players.find((p) => p.id === currentPlayerId);
   if (!hostPlayer) return null;
 
   const lane = laneForPlayer(lanes, hostPlayer.id);
-  const record = lane
-    ? liveAnswers(lane).find((a) => a.playerId === hostPlayer.id)
-    : undefined;
-  const question = lane ? questionsQueue[lane.questionIndex] : undefined;
+  const seat = lane ? seatFor(lane, hostPlayer.id) : undefined;
+  const record =
+    lane && seat ? answerBy(lane, hostPlayer.id, seat.questionIndex) : undefined;
+  const question = seat ? questionsQueue[seat.questionIndex] : undefined;
   const opponentId = lane?.playerIds.find((id) => id !== hostPlayer.id) ?? null;
   const opponent = opponentId ? players.find((p) => p.id === opponentId) : null;
-  const answering = lane?.answeringIds.includes(hostPlayer.id) ?? false;
 
   const status = () => {
     if (!hostAnsweringEnabled)
-      return "Answering is off — your matchup will not wait for you.";
+      return "Answering is off — nothing in the round waits on you.";
     if (hostPlayer.eliminated) return "You are out of the bracket.";
     if (!lane) return "You are not in this round.";
-    if (lane.status === LaneStatus.DONE)
-      return "Your matchup is through the round.";
-    if (lane.status === LaneStatus.REVEAL)
+    // Switching answering back on mid-round does not deal a seat: the round is
+    // already in flight and dropping someone into it halfway would hand them a
+    // question everyone else has had fifteen seconds on.
+    if (!seat)
+      return phase === GamePhase.PLAYING
+        ? "You took yourself out of this round — back in from the next one."
+        : "You are in from the next round.";
+    if (seat.status === LaneStatus.DONE) return "You are through the round.";
+    if (seat.status === LaneStatus.REVEAL)
       return record
         ? record.isCorrect
           ? `Correct — +${record.points}`
           : "Missed that one"
         : "You let that one time out";
     if (phase !== GamePhase.PLAYING) return "Waiting for the next round.";
-    return record ? "Locked in — waiting on your opponent." : "Your turn.";
+    return record ? "Locked in — scoring it." : "Your turn.";
   };
 
   return (
     <Panel
-      title="Your matchup"
+      title="Your match"
       action={
         <button
           onClick={toggleHostAnswering}
@@ -690,7 +843,7 @@ const HostPlayerPane: React.FC = () => {
               ? "border-neon-green text-neon-green bg-neon-green/10"
               : "border-slate-600 text-slate-400 hover:text-white"
           }`}
-          title="Take yourself in or out of your matchup's answer count"
+          title="Take yourself in or out of the round"
         >
           answering {hostAnsweringEnabled ? "on" : "off"}
         </button>
@@ -723,31 +876,38 @@ const HostPlayerPane: React.FC = () => {
         {status()}
       </div>
 
-      {lane?.status === LaneStatus.REVEAL && question && (
-        <div className="bg-slate-900 border border-green-700 rounded-xl p-3 text-center">
+      {seat?.status === LaneStatus.REVEAL && question && (
+        <div className="bg-slate-900 border border-green-700 rounded-xl p-3 text-center space-y-2">
           <div className="text-[10px] font-mono uppercase tracking-widest text-slate-500">
             Answer
           </div>
           <div className="text-lg font-bold text-green-400">
             {buildReveal(question).label}
           </div>
-          <div className="text-[10px] font-mono uppercase tracking-widest text-neon-blue mt-1">
-            next question in {lane.revealSecondsLeft}s
+          <Button
+            variant="neon"
+            fullWidth
+            onClick={advanceMyQuestion}
+            className="flex items-center justify-center gap-2 py-2 text-sm"
+          >
+            NEXT QUESTION <ArrowRight size={16} />
+          </Button>
+          <div className="text-[10px] font-mono uppercase tracking-widest text-slate-600">
+            or automatically in {seat.revealSecondsLeft}s
           </div>
         </div>
       )}
 
       {phase === GamePhase.PLAYING &&
-        lane?.status === LaneStatus.ANSWERING &&
+        seat?.status === LaneStatus.ANSWERING &&
         question &&
-        answering &&
         !record && (
           <div className="bg-slate-900 border border-slate-700 rounded-xl p-3">
             <QuestionCard
-              key={`${question.id}-${lane.questionIndex}`}
+              key={`${question.id}-${seat.questionIndex}`}
               question={question}
-              timeLeft={lane.timeLeft}
-              duration={lane.questionDuration}
+              timeLeft={seat.timeLeft}
+              duration={seat.questionDuration}
               compact
             />
           </div>
@@ -770,9 +930,13 @@ const HostControlScreen: React.FC = () => {
     gameName,
     bracket,
     lanes,
+    categoryLikes,
     championId,
     loading,
   } = useGame();
+
+  const [showPool, setShowPool] = React.useState(false);
+  const [showInsights, setShowInsights] = React.useState(false);
 
   if (loading) {
     return (
@@ -783,12 +947,20 @@ const HostControlScreen: React.FC = () => {
     );
   }
 
-  const lanesDone = lanes.filter(
-    (lane) => lane.status === LaneStatus.DONE,
+  const seats = lanes.flatMap((lane) => lane.seats);
+  const seatsDone = seats.filter(
+    (seat) => seat.status === LaneStatus.DONE,
   ).length;
+  const likesThisGame = categoryLikes.reduce(
+    (total, row) => total + row.playerIds.length,
+    0,
+  );
 
   return (
     <div className="min-h-screen bg-slate-900 text-white p-4 md:p-6">
+      {showPool && <CategoryPoolManager onClose={() => setShowPool(false)} />}
+      {showInsights && <InsightsPanel onClose={() => setShowInsights(false)} />}
+
       {/* Header */}
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-5">
         <div className="flex items-center gap-4">
@@ -814,11 +986,28 @@ const HostControlScreen: React.FC = () => {
           <span className="text-xs font-mono uppercase tracking-widest text-slate-500">
             Round {currentRound}/{totalRounds}
           </span>
-          {phase === GamePhase.PLAYING && lanes.length > 0 && (
+          {phase === GamePhase.PLAYING && seats.length > 0 && (
             <span className="text-xs font-mono uppercase tracking-widest text-slate-500">
-              {lanesDone}/{lanes.length} matchups finished
+              {seatsDone}/{seats.length} players finished
             </span>
           )}
+
+          <button
+            onClick={() => setShowPool(true)}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-600 text-xs font-mono uppercase tracking-widest text-slate-400 hover:text-white transition-colors"
+            title="Edit the categories the end-of-round vote draws from"
+          >
+            <ListPlus size={14} /> pool
+          </button>
+
+          <button
+            onClick={() => setShowInsights(true)}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-600 text-xs font-mono uppercase tracking-widest text-slate-400 hover:text-white transition-colors"
+            title="Likes and votes, across every game hosted from this browser"
+          >
+            <Heart size={14} />
+            data{likesThisGame > 0 ? ` · ${likesThisGame}` : ""}
+          </button>
 
           <button
             onClick={toggleAutoAdvance}
@@ -827,7 +1016,7 @@ const HostControlScreen: React.FC = () => {
                 ? "border-neon-green text-neon-green bg-neon-green/10"
                 : "border-slate-600 text-slate-400 hover:text-white"
             }`}
-            title="Move the room's screen on by itself once every matchup is through a question"
+            title="Move the room's screen on by itself once everyone is through a question"
           >
             auto-advance {autoAdvance ? "on" : "off"}
           </button>
@@ -854,23 +1043,31 @@ const HostControlScreen: React.FC = () => {
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        {/* Run controls, with the host's own matchup beside them */}
+        {/* Run controls, with the host's own match beside them */}
         <div className="lg:col-span-2 grid grid-cols-1 xl:grid-cols-2 gap-5 items-start">
           <div className="space-y-5">
             {phase === GamePhase.CATEGORY_SELECT && (
-              <div className="bg-slate-800/40 border border-slate-700 rounded-2xl p-4">
-                <Wheel />
-              </div>
+              <>
+                <Instructions guide="categorySelect" />
+                <div className="bg-slate-800/40 border border-slate-700 rounded-2xl p-4">
+                  <Wheel />
+                </div>
+              </>
             )}
 
             {phase === GamePhase.PLAYING && (
-              <Panel title={`Round ${currentRound} — every matchup`}>
-                <LaneBoard />
-              </Panel>
+              <>
+                <Instructions guide="hostPlaying" />
+                <Panel title={`Round ${currentRound} — every match`}>
+                  <LaneBoard />
+                </Panel>
+              </>
             )}
 
             {phase === GamePhase.ROUND_END && <RoundEndControls />}
-            {phase === GamePhase.GAME_OVER && <GameOverControls />}
+            {phase === GamePhase.GAME_OVER && (
+              <GameOverControls onShowInsights={() => setShowInsights(true)} />
+            )}
           </div>
 
           <HostPlayerPane />
@@ -926,6 +1123,38 @@ const HostControlScreen: React.FC = () => {
                 ))}
             </div>
           </Panel>
+
+          {categoryLikes.length > 0 && (
+            <Panel
+              title="Liked this game"
+              action={
+                <button
+                  onClick={() => setShowInsights(true)}
+                  className="text-[10px] font-mono uppercase tracking-widest text-slate-500 hover:text-white"
+                >
+                  all data
+                </button>
+              }
+            >
+              <div className="space-y-1.5">
+                {[...categoryLikes]
+                  .sort((a, b) => b.playerIds.length - a.playerIds.length)
+                  .map((row) => (
+                    <div
+                      key={row.category.id}
+                      className="flex items-center gap-2 text-sm bg-slate-900 rounded-lg px-2 py-1.5"
+                    >
+                      <span>{row.category.icon}</span>
+                      <span className="flex-1 truncate">{row.category.name}</span>
+                      <span className="flex items-center gap-1 font-mono font-bold text-neon-pink">
+                        <Heart size={12} className="fill-current" />
+                        {row.playerIds.length}
+                      </span>
+                    </div>
+                  ))}
+              </div>
+            </Panel>
+          )}
 
           {bracket.length > 0 && (
             <Panel title="Bracket">

@@ -3,6 +3,7 @@ import { useGame } from '../context/GameContext';
 import { AVATARS, AVATAR_COLORS, AVATAR_ACCESSORIES } from '../constants';
 import Button from './Button';
 import AvatarDisplay from './AvatarDisplay';
+import Instructions from './Instructions';
 import { Gamepad2, ArrowLeft, Palette, Smile, Glasses, AlertTriangle, Loader2 } from 'lucide-react';
 
 const JoinScreen: React.FC = () => {
@@ -181,6 +182,8 @@ const JoinScreen: React.FC = () => {
             {joining ? 'LOOKING FOR THAT GAME…' : isHost ? 'ENTER LOBBY' : 'JOIN GAME'}
           </Button>
         </form>
+
+        <Instructions guide="join" className="mt-4 shrink-0" />
       </div>
     </div>
   );

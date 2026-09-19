@@ -36,15 +36,29 @@ import {
   resolveRound,
 } from "../services/bracket";
 import {
+  addLaneSeconds,
   advanceBroadcast,
+  advancePlayerNow,
   buildRoundLanes,
   closeLaneQuestion,
   laneAnswers,
   recordLaneAnswer,
   roundIsComplete,
+  setLanePaused,
   syncLaneRosters,
   tickRound,
 } from "../services/lanes";
+import {
+  applyCategoryLike,
+  applyCategoryVote,
+  buildCategoryPoll,
+} from "../services/preferences";
+import {
+  recordBallot,
+  recordCategoryLike,
+  recordCategoryVote,
+  recordRoundPlayed,
+} from "../services/insights";
 import { buildSnapshot } from "../services/snapshot";
 import { clearSeat, readSeat, saveSeat } from "../services/seat";
 import { maySpeakFor, seatHeldByAnother } from "../services/seats";
@@ -94,6 +108,21 @@ interface GameContextType extends GameState {
   beginWheelSpin: () => void;
   revealCategory: () => void;
   submitAnswer: (answer: Answer) => void;
+  /**
+   * Take the next question now instead of waiting out the rest of the reveal.
+   * Speed is worth points, so nobody is made to sit and watch a countdown.
+   */
+  advanceMyQuestion: () => void;
+  /**
+   * Like, or take back a like on, one of the categories this game has played.
+   * The caller says which way rather than this toggling: a guest reads their
+   * own like off the host's snapshot, not off state they do not have.
+   */
+  setCategoryLike: (categoryId: string, liked: boolean) => void;
+  /** Vote in the end-of-round ballot on what to play in future. */
+  voteForCategory: (pollId: string, categoryId: string) => void;
+  /** Draw a fresh set of options for the open ballot. Host only. */
+  redrawCategoryPoll: () => void;
   nextRound: () => void;
   restartGame: () => void;
   playAgain: () => void;
@@ -137,10 +166,10 @@ const DEFAULT_GAME_NAME = "OmniTrivia Night";
 /* ------------------------------------------------------------------ *
  * Pure transitions
  *
- * A live round is driven entirely by `src/services/lanes.ts`: each matchup
- * owns its question, its clock and its reveal, and moves itself along. What is
- * left here are the transitions that are genuinely about the whole game —
- * settling a round, drawing the next one, ending the night.
+ * A live round is driven entirely by `src/services/lanes.ts`: every player
+ * owns their question, their clock and their reveal, and moves themselves
+ * along. What is left here are the transitions that are genuinely about the
+ * whole game — settling a round, drawing the ballot, ending the night.
  * ------------------------------------------------------------------ */
 
 /**
@@ -152,8 +181,14 @@ const finishRound = (prev: GameState): GameState => {
   const current = prev.bracket[roundIndex];
 
   if (!current) {
-    return { ...prev, phase: GamePhase.ROUND_END };
+    return {
+      ...prev,
+      categoryPoll: buildCategoryPoll(prev, prev.currentRound),
+      phase: GamePhase.ROUND_END,
+    };
   }
+
+  const poll = buildCategoryPoll(prev, prev.currentRound);
 
   const { round: resolved, advancingIds } = resolveRound(current, prev.players);
   const bracket = [...prev.bracket];
@@ -186,6 +221,7 @@ const finishRound = (prev: GameState): GameState => {
     bracket,
     players,
     championId: decided ? (advancingIds[0] ?? null) : null,
+    categoryPoll: poll,
     phase: GamePhase.ROUND_END,
   };
 };
@@ -254,6 +290,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     hostAnsweringEnabled: true,
     wheelSpinning: false,
     categoryRevealed: false,
+    categoryLikes: [],
+    categoryPoll: null,
     loading: false,
     error: null,
     contentWarning: null,
@@ -285,9 +323,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
   /* ---------------------------------------------------------------- *
    * Round clock
    *
-   * One interval for the whole round: it hands a second to every lane, each
-   * of which spends it on its own question or its own reveal. Matchups need
-   * no timer of their own to run independently — only their own numbers.
+   * One interval for the whole round: it hands a second to every seat, each
+   * of which spends it on its own question or its own reveal. Players need no
+   * timer of their own to run independently — only their own numbers.
    * ---------------------------------------------------------------- */
   useEffect(() => {
     if (state.phase !== GamePhase.PLAYING) return;
@@ -316,22 +354,22 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     return () => clearInterval(botInterval);
   }, [state.isHost, state.phase, state.players.length]);
 
-  /** Take one answer into whichever matchup's lane the player is playing in. */
+  /** Take one answer into whichever seat the player is playing from. */
   const recordAnswer = useCallback((playerId: string, answer: Answer) => {
     setState((prev) => {
       const next = recordLaneAnswer(prev, playerId, answer);
-      // The last pair to finish can end the round with their answer, so this
-      // has to be checked here and not only on the clock.
+      // The last player to finish can end the round with their answer, so
+      // this has to be checked here and not only on the clock.
       return roundIsComplete(next) ? finishRound(next) : next;
     });
   }, []);
 
   /* ---------------------------------------------------------------- *
-   * Bots answer on a spread of timers, per lane, so every matchup's
-   * "still answering" count actually counts down while it plays.
+   * Bots answer on a spread of timers, one per seat, so the field actually
+   * spreads out the way a room of real players does.
    * ---------------------------------------------------------------- */
-  // Keyed by lane and question, so a lane advancing never reshuffles the
-  // think time of the bots sitting in another one.
+  // Keyed by seat and question, so one bot moving on never reshuffles the
+  // think time of the bot sitting across the table from it.
   const botTimers = useRef(new Map<string, number[]>());
 
   useEffect(() => {
@@ -349,65 +387,63 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     const live = new Set<string>();
 
     state.lanes.forEach((lane) => {
-      if (lane.status !== LaneStatus.ANSWERING) return;
+      lane.seats.forEach((seat) => {
+        if (seat.status !== LaneStatus.ANSWERING) return;
+        if (!bots.has(seat.playerId)) return;
 
-      const key = `${lane.id}:${lane.questionIndex}`;
-      live.add(key);
-      if (botTimers.current.has(key)) return; // already thinking
+        const key = `${lane.id}:${seat.playerId}:${seat.questionIndex}`;
+        live.add(key);
+        if (botTimers.current.has(key)) return; // already thinking
 
-      const question = state.questionsQueue[lane.questionIndex];
-      if (!question) return;
+        const question = state.questionsQueue[seat.questionIndex];
+        if (!question) return;
 
-      const answered = new Set(
-        laneAnswers(lane, lane.questionIndex).map((a) => a.playerId),
-      );
-      const thinking = lane.answeringIds.filter(
-        (id) => bots.has(id) && !answered.has(id),
-      );
-      if (thinking.length === 0) return;
+        const alreadyIn = laneAnswers(lane, seat.questionIndex).some(
+          (a) => a.playerId === seat.playerId,
+        );
+        if (alreadyIn) return;
 
-      // Leave a second on the clock so a bot never lands after time is up.
-      const latest = Math.min(lane.timeLeft - 1, BOT_MAX_THINK_SECONDS);
-      const spread = Math.max(0, latest - BOT_MIN_THINK_SECONDS);
+        // Leave a second on the clock so a bot never lands after time is up.
+        const latest = Math.min(seat.timeLeft - 1, BOT_MAX_THINK_SECONDS);
+        const spread = Math.max(0, latest - BOT_MIN_THINK_SECONDS);
 
-      botTimers.current.set(
-        key,
-        thinking.map((botId) => {
-          const answerUp = () => {
-            const current = stateRef.current.lanes.find(
-              (candidate) => candidate.id === lane.id,
-            );
-            // The lane has moved on without this bot; its answer was built for
-            // a question that is no longer the one being asked.
-            if (!current || current.questionIndex !== lane.questionIndex) return;
+        const answerUp = () => {
+          const current = stateRef.current.lanes
+            .find((candidate) => candidate.id === lane.id)
+            ?.seats.find((candidate) => candidate.playerId === seat.playerId);
 
-            // A paused lane is a host holding the room, so its bots wait too.
-            if (current.timerPaused) {
-              botTimers.current.set(key, [
-                ...(botTimers.current.get(key) ?? []),
-                window.setTimeout(answerUp, 1000),
-              ]);
-              return;
-            }
-            recordAnswer(
-              botId,
-              botAnswerFor(question, Math.random() < BOT_ACCURACY),
-            );
-          };
+          // The seat has moved on without this bot; its answer was built for a
+          // question that is no longer the one in front of it.
+          if (!current || current.questionIndex !== seat.questionIndex) return;
 
-          const delay =
-            (BOT_MIN_THINK_SECONDS + Math.random() * spread) * 1000;
-          return window.setTimeout(answerUp, Math.max(500, delay));
-        }),
-      );
+          // A paused seat is a host holding that table, so its bot waits too.
+          if (current.timerPaused) {
+            botTimers.current.set(key, [
+              ...(botTimers.current.get(key) ?? []),
+              window.setTimeout(answerUp, 1000),
+            ]);
+            return;
+          }
+
+          recordAnswer(
+            seat.playerId,
+            botAnswerFor(question, Math.random() < BOT_ACCURACY),
+          );
+        };
+
+        const delay = (BOT_MIN_THINK_SECONDS + Math.random() * spread) * 1000;
+        botTimers.current.set(key, [
+          window.setTimeout(answerUp, Math.max(500, delay)),
+        ]);
+      });
     });
 
     // Drop the timers for questions the field has already moved past.
     [...botTimers.current.keys()]
       .filter((key) => !live.has(key))
       .forEach(clearKey);
-    // Deliberately not keyed on the lanes' answers: rescheduling on every
-    // answer would keep resetting the bots' think time.
+    // Deliberately not keyed on the answers: rescheduling on every answer
+    // would keep resetting the bots' think time.
   }, [state.phase, state.lanes, state.players, state.questionsQueue, recordAnswer]);
 
   useEffect(
@@ -417,6 +453,100 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     },
     [],
   );
+
+  /* ---------------------------------------------------------------- *
+   * The durable record of what the room likes
+   *
+   * Written by diffing committed state rather than from inside the handlers,
+   * so a re-sent message, a re-render or a double-invoked updater cannot turn
+   * one tap into two rows in the host's data. The baselines below are what has
+   * already been banked; only the difference is ever written.
+   * ---------------------------------------------------------------- */
+  const likeBaseline = useRef(new Map<string, Set<string>>());
+  const ballotId = useRef<string | null>(null);
+  const voteBaseline = useRef(new Map<string, string>());
+  const roundsRecorded = useRef(new Set<string>());
+
+  const resetInsightBaselines = () => {
+    likeBaseline.current = new Map();
+    ballotId.current = null;
+    voteBaseline.current = new Map();
+    roundsRecorded.current = new Set();
+  };
+
+  useEffect(() => {
+    if (!state.isHost) return;
+
+    state.categoryLikes.forEach((tally) => {
+      const before = likeBaseline.current.get(tally.category.id) ?? new Set<string>();
+      const now = new Set(tally.playerIds);
+
+      now.forEach((playerId) => {
+        if (!before.has(playerId)) recordCategoryLike(tally.category, true);
+      });
+      before.forEach((playerId) => {
+        if (!now.has(playerId)) recordCategoryLike(tally.category, false);
+      });
+
+      likeBaseline.current.set(tally.category.id, now);
+    });
+  }, [state.isHost, state.categoryLikes]);
+
+  useEffect(() => {
+    if (!state.isHost) return;
+
+    const poll = state.categoryPoll;
+    if (!poll) {
+      // A closed ballot is not a retraction: the votes it collected were real
+      // and stay banked. Only the baseline is forgotten.
+      ballotId.current = null;
+      voteBaseline.current = new Map();
+      return;
+    }
+
+    if (ballotId.current !== poll.id) {
+      ballotId.current = poll.id;
+      voteBaseline.current = new Map();
+      recordBallot(poll.options);
+    }
+
+    const optionsById = new Map(poll.options.map((option) => [option.id, option]));
+    const before = voteBaseline.current;
+    const now = new Map(Object.entries(poll.votes));
+
+    now.forEach((categoryId, playerId) => {
+      const previous = before.get(playerId);
+      if (previous === categoryId) return;
+
+      // A changed vote takes itself off the option it left, so the totals stay
+      // equal to what the room actually wanted.
+      const left = previous ? optionsById.get(previous) : undefined;
+      if (left) recordCategoryVote(left, -1);
+
+      const picked = optionsById.get(categoryId);
+      if (picked) recordCategoryVote(picked, 1);
+    });
+
+    voteBaseline.current = now;
+  }, [state.isHost, state.categoryPoll]);
+
+  useEffect(() => {
+    if (!state.isHost || state.phase !== GamePhase.ROUND_END) return;
+
+    const category = state.roundsConfig[state.currentRound - 1]?.category;
+    if (!category) return;
+
+    const key = `${state.gamePin}:${state.currentRound}:${category.id}`;
+    if (roundsRecorded.current.has(key)) return;
+    roundsRecorded.current.add(key);
+    recordRoundPlayed(category);
+  }, [
+    state.isHost,
+    state.phase,
+    state.currentRound,
+    state.roundsConfig,
+    state.gamePin,
+  ]);
 
   /* ---------------------------------------------------------------- *
    * Publish to the broadcast window
@@ -560,6 +690,46 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         if (message.pin !== current.gamePin) return;
         if (!speaksFor(message.playerId)) return;
         recordAnswer(message.playerId, message.answer);
+        return;
+      }
+
+      if (message.type === "player-advance") {
+        if (message.pin !== current.gamePin) return;
+        if (!speaksFor(message.playerId)) return;
+        // Their own seat, and only theirs: reading the answer quickly buys
+        // them the next question, not the table's.
+        setState((prev) => {
+          const next = advancePlayerNow(prev, message.playerId);
+          return roundIsComplete(next) ? finishRound(next) : next;
+        });
+        return;
+      }
+
+      if (message.type === "category-like") {
+        if (message.pin !== current.gamePin) return;
+        if (!speaksFor(message.playerId)) return;
+        setState((prev) =>
+          applyCategoryLike(
+            prev,
+            message.playerId,
+            message.categoryId,
+            message.liked,
+          ),
+        );
+        return;
+      }
+
+      if (message.type === "category-vote") {
+        if (message.pin !== current.gamePin) return;
+        if (!speaksFor(message.playerId)) return;
+        setState((prev) =>
+          applyCategoryVote(
+            prev,
+            message.playerId,
+            message.pollId,
+            message.categoryId,
+          ),
+        );
         return;
       }
 
@@ -1114,6 +1284,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         // and nobody is eliminated.
         bracket: players.length >= 2 ? [buildFirstRound(players)] : [],
         championId: null,
+        categoryPoll: null,
         lanes: [],
         broadcastQuestionIndex: 0,
         broadcastRevealing: false,
@@ -1199,15 +1370,95 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     recordAnswer(playerId, answer);
   };
 
+  /**
+   * Take the next question now.
+   *
+   * The reveal countdown is a ceiling, not a wait: a player who has read the
+   * answer gets on with it, and every second they save is a second of time
+   * bonus on the question after this one.
+   */
+  const advanceMyQuestion = () => {
+    const current = stateRef.current;
+    const playerId = current.currentPlayerId;
+    if (!playerId) return;
+
+    if (current.clientPin) {
+      postMessage({ type: "player-advance", pin: current.clientPin, playerId });
+      return;
+    }
+
+    setState((prev) => {
+      const next = advancePlayerNow(prev, playerId);
+      return roundIsComplete(next) ? finishRound(next) : next;
+    });
+  };
+
+  const setCategoryLike = (categoryId: string, liked: boolean) => {
+    const current = stateRef.current;
+    const playerId = current.currentPlayerId;
+    if (!playerId) return;
+
+    if (current.clientPin) {
+      postMessage({
+        type: "category-like",
+        pin: current.clientPin,
+        playerId,
+        categoryId,
+        liked,
+      });
+      return;
+    }
+
+    setState((prev) => applyCategoryLike(prev, playerId, categoryId, liked));
+  };
+
+  const voteForCategory = (pollId: string, categoryId: string) => {
+    const current = stateRef.current;
+    const playerId = current.currentPlayerId;
+    if (!playerId) return;
+
+    if (current.clientPin) {
+      postMessage({
+        type: "category-vote",
+        pin: current.clientPin,
+        playerId,
+        pollId,
+        categoryId,
+      });
+      return;
+    }
+
+    setState((prev) => applyCategoryVote(prev, playerId, pollId, categoryId));
+  };
+
+  /**
+   * Put a different set of options up.
+   *
+   * The votes already cast are cleared from the ballot, because they were cast
+   * on options that are no longer there. They stay in the host's data — they
+   * were real answers to a real question.
+   */
+  const redrawCategoryPoll = () =>
+    setState((prev) =>
+      prev.categoryPoll
+        ? {
+            ...prev,
+            categoryPoll:
+              buildCategoryPoll(prev, prev.categoryPoll.roundNumber) ??
+              prev.categoryPoll,
+          }
+        : prev,
+    );
+
   /* ---------------------------------------------------------------- *
    * Host controls
    *
-   * Each one names the matchup it acts on. A host stepping in for one table
-   * must not stop the three beside it, which is exactly what a single global
-   * clock control used to do.
+   * Each one names the table it acts on, and reaches every seat at it. A host
+   * stepping in for one table must not stop the three beside it, which is
+   * exactly what a single global clock control used to do.
    * ---------------------------------------------------------------- */
 
-  /** Stop one matchup's clock and put its answer in front of the pair in it. */
+  /** Stop a table's clocks and put each player's answer in front of them. */
   const revealLaneNow = (laneId: string) =>
     setState((prev) => {
       const next = closeLaneQuestion(prev, laneId, "host");
@@ -1217,76 +1468,44 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
   const revealAllLanesNow = () =>
     setState((prev) => {
       const next = prev.lanes.reduce(
-        (state, lane) =>
-          lane.status === LaneStatus.ANSWERING
-            ? closeLaneQuestion(state, lane.id, "host")
-            : state,
+        (state, lane) => closeLaneQuestion(state, lane.id, "host"),
         prev,
       );
       return roundIsComplete(next) ? finishRound(next) : next;
     });
 
-  const setLanePaused = (
-    prev: GameState,
-    match: (laneId: string) => boolean,
-    paused: (lane: GameState["lanes"][number]) => boolean,
-  ): GameState => ({
-    ...prev,
-    lanes: prev.lanes.map((lane) =>
-      match(lane.id) ? { ...lane, timerPaused: paused(lane) } : lane,
-    ),
-  });
-
   const toggleLanePaused = (laneId: string) =>
-    setState((prev) =>
-      setLanePaused(
-        prev,
-        (id) => id === laneId,
-        (lane) => !lane.timerPaused,
-      ),
-    );
+    setState((prev) => {
+      const lane = prev.lanes.find((candidate) => candidate.id === laneId);
+      if (!lane) return prev;
+      // One button for the table, so it follows whether anything at it is
+      // still running rather than each seat's own flag.
+      const running = lane.seats.some(
+        (seat) => seat.status === LaneStatus.ANSWERING && !seat.timerPaused,
+      );
+      return setLanePaused(prev, laneId, running);
+    });
 
   const setAllLanesPaused = (paused: boolean) =>
     setState((prev) =>
-      setLanePaused(
+      prev.lanes.reduce(
+        (state, lane) => setLanePaused(state, lane.id, paused),
         prev,
-        () => true,
-        () => paused,
       ),
     );
 
-  const stretchLane = (
-    prev: GameState,
-    laneId: string,
-    seconds: number,
-  ): GameState => ({
-    ...prev,
-    lanes: prev.lanes.map((lane) => {
-      if (lane.id !== laneId || lane.status !== LaneStatus.ANSWERING) {
-        return lane;
-      }
-      const timeLeft = Math.max(1, lane.timeLeft + seconds);
-      return {
-        ...lane,
-        timeLeft,
-        // Stretch the question's own clock with it, so the bars and the ring
-        // measure against what the pair were actually given rather than
-        // sitting pinned at full while the number counts past it.
-        questionDuration: Math.max(lane.questionDuration, timeLeft),
-      };
-    }),
-  });
-
   const addLaneTime = (laneId: string, seconds: number) =>
     setState((prev) =>
-      prev.phase === GamePhase.PLAYING ? stretchLane(prev, laneId, seconds) : prev,
+      prev.phase === GamePhase.PLAYING
+        ? addLaneSeconds(prev, laneId, seconds)
+        : prev,
     );
 
   const addTimeToAllLanes = (seconds: number) =>
     setState((prev) =>
       prev.phase === GamePhase.PLAYING
         ? prev.lanes.reduce(
-            (state, lane) => stretchLane(state, lane.id, seconds),
+            (state, lane) => addLaneSeconds(state, lane.id, seconds),
             prev,
           )
         : prev,
@@ -1349,6 +1568,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         ...prev,
         currentRound: prev.currentRound + 1,
         phase: GamePhase.CATEGORY_SELECT,
+        // The ballot belongs to the round that ran it. Its votes are already
+        // banked in the host's data; the next round draws its own options.
+        categoryPoll: null,
         questionsQueue: [],
         // Lanes belong to the round that dealt them; the next one draws its own.
         lanes: [],
@@ -1372,6 +1594,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     clearStoredSnapshot();
     clearSeat();
     seatUids.current.clear();
+    resetInsightBaselines();
     releaseRoom(hostId.current, stateRef.current.gamePin);
     void detachRoomChannel();
     setState((prev) => ({
@@ -1400,6 +1623,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
       broadcastRevealSecondsLeft: REVEAL_DURATION,
       wheelSpinning: false,
       categoryRevealed: false,
+      categoryLikes: [],
+      categoryPoll: null,
       loading: false,
       error: null,
       contentWarning: null,
@@ -1409,6 +1634,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
   // Replay the same questions with fresh scores, so "play again" does not force
   // the host to burn another round of generation in front of a waiting room.
   const playAgain = () => {
+    resetInsightBaselines();
     setState((prev) => ({
       ...prev,
       phase: GamePhase.LOBBY,
@@ -1424,6 +1650,10 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
       broadcastRevealSecondsLeft: REVEAL_DURATION,
       wheelSpinning: false,
       categoryRevealed: false,
+      // A replay collects its own likes rather than inheriting the last
+      // game's, which are already banked.
+      categoryLikes: [],
+      categoryPoll: null,
       players: prev.players.map((p) => ({
         ...p,
         score: 0,
@@ -1494,6 +1724,10 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         beginWheelSpin,
         revealCategory,
         submitAnswer,
+        advanceMyQuestion,
+        setCategoryLike,
+        voteForCategory,
+        redrawCategoryPoll,
         nextRound,
         restartGame,
         playAgain,

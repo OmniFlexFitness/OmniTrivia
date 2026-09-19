@@ -3,6 +3,7 @@ import {
   AnswerRecord,
   GamePhase,
   GameState,
+  LaneSeat,
   LaneStatus,
   MatchupLane,
   Question,
@@ -13,75 +14,138 @@ import { answeringRoster, rosterForRound } from "./bracket";
 import { isAnswerCorrect } from "./scoring";
 
 /**
- * Asynchronous rounds.
+ * Asynchronous matches.
  *
  * A round used to be one question, one clock and one room: nobody moved on
  * until the last person in the building had answered. That is the wrong shape
- * for a bracket — a matchup is a duel between two people, and there is no
- * reason for it to wait on a duel happening at another table.
+ * for a bracket, so a round now deals every matchup a *match* — and a match
+ * deals every player in it a *seat*.
  *
- * So a round deals every matchup a lane. A lane holds the whole per-question
- * state that used to be global — which question, how long is left, who is in,
- * whether the answer is up — and moves itself along the moment its own two
- * players are done. Nothing here reads another lane, which is what guarantees
- * one pair can be on the last question of the round while another is still on
- * the first.
+ * The seat is the unit that moves. It holds the whole per-question state that
+ * used to be global — which question, how long is left, whether the answer is
+ * up — and it moves itself along the moment its own player is done with a
+ * question. Nothing here reads another seat to decide anything, which is what
+ * guarantees one player can be on the last question of the round while the
+ * person they are playing is still on the first.
  *
- * Both players in a matchup do share a lane, and that is deliberate: they are
- * playing each other, so they get the same question and the same clock. The
- * synchronisation that was removed is between matchups, not inside one.
+ * Why the two players in a matchup are not kept in step: points are 100 for a
+ * correct answer plus 10 for every second left on the clock, so answering fast
+ * is already worth something, and making the fast answerer sit and wait for
+ * their opponent spends the very thing they just earned. They are compared on
+ * the points they finish the round with, not on the pace they got there at.
  *
  * Every function here is a pure state -> state transition, so the clock, the
- * host's buttons and the last player's answer all drive a lane through exactly
+ * host's buttons and a player's own answer all drive a seat through exactly
  * the same code.
  */
 
 const CORRECT_BASE_POINTS = 100;
 const TIME_BONUS_PER_SECOND = 10;
 
-/** The answers a lane has taken for one of its questions. */
+/* ------------------------------------------------------------------ *
+ * Reading a match
+ * ------------------------------------------------------------------ */
+
+/** The answers a match has taken for one of its questions, from both players. */
 export const laneAnswers = (
   lane: MatchupLane,
   questionIndex: number,
 ): AnswerRecord[] => lane.answers[questionIndex] ?? [];
 
-/** The answers to the lane's live question. */
-export const liveAnswers = (lane: MatchupLane): AnswerRecord[] =>
-  laneAnswers(lane, lane.questionIndex);
+/** One player's seat in a match. */
+export const seatFor = (
+  lane: MatchupLane,
+  playerId: string | null,
+): LaneSeat | undefined =>
+  playerId ? lane.seats.find((seat) => seat.playerId === playerId) : undefined;
 
-/** The lane a player is playing in, whether or not they are answering in it. */
+/** The match a player is playing in, whether or not they are answering in it. */
 export const laneForPlayer = (
   lanes: MatchupLane[],
   playerId: string | null,
 ): MatchupLane | undefined =>
   playerId ? lanes.find((lane) => lane.playerIds.includes(playerId)) : undefined;
 
+/** A player's own seat, wherever in the field it is. */
+export const seatForPlayer = (
+  lanes: MatchupLane[],
+  playerId: string | null,
+): LaneSeat | undefined => {
+  const lane = laneForPlayer(lanes, playerId);
+  return lane ? seatFor(lane, playerId) : undefined;
+};
+
+/** What one player answered to a given question, if they answered it. */
+export const answerBy = (
+  lane: MatchupLane,
+  playerId: string,
+  questionIndex: number,
+): AnswerRecord | undefined =>
+  laneAnswers(lane, questionIndex).find(
+    (record) => record.playerId === playerId,
+  );
+
 /**
- * Has this lane finished with a given question?
+ * Has this player finished with a given question?
  *
- * A lane counts as through a question the moment it stops taking answers for
- * it — while it is showing its own players the answer, it is already done
- * asking. A retired lane (nobody left to answer in it) is through everything,
- * so the room never ends up waiting on an empty table.
+ * A seat counts as through a question the moment it stops taking an answer for
+ * it — while the answer is in front of them, they are already done answering.
+ */
+export const seatHasCompleted = (
+  seat: LaneSeat,
+  questionIndex: number,
+): boolean =>
+  seat.status === LaneStatus.DONE ||
+  seat.questionIndex > questionIndex ||
+  (seat.questionIndex === questionIndex && seat.status === LaneStatus.REVEAL);
+
+/** How many of the round's questions one player is through. */
+export const seatCompletedCount = (
+  seat: LaneSeat,
+  questionsInRound: number,
+): number => {
+  if (seat.status === LaneStatus.DONE) return questionsInRound;
+  return seat.questionIndex + (seat.status === LaneStatus.REVEAL ? 1 : 0);
+};
+
+/**
+ * Has the whole match finished with a question?
+ *
+ * Both players have to be through it. A match with nobody left answering in it
+ * (a host who switched answering off, a bye where the one player is out) is
+ * through everything, so the room never ends up waiting on an empty table.
  */
 export const laneHasCompleted = (
   lane: MatchupLane,
   questionIndex: number,
-): boolean =>
-  lane.status === LaneStatus.DONE ||
-  lane.questionIndex > questionIndex ||
-  (lane.questionIndex === questionIndex && lane.status === LaneStatus.REVEAL);
+): boolean => lane.seats.every((seat) => seatHasCompleted(seat, questionIndex));
 
-/** How many of the round's questions a lane is through. */
+/** How far a match as a whole has got: where its slower player is. */
 export const laneCompletedCount = (
   lane: MatchupLane,
   questionsInRound: number,
 ): number => {
-  if (lane.status === LaneStatus.DONE) return questionsInRound;
-  return lane.questionIndex + (lane.status === LaneStatus.REVEAL ? 1 : 0);
+  if (lane.seats.length === 0) return questionsInRound;
+  return Math.min(
+    ...lane.seats.map((seat) => seatCompletedCount(seat, questionsInRound)),
+  );
 };
 
-/** True once every matchup has finished with a question. */
+/**
+ * The match's status, derived from its seats rather than stored: a match is
+ * still answering while anybody in it is, and done only when everybody is.
+ */
+export const laneStatus = (lane: MatchupLane): LaneStatus => {
+  if (lane.seats.length === 0) return LaneStatus.DONE;
+  if (lane.seats.every((seat) => seat.status === LaneStatus.DONE)) {
+    return LaneStatus.DONE;
+  }
+  return lane.seats.some((seat) => seat.status === LaneStatus.ANSWERING)
+    ? LaneStatus.ANSWERING
+    : LaneStatus.REVEAL;
+};
+
+/** True once every player in the field has finished with a question. */
 export const everyLaneCompleted = (
   lanes: MatchupLane[],
   questionIndex: number,
@@ -90,17 +154,21 @@ export const everyLaneCompleted = (
   lanes.every((lane) => laneHasCompleted(lane, questionIndex));
 
 /**
- * Every answer any matchup has given to one question, for the room's tally.
+ * Every answer anyone has given to one question, for the room's tally.
  *
- * Lanes that have not reached the question yet hold nothing for it, so this is
- * naturally limited to the tables that have been through it — plus whoever is
- * already in at the table the room is waiting on.
+ * Players who have not reached the question yet hold nothing for it, so this
+ * is naturally limited to those who have been through it — plus whoever is
+ * already in on the question the room is waiting on.
  */
 export const answersForQuestion = (
   lanes: MatchupLane[],
   questionIndex: number,
 ): AnswerRecord[] =>
   lanes.flatMap((lane) => laneAnswers(lane, questionIndex));
+
+/* ------------------------------------------------------------------ *
+ * Writing to a match
+ * ------------------------------------------------------------------ */
 
 const patchLane = (
   state: GameState,
@@ -113,16 +181,49 @@ const patchLane = (
   ),
 });
 
+const patchSeat = (
+  state: GameState,
+  laneId: string,
+  playerId: string,
+  patch: Partial<LaneSeat>,
+): GameState => ({
+  ...state,
+  lanes: state.lanes.map((lane) =>
+    lane.id === laneId
+      ? {
+          ...lane,
+          seats: lane.seats.map((seat) =>
+            seat.playerId === playerId ? { ...seat, ...patch } : seat,
+          ),
+        }
+      : lane,
+  ),
+});
+
 /* ------------------------------------------------------------------ *
- * Drawing the lanes
+ * Drawing the matches
  * ------------------------------------------------------------------ */
 
+const freshSeat = (playerId: string, playable: boolean, questionCount: number): LaneSeat => ({
+  playerId,
+  // A seat with nothing to answer is retired where it stands rather than
+  // walked through the round on an empty clock.
+  questionIndex: playable ? 0 : questionCount,
+  status: playable ? LaneStatus.ANSWERING : LaneStatus.DONE,
+  timeLeft: TIMER_DURATION,
+  questionDuration: TIMER_DURATION,
+  timerPaused: false,
+  revealSecondsLeft: REVEAL_DURATION,
+  revealReason: null,
+});
+
 /**
- * One lane per matchup for the round about to start.
+ * One match per matchup for the round about to start, each with a seat per
+ * player who is actually answering.
  *
  * A game too small to have a bracket has nobody to be matched against, so it
- * gets a single lane holding everyone — the old all-together round, which is
- * the right shape when there is only one table.
+ * gets a single match holding everyone — still one seat each, so a solo room
+ * races itself rather than moving in lockstep.
  */
 export const buildRoundLanes = (state: GameState): MatchupLane[] => {
   const round = state.bracket[state.currentRound - 1];
@@ -149,68 +250,61 @@ export const buildRoundLanes = (state: GameState): MatchupLane[] => {
 
   return pairings.map(({ id, matchupId, playerIds }) => {
     const answeringIds = playerIds.filter((playerId) => answering.has(playerId));
-    const playable = answeringIds.length > 0 && questionCount > 0;
 
     return {
       id,
       matchupId,
       playerIds,
       answeringIds,
-      // A lane with nobody to answer in it is retired where it stands rather
-      // than walked through the round on an empty clock.
-      questionIndex: playable ? 0 : questionCount,
-      status: playable ? LaneStatus.ANSWERING : LaneStatus.DONE,
+      seats: answeringIds.map((playerId) =>
+        freshSeat(playerId, questionCount > 0, questionCount),
+      ),
       answers: [],
-      timeLeft: TIMER_DURATION,
-      questionDuration: TIMER_DURATION,
-      timerPaused: false,
-      revealSecondsLeft: REVEAL_DURATION,
-      revealReason: null,
     };
   });
 };
 
 /* ------------------------------------------------------------------ *
- * Moving one lane along
+ * Moving one seat along
  * ------------------------------------------------------------------ */
 
 /**
- * Close a lane's question: bank its points, then put the answer in front of
- * the two players in it — and only them.
+ * Close one player's question: bank their points, then put the answer in front
+ * of them — and only them.
+ *
+ * Their opponent is not touched. They may be four questions behind or already
+ * finished; either way this player's round carries on from here.
  */
-export const closeLaneQuestion = (
+export const closeSeatQuestion = (
   state: GameState,
   laneId: string,
+  playerId: string,
   reason: RevealReason,
 ): GameState => {
   const lane = state.lanes.find((candidate) => candidate.id === laneId);
-  if (!lane || lane.status !== LaneStatus.ANSWERING) return state;
+  const seat = lane ? seatFor(lane, playerId) : undefined;
+  if (!lane || !seat || seat.status !== LaneStatus.ANSWERING) return state;
 
-  const byPlayer = new Map(
-    liveAnswers(lane).map((record) => [record.playerId, record]),
+  const record = answerBy(lane, playerId, seat.questionIndex);
+  const isCorrect = record?.isCorrect ?? false;
+  const points = record?.points ?? 0;
+
+  // Points land here rather than at submit time so the scoreboard turns over
+  // with the reveal the player is looking at, not a beat before it.
+  const players = state.players.map((player) =>
+    player.id === playerId
+      ? {
+          ...player,
+          score: player.score + points,
+          roundScore: player.roundScore + points,
+          lastAnswerCorrect: isCorrect,
+          streak: isCorrect ? player.streak + 1 : 0,
+        }
+      : player,
   );
-  const answering = new Set(lane.answeringIds);
-
-  // Points land here rather than at submit time so nothing on a shared screen
-  // can move the moment someone answers correctly.
-  const players = state.players.map((player) => {
-    if (!answering.has(player.id)) return player;
-
-    const record = byPlayer.get(player.id);
-    const isCorrect = record?.isCorrect ?? false;
-    const points = record?.points ?? 0;
-
-    return {
-      ...player,
-      score: player.score + points,
-      roundScore: player.roundScore + points,
-      lastAnswerCorrect: isCorrect,
-      streak: isCorrect ? player.streak + 1 : 0,
-    };
-  });
 
   return openBroadcastRevealIfDue(
-    patchLane({ ...state, players }, laneId, {
+    patchSeat({ ...state, players }, laneId, playerId, {
       status: LaneStatus.REVEAL,
       timerPaused: false,
       revealSecondsLeft: REVEAL_DURATION,
@@ -219,17 +313,28 @@ export const closeLaneQuestion = (
   );
 };
 
-/** Leave a lane's reveal: its next question, or the end of its round. */
-export const advanceLane = (state: GameState, laneId: string): GameState => {
+/**
+ * Leave a player's reveal: their next question, or the end of their round.
+ *
+ * Called by the reveal clock running out and by the player themselves tapping
+ * through. They are the same transition on purpose — a player who has read the
+ * answer in two seconds should not be made to sit out the other four.
+ */
+export const advanceSeat = (
+  state: GameState,
+  laneId: string,
+  playerId: string,
+): GameState => {
   const lane = state.lanes.find((candidate) => candidate.id === laneId);
-  if (!lane || lane.status !== LaneStatus.REVEAL) return state;
+  const seat = lane ? seatFor(lane, playerId) : undefined;
+  if (!lane || !seat || seat.status !== LaneStatus.REVEAL) return state;
 
   const questionCount = state.questionsQueue.length;
-  const nextIndex = lane.questionIndex + 1;
+  const nextIndex = seat.questionIndex + 1;
   const hasMore = nextIndex < questionCount;
 
-  return patchLane(state, laneId, {
-    // A finished lane parks on the round's length, so it reads as through
+  return patchSeat(state, laneId, playerId, {
+    // A finished seat parks on the round's length, so it reads as through
     // every question rather than stuck on the last one.
     questionIndex: hasMore ? nextIndex : questionCount,
     status: hasMore ? LaneStatus.ANSWERING : LaneStatus.DONE,
@@ -241,22 +346,46 @@ export const advanceLane = (state: GameState, laneId: string): GameState => {
   });
 };
 
-/** Take a lane out of the round — nobody is left in it to answer. */
-const retireLane = (state: GameState, laneId: string): GameState =>
+/**
+ * A player has read their answer and wants the next question now.
+ *
+ * This is the whole point of the format from a player's side, so it is a first
+ * class transition rather than a shortcut: find their seat wherever it is and
+ * move it on.
+ */
+export const advancePlayerNow = (
+  state: GameState,
+  playerId: string,
+): GameState => {
+  if (state.phase !== GamePhase.PLAYING) return state;
+  const lane = state.lanes.find((candidate) =>
+    candidate.seats.some((seat) => seat.playerId === playerId),
+  );
+  return lane ? advanceSeat(state, lane.id, playerId) : state;
+};
+
+/** Take a seat out of the round — its player is no longer answering. */
+const retireSeat = (
+  state: GameState,
+  laneId: string,
+  playerId: string,
+): GameState =>
   openBroadcastRevealIfDue(
-    patchLane(state, laneId, {
+    patchSeat(state, laneId, playerId, {
       status: LaneStatus.DONE,
+      questionIndex: state.questionsQueue.length,
       timerPaused: false,
       revealReason: null,
     }),
   );
 
 /**
- * Record one answer in whichever lane the player is answering in.
+ * Record one answer, and close the question it answers on the spot.
  *
- * A lane closes its own question the moment both of its players are in. That
- * is the whole asynchronous round in one line: there is no other table to
- * wait for.
+ * There is nothing to wait for: the player has answered, so they have earned
+ * their points and their feedback, and their opponent's pace is their own
+ * business. This is the line that makes a round asynchronous all the way down
+ * to the individual.
  */
 export const recordLaneAnswer = (
   state: GameState,
@@ -268,14 +397,15 @@ export const recordLaneAnswer = (
   const lane = state.lanes.find((candidate) =>
     candidate.answeringIds.includes(playerId),
   );
+  const seat = lane ? seatFor(lane, playerId) : undefined;
   // Eliminated players, spectators and a host who has switched answering off
   // can watch, but they cannot score.
-  if (!lane || lane.status !== LaneStatus.ANSWERING) return state;
+  if (!lane || !seat || seat.status !== LaneStatus.ANSWERING) return state;
 
-  const question: Question | undefined = state.questionsQueue[lane.questionIndex];
+  const question: Question | undefined = state.questionsQueue[seat.questionIndex];
   if (!question) return state;
 
-  const existing = liveAnswers(lane);
+  const existing = laneAnswers(lane, seat.questionIndex);
   if (existing.some((record) => record.playerId === playerId)) return state;
 
   const isCorrect = isAnswerCorrect(question, answer);
@@ -284,28 +414,29 @@ export const recordLaneAnswer = (
     answer,
     isCorrect,
     points: isCorrect
-      ? CORRECT_BASE_POINTS + lane.timeLeft * TIME_BONUS_PER_SECOND
+      ? CORRECT_BASE_POINTS + seat.timeLeft * TIME_BONUS_PER_SECOND
       : 0,
-    timeLeft: lane.timeLeft,
+    timeLeft: seat.timeLeft,
   };
 
   const answers = [...lane.answers];
-  answers[lane.questionIndex] = [...existing, record];
-  const next = patchLane(state, lane.id, { answers });
+  answers[seat.questionIndex] = [...existing, record];
 
-  const answered = new Set(answers[lane.questionIndex].map((a) => a.playerId));
-  const everyoneIsIn = lane.answeringIds.every((id) => answered.has(id));
-
-  return everyoneIsIn ? closeLaneQuestion(next, lane.id, "all-in") : next;
+  return closeSeatQuestion(
+    patchLane(state, lane.id, { answers }),
+    lane.id,
+    playerId,
+    "answered",
+  );
 };
 
 /**
- * Re-read who each lane is waiting on, after the host takes themselves in or
+ * Re-read who each match is waiting on, after the host takes themselves in or
  * out of the answer count mid-round.
  *
- * A lane that loses the last player it was waiting on is retired: it stops
- * holding the room's screen up. It does not come back if the host toggles
- * again — the next round draws fresh lanes.
+ * A seat whose player has stopped answering is retired: it stops holding the
+ * room's screen up. It does not come back if the host toggles again — the next
+ * round deals fresh seats.
  */
 export const syncLaneRosters = (state: GameState): GameState => {
   if (state.phase !== GamePhase.PLAYING) return state;
@@ -327,16 +458,10 @@ export const syncLaneRosters = (state: GameState): GameState => {
   };
 
   for (const lane of next.lanes) {
-    if (lane.status !== LaneStatus.ANSWERING) continue;
-
-    if (lane.answeringIds.length === 0) {
-      next = retireLane(next, lane.id);
-      continue;
-    }
-
-    const answered = new Set(liveAnswers(lane).map((a) => a.playerId));
-    if (lane.answeringIds.every((id) => answered.has(id))) {
-      next = closeLaneQuestion(next, lane.id, "all-in");
+    for (const seat of lane.seats) {
+      if (seat.status === LaneStatus.DONE) continue;
+      if (roster.has(seat.playerId)) continue;
+      next = retireSeat(next, lane.id, seat.playerId);
     }
   }
 
@@ -344,12 +469,92 @@ export const syncLaneRosters = (state: GameState): GameState => {
 };
 
 /* ------------------------------------------------------------------ *
+ * Host controls
+ *
+ * The host acts on a table — both seats at it — because that is the unit they
+ * can see from the desk. Underneath, each seat is still moved on its own.
+ * ------------------------------------------------------------------ */
+
+/** Stop a whole table's clocks and put each player's answer in front of them. */
+export const closeLaneQuestion = (
+  state: GameState,
+  laneId: string,
+  reason: RevealReason = "host",
+): GameState => {
+  const lane = state.lanes.find((candidate) => candidate.id === laneId);
+  if (!lane) return state;
+
+  return lane.seats.reduce(
+    (next, seat) =>
+      seat.status === LaneStatus.ANSWERING
+        ? closeSeatQuestion(next, laneId, seat.playerId, reason)
+        : next,
+    state,
+  );
+};
+
+/** Hold, or release, every clock at one table. */
+export const setLanePaused = (
+  state: GameState,
+  laneId: string,
+  paused: boolean,
+): GameState => ({
+  ...state,
+  lanes: state.lanes.map((lane) =>
+    lane.id === laneId
+      ? {
+          ...lane,
+          seats: lane.seats.map((seat) =>
+            seat.status === LaneStatus.ANSWERING
+              ? { ...seat, timerPaused: paused }
+              : seat,
+          ),
+        }
+      : lane,
+  ),
+});
+
+/** Give every live clock at one table more time. */
+export const addLaneSeconds = (
+  state: GameState,
+  laneId: string,
+  seconds: number,
+): GameState => ({
+  ...state,
+  lanes: state.lanes.map((lane) => {
+    if (lane.id !== laneId) return lane;
+
+    return {
+      ...lane,
+      seats: lane.seats.map((seat) => {
+        if (seat.status !== LaneStatus.ANSWERING) return seat;
+        const timeLeft = Math.max(1, seat.timeLeft + seconds);
+        return {
+          ...seat,
+          timeLeft,
+          // Stretch the question's own clock with it, so the bars and the ring
+          // measure against what the player was actually given rather than
+          // sitting pinned at full while the number counts past it.
+          questionDuration: Math.max(seat.questionDuration, timeLeft),
+        };
+      }),
+    };
+  }),
+});
+
+/** Is anybody at this table still on a running clock? */
+export const laneIsRunning = (lane: MatchupLane): boolean =>
+  lane.seats.some(
+    (seat) => seat.status === LaneStatus.ANSWERING && !seat.timerPaused,
+  );
+
+/* ------------------------------------------------------------------ *
  * The room's screen
  *
  * The projector trails the field instead of driving it. It shows whichever
- * question the slowest matchup is still working on, which is what keeps it
- * safe to look at: no lane can ever see a question it has not reached on the
- * big screen, and the answer only goes up once every matchup is through it.
+ * question the slowest player is still working on, which is what keeps it safe
+ * to look at: nobody can see a question they have not reached on the big
+ * screen, and the answer only goes up once everyone is through it.
  * ------------------------------------------------------------------ */
 
 /** The question the room is on, clamped to the round. */
@@ -360,10 +565,10 @@ export const broadcastIndex = (state: GameState): number =>
   );
 
 /**
- * Put the answer on the projector if the last matchup has just cleared the
+ * Put the answer on the projector if the last player has just cleared the
  * question it is showing.
  *
- * This runs off the back of a lane closing rather than off the clock, so the
+ * This runs off the back of a seat closing rather than off the clock, so the
  * big screen turns over the moment the field is through rather than up to a
  * second later with an empty countdown sitting at zero.
  */
@@ -416,9 +621,9 @@ const tickBroadcast = (state: GameState): GameState => {
  * ------------------------------------------------------------------ */
 
 /**
- * One second, applied to every lane and then to the room's screen.
+ * One second, applied to every seat and then to the room's screen.
  *
- * A single interval drives all of them: each lane keeps its own numbers, so
+ * A single interval drives all of them: each seat keeps its own numbers, so
  * they run independently without needing a timer each.
  */
 export const tickRound = (state: GameState): GameState => {
@@ -426,26 +631,35 @@ export const tickRound = (state: GameState): GameState => {
 
   let next = state;
 
-  for (const { id } of state.lanes) {
-    const lane = next.lanes.find((candidate) => candidate.id === id);
-    if (!lane) continue;
+  for (const lane of state.lanes) {
+    for (const { playerId } of lane.seats) {
+      const seat = next.lanes
+        .find((candidate) => candidate.id === lane.id)
+        ?.seats.find((candidate) => candidate.playerId === playerId);
+      if (!seat) continue;
 
-    if (lane.status === LaneStatus.ANSWERING) {
-      if (lane.timerPaused) continue;
-      const timeLeft = lane.timeLeft - 1;
-      next = patchLane(next, id, { timeLeft: Math.max(0, timeLeft) });
-      if (timeLeft <= 0) next = closeLaneQuestion(next, id, "time");
-      continue;
-    }
+      if (seat.status === LaneStatus.ANSWERING) {
+        if (seat.timerPaused) continue;
+        const timeLeft = seat.timeLeft - 1;
+        next = patchSeat(next, lane.id, playerId, {
+          timeLeft: Math.max(0, timeLeft),
+        });
+        if (timeLeft <= 0) {
+          next = closeSeatQuestion(next, lane.id, playerId, "time");
+        }
+        continue;
+      }
 
-    if (lane.status === LaneStatus.REVEAL) {
-      const revealSecondsLeft = lane.revealSecondsLeft - 1;
-      next = patchLane(next, id, {
-        revealSecondsLeft: Math.max(0, revealSecondsLeft),
-      });
-      // A lane always advances itself. Waiting on the host here would put the
-      // whole field back on one pace, which is the thing lanes exist to undo.
-      if (revealSecondsLeft <= 0) next = advanceLane(next, id);
+      if (seat.status === LaneStatus.REVEAL) {
+        const revealSecondsLeft = seat.revealSecondsLeft - 1;
+        next = patchSeat(next, lane.id, playerId, {
+          revealSecondsLeft: Math.max(0, revealSecondsLeft),
+        });
+        // A seat always advances itself. Waiting on the host here would put
+        // the whole field back on one pace, which is the thing seats exist to
+        // undo — and the player can skip ahead of this countdown anyway.
+        if (revealSecondsLeft <= 0) next = advanceSeat(next, lane.id, playerId);
+      }
     }
   }
 
@@ -453,17 +667,19 @@ export const tickRound = (state: GameState): GameState => {
 };
 
 /**
- * The round is over once every matchup is through it *and* the room has seen
+ * The round is over once every player is through it *and* the room has seen
  * the last answer — the projector runs a question or so behind the field, and
  * cutting to the results while it is still catching up would rob the room of
  * the endings it has been waiting on.
  */
 export const roundIsComplete = (state: GameState): boolean => {
   if (state.phase !== GamePhase.PLAYING) return false;
-  // No lanes at all means nobody is playing this round; there is nothing for
+  // No matches at all means nobody is playing this round; there is nothing for
   // the room's screen to catch up on either.
   if (state.lanes.length === 0) return true;
-  if (!state.lanes.every((lane) => lane.status === LaneStatus.DONE)) return false;
+  if (!state.lanes.every((lane) => laneStatus(lane) === LaneStatus.DONE)) {
+    return false;
+  }
   if (state.questionsQueue.length === 0) return true;
 
   return (

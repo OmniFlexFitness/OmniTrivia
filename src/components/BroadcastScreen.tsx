@@ -16,10 +16,13 @@ import {
 import AvatarDisplay from "./AvatarDisplay";
 import BracketView, { MatchupCard } from "./BracketView";
 import JoinCode from "./JoinCode";
+import CategoryVotePanel from "./CategoryVotePanel";
+import { GLOSSARY, SCORING_RULES } from "../content/instructions";
 import {
   CheckCircle2,
   Crown,
   Flag,
+  Heart,
   Hourglass,
   Radio,
   Swords,
@@ -201,11 +204,13 @@ const RoomProgress: React.FC<{
 };
 
 /**
- * The race board: every matchup and how far through the round it is.
+ * The race board: every player, and how far through the round they are.
  *
  * This is the part of the screen that makes an asynchronous round readable
- * from the back of the room — one table three questions clear of another is
- * the whole drama of the format, and without this it would be invisible.
+ * from the back of the room. Players inside one matchup are stacked together
+ * so the duel still reads as a duel — but they get a bar each, because one of
+ * them being three questions clear of the other is the whole drama of the
+ * format and a single bar per table would hide it.
  */
 const LaneRace: React.FC<{
   lanes: PublicLane[];
@@ -214,54 +219,69 @@ const LaneRace: React.FC<{
 }> = ({ lanes, players, questionsInRound }) => {
   if (lanes.length === 0) return null;
 
-  const nameOf = (id: string) =>
-    players.find((p) => p.id === id)?.name ?? "Unknown";
-  const scoreOf = (id: string) =>
-    players.find((p) => p.id === id)?.roundScore ?? 0;
+  const playerOf = (id: string) => players.find((p) => p.id === id);
   const total = questionsInRound || 1;
 
-  // Furthest along first, so the leaders sit at the top of the board.
-  const ordered = [...lanes].sort((a, b) => b.completed - a.completed);
+  // The table with the furthest-along player first, so the leaders sit at the
+  // top of the board.
+  const ordered = [...lanes].sort(
+    (a, b) =>
+      Math.max(0, ...b.seats.map((seat) => seat.completed)) -
+      Math.max(0, ...a.seats.map((seat) => seat.completed)),
+  );
 
   return (
     <div className="w-full bg-slate-900/80 border border-slate-800 rounded-2xl p-4">
       <div className="text-[11px] font-mono uppercase tracking-[0.3em] text-slate-500 mb-3">
         The field
       </div>
-      <div className="space-y-2.5">
-        {ordered.map((lane) => {
-          const done = lane.status === LaneStatus.DONE;
+      <div className="space-y-3">
+        {ordered.map((lane) => (
+          <div
+            key={lane.id}
+            className="space-y-1.5 border-l-2 border-slate-800 pl-2"
+          >
+            {lane.seats.map((seat) => {
+              const player = playerOf(seat.playerId);
+              const done = seat.status === LaneStatus.DONE;
 
-          return (
-            <div key={lane.id} className="space-y-1">
-              <div className="flex items-center gap-2 text-sm">
-                <span className="flex-1 truncate font-bold text-white">
-                  {lane.playerIds.map(nameOf).join("  vs  ")}
-                </span>
-                <span className="font-mono text-neon-green shrink-0">
-                  {lane.playerIds.map(scoreOf).join(" – ")}
-                </span>
-                <span
-                  className={`font-mono text-xs shrink-0 w-16 text-right ${done ? "text-neon-green" : "text-slate-500"}`}
-                >
-                  {done ? (
-                    <span className="flex items-center justify-end gap-1">
-                      <Flag size={11} /> done
+              return (
+                <div key={seat.playerId} className="space-y-1">
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="flex-1 truncate font-bold text-white">
+                      {player?.name ?? "Unknown"}
                     </span>
-                  ) : (
-                    `Q${Math.min(lane.completed + 1, total)}/${total}`
-                  )}
-                </span>
+                    <span className="font-mono text-neon-green shrink-0">
+                      {player?.roundScore ?? 0}
+                    </span>
+                    <span
+                      className={`font-mono text-xs shrink-0 w-16 text-right ${done ? "text-neon-green" : "text-slate-500"}`}
+                    >
+                      {done ? (
+                        <span className="flex items-center justify-end gap-1">
+                          <Flag size={11} /> done
+                        </span>
+                      ) : (
+                        `Q${Math.min(seat.completed + 1, total)}/${total}`
+                      )}
+                    </span>
+                  </div>
+                  <div className="h-2 w-full bg-slate-800 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full transition-all duration-700 ${done ? "bg-neon-green" : "bg-neon-pink"}`}
+                      style={{ width: `${(seat.completed / total) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+            {lane.seats.length === 0 && (
+              <div className="text-xs font-mono uppercase tracking-widest text-slate-600">
+                nobody answering at this table
               </div>
-              <div className="h-2 w-full bg-slate-800 rounded-full overflow-hidden">
-                <div
-                  className={`h-full transition-all duration-700 ${done ? "bg-neon-green" : "bg-neon-pink"}`}
-                  style={{ width: `${(lane.completed / total) * 100}%` }}
-                />
-              </div>
-            </div>
-          );
-        })}
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -332,6 +352,89 @@ const MatchupStrip: React.FC<{
   );
 };
 
+/**
+ * The rules, on the wall.
+ *
+ * Nobody in the room has read anything, and the format is unusual enough that
+ * "why is she on question five and I'm on question two" is the first thing
+ * somebody asks. Answering it on the big screen, before the first question,
+ * saves the host explaining it over a microphone.
+ */
+const RoomRules: React.FC<{ compact?: boolean }> = ({ compact = false }) => {
+  if (compact) {
+    return (
+      <div className="flex flex-wrap justify-center gap-x-8 gap-y-2 text-lg text-slate-400">
+        <span>
+          <span className="text-neon-pink font-bold">One opponent</span> per
+          round
+        </span>
+        <span>
+          <span className="text-neon-blue font-bold">Your own pace</span> — no
+          waiting
+        </span>
+        <span>
+          <span className="text-neon-green font-bold">Answer fast</span> for more
+          points
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-full max-w-5xl bg-slate-900/70 border border-slate-800 rounded-2xl p-6">
+      <div className="text-center text-sm font-mono uppercase tracking-[0.3em] text-slate-500 mb-4">
+        How this works
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-3">
+        {GLOSSARY.slice(0, 4).map((entry) => (
+          <div key={entry.term} className="flex gap-3">
+            <span className="text-neon-pink font-black shrink-0 w-24 text-right">
+              {entry.term}
+            </span>
+            <span className="text-slate-300 text-left flex-1">
+              {entry.definition}
+            </span>
+          </div>
+        ))}
+      </div>
+      <div className="mt-5 pt-4 border-t border-slate-800 flex flex-wrap justify-center gap-x-8 gap-y-2 text-slate-400">
+        {SCORING_RULES.slice(0, 3).map((rule) => (
+          <span key={rule} className="text-base">
+            <span className="text-neon-green">▸</span> {rule}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+/** What the room has liked so far, for the between-rounds screens. */
+const LikedStrip: React.FC<{ snapshot: BroadcastSnapshot }> = ({ snapshot }) => {
+  const liked = snapshot.categoryLikes.filter((row) => row.count > 0);
+  if (liked.length === 0) return null;
+
+  return (
+    <div className="flex flex-wrap justify-center items-center gap-3">
+      <span className="text-xs font-mono uppercase tracking-[0.3em] text-slate-500">
+        Liked tonight
+      </span>
+      {liked.map((row) => (
+        <span
+          key={row.categoryId}
+          className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900 border border-neon-pink/40 text-white"
+        >
+          <span>{row.icon}</span>
+          <span className="font-bold">{row.name}</span>
+          <span className="flex items-center gap-1 font-mono text-neon-pink">
+            <Heart size={13} className="fill-current" />
+            {row.count}
+          </span>
+        </span>
+      ))}
+    </div>
+  );
+};
+
 /* ------------------------------------------------------------------ *
  * Phase views
  * ------------------------------------------------------------------ */
@@ -372,6 +475,8 @@ const StandbyStage: React.FC<{ snapshot: BroadcastSnapshot | null }> = ({
             </div>
           ))}
         </div>
+
+        <RoomRules />
       </>
     ) : (
       <div className="max-w-xl space-y-3">
@@ -435,6 +540,8 @@ const RoundIntroStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
           title="This round's head-to-heads"
         />
       )}
+
+      <RoomRules compact />
     </div>
   );
 };
@@ -588,12 +695,11 @@ const QuestionStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
   const correctCount = snapshot.correctPlayerIds.length;
   const answeredCount = snapshot.answeredPlayerIds.length;
   const waiting = Math.max(0, snapshot.lanesInPlay - snapshot.lanesCompleted);
-  // Every table still on this question is paused, so the clock is too.
-  const paused =
-    snapshot.lanes.some((lane) => lane.status === LaneStatus.ANSWERING) &&
-    snapshot.lanes
-      .filter((lane) => lane.status === LaneStatus.ANSWERING)
-      .every((lane) => lane.timerPaused);
+  // Everyone still answering is paused, so the room's clock is too.
+  const answering = snapshot.lanes
+    .flatMap((lane) => lane.seats)
+    .filter((seat) => seat.status === LaneStatus.ANSWERING);
+  const paused = answering.length > 0 && answering.every((seat) => seat.timerPaused);
 
   return (
     <div className="flex-1 flex flex-col lg:flex-row gap-6 min-h-0">
@@ -632,7 +738,7 @@ const QuestionStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
         ) : (
           <div className="text-center text-lg font-mono uppercase tracking-widest text-slate-500">
             {waiting > 0
-              ? `The answer goes up when the last ${waiting === 1 ? "matchup is" : `${waiting} matchups are`} through it`
+              ? `The answer goes up when the last ${waiting === 1 ? "match is" : `${waiting} matches are`} through it`
               : "Everyone is through — answer coming up"}
           </div>
         )}
@@ -644,7 +750,7 @@ const QuestionStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
           <div className="w-48 h-48 shrink-0 rounded-full border-8 border-green-500 flex flex-col items-center justify-center bg-green-500/10 shadow-[0_0_40px_rgba(34,197,94,0.35)]">
             <CheckCircle2 size={56} className="text-green-400" />
             <div className="mt-2 font-mono uppercase tracking-widest text-green-400 text-sm text-center px-4">
-              Every matchup is through it
+              Everybody is through it
             </div>
           </div>
         ) : (
@@ -769,6 +875,12 @@ const RoundEndStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
         </div>
       </div>
 
+      <LikedStrip snapshot={snapshot} />
+
+      {snapshot.categoryPoll && (
+        <CategoryVotePanel poll={snapshot.categoryPoll} readOnly size="lg" />
+      )}
+
       {snapshot.nextRoundMatchups && snapshot.nextRoundMatchups.length > 0 && (
         <div className="bg-slate-900/60 border border-neon-blue/40 rounded-2xl p-5">
           <MatchupStrip
@@ -831,6 +943,12 @@ const GameOverStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
           </h1>
         )}
       </div>
+
+      <LikedStrip snapshot={snapshot} />
+
+      {snapshot.categoryPoll && (
+        <CategoryVotePanel poll={snapshot.categoryPoll} readOnly size="lg" />
+      )}
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         <div>
