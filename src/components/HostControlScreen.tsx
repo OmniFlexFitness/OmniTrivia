@@ -985,7 +985,19 @@ const HostPlayerPane: React.FC = () => {
         seat?.status === LaneStatus.ANSWERING &&
         question &&
         !record && (
-          <div className="bg-slate-900 border border-slate-700 rounded-xl p-3">
+          <div className="bg-slate-900 border border-slate-700 rounded-xl p-3 space-y-3">
+            {/* The question, where everybody else in the room has it: on a
+                white card directly above the answers. The compact card draws
+                the clock and the options and leaves the question to whoever is
+                framing it — a player's phone does this, and the host's own seat
+                was the one place that did not, so the host answered four
+                lettered buttons with nothing to answer. */}
+            <div className="bg-white text-slate-900 rounded-xl px-4 py-3 text-center">
+              <h4 className="text-base md:text-lg font-black leading-snug">
+                {question.text}
+              </h4>
+            </div>
+
             <QuestionCard
               key={`${question.id}-${seat.questionIndex}`}
               question={question}
