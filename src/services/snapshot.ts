@@ -20,6 +20,7 @@ import {
 } from "../types";
 import { CATEGORIES } from "../constants";
 import { answeringRoster } from "./bracket";
+import { wheelCategories } from "./wheel";
 import {
   answerBy,
   answersForQuestion,
@@ -332,6 +333,15 @@ export const buildSnapshot = (
         ? (CATEGORIES.find((c) => c.id === state.selectedCategory) ?? null)
         : null));
 
+  /* --- the wheel every screen turns --- */
+  // Only while there is a wheel to turn. It is a dozen category names, but it
+  // is a dozen names on every snapshot, and a snapshot goes out several times
+  // a second for the whole of a round.
+  const wheelSlices =
+    state.phase === GamePhase.CATEGORY_SELECT
+      ? wheelCategories(state.roundsConfig, state.currentRound)
+      : [];
+
   /* --- the room's question --- */
   const questionsInRound = state.questionsQueue.length;
   const roomIndex = broadcastIndex(state);
@@ -368,6 +378,7 @@ export const buildSnapshot = (
     totalRounds: state.totalRounds,
     category,
     wheelSpinning: state.wheelSpinning,
+    wheelSlices,
 
     questionNumber: roomIndex + 1,
     questionsInRound,

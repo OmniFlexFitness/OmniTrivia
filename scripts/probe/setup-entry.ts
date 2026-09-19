@@ -36,7 +36,12 @@ import {
   shuffle,
   shuffleOptions,
 } from "../../src/services/questionSet";
-import { landedSliceIndex, planSpin } from "../../src/services/wheel";
+import {
+  landedSliceIndex,
+  planSpin,
+  restingRotation,
+  wheelCategories,
+} from "../../src/services/wheel";
 import { parseImportData } from "../../src/services/importService";
 
 let failures = 0;
@@ -331,6 +336,58 @@ check(
     const from = Math.random() * 1000;
     return planSpin(from, Math.random() * 3000, 8).finalRotation > from;
   }),
+);
+
+/* ------------------------------------------------------------------ *
+ * The wheels that are only watching
+ *
+ * The projector and the players' phones are never told where the host's wheel
+ * is going — the result is kept out of the snapshot until it has been decided.
+ * They are told which category won, afterwards, and turn that back into an
+ * angle with `restingRotation`. So the thing to prove is that the angle it
+ * hands back really does put that category under the pointer, and that getting
+ * there never means running the wheel backwards onto the answer.
+ * ------------------------------------------------------------------ */
+
+check(
+  "a watching wheel comes to rest on the slice it was told won",
+  [1, 2, 3, 5, 8, 12].every((slices) =>
+    Array.from({ length: 100 }).every(() => {
+      const index = Math.floor(Math.random() * slices);
+      const from = Math.random() * 2000 - 1000;
+      return (
+        landedSliceIndex(restingRotation(from, index, slices), slices) === index
+      );
+    }),
+  ),
+);
+
+check(
+  "a watching wheel only ever turns forwards to get there",
+  Array.from({ length: 300 }).every(() => {
+    const from = Math.random() * 2000 - 1000;
+    const to = restingRotation(from, Math.floor(Math.random() * 9), 9);
+    // At least the one extra turn, so it eases to a stop the way it was going
+    // instead of snapping back.
+    return to >= from + 360;
+  }),
+);
+
+/* The host's wheel, the projector's and every phone's all draw their slices
+ * from here, so a game cannot end up showing the room three different wheels. */
+check(
+  "every screen draws the same wheel, and it loses a slice a round",
+  (() => {
+    const rounds = buildRoundsFromContent(library, { maxQuestions: 5 });
+    return rounds.every((_, index) => {
+      const round = index + 1;
+      const slices = wheelCategories(rounds, round);
+      return (
+        slices.length === rounds.length - index &&
+        slices[0].id === rounds[index].category.id
+      );
+    });
+  })(),
 );
 
 /* Every slice is reachable — a wheel that always lands on the same place is

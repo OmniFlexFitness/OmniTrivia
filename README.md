@@ -34,7 +34,9 @@ exactly as they are defined here, and so does the code.
 3. Each round: the wheel is spun, whichever slice stops under the pointer is
    the category, every matchup is dealt that round's questions, and the matches
    play out. The wheel carries only the categories still to be played, so it
-   loses a slice each round and the last round is a wheel of one.
+   loses a slice each round and the last round is a wheel of one. The host
+   spins it, and the projector and every player's phone turn the same wheel
+   alongside them.
 4. At the end of a round, every matchup is settled on that round's points. The
    winners are paired into next round's matchups; the losers are out of the
    bracket but stay on the leaderboard.
@@ -435,9 +437,15 @@ A game runs on two windows, and they show completely different things.
   scores and the bracket. Nobody else should see it.
 - **The broadcast interface** is the projector or TV. It shows one question,
   the answer choices, a countdown, how many matches are through that question,
-  a field board of how far each player has got, and — between rounds — the vote
-  on what to play next. The answer never reaches it until everybody is through
-  the question.
+  a field board of how far each player has got, and — between rounds — the
+  wheel, the round's head-to-heads and the vote on what to play next. The
+  answer never reaches it until everybody is through the question.
+
+A player's phone is a third view of the same snapshot, and between rounds it is
+not a waiting screen: it turns the wheel too, names who they have been drawn
+against, and carries the like and the vote. None of these screens is told where
+the wheel is going — the category is published once it has stopped, so a result
+can never be read out of a snapshot while the room is still watching it turn.
 
 Open the broadcast window from **OPEN BROADCAST DISPLAY** in the lobby or in
 the header of the control screen, then drag it onto the second display and put
@@ -569,7 +577,8 @@ without the hash ever being readable, is in
    **NEXT QUESTION** takes them straight on. Somebody can be finished with the
    round while the person they are playing is on question two. **Pause**,
    **+10s** and **Reveal** act on one table — both seats at it — with "everyone"
-   versions beside them.
+   versions beside them, and **END ROUND NOW** on the right of that row stops
+   the whole round wherever it has got to.
 7. The projector follows the field: it holds whichever question the slowest
    player is still on, and puts the answer up once everyone is through it.
    **MOVE THE ROOM ON** does that by hand when **auto-advance** is off.
@@ -609,6 +618,17 @@ question the slowest player is still working on, so nobody in the room can be
 shown a question — or an answer — ahead of where they are, and it only puts the
 answer up once everybody has been through it. The field board down the side is
 where the room watches somebody pull three questions clear.
+
+**The host can end a round where it stands.** A table goes quiet, somebody
+walks off mid-match, the venue wants the room back — **END ROUND NOW** on the
+match board stops every clock and settles the round on the scores as they are.
+Nothing has to be reconciled to do that, because a round is scored as it is
+played: points are banked the moment an answer is given, so the scoreboard at
+that instant already is the result. The questions nobody reached are simply not
+played, and an unanswered one is not recorded as a miss — it would break a
+streak and count against a player for a question they were never given time to
+finish. The button asks first whenever anybody is still answering, and says how
+many; once the field is through it stops asking and just cuts to the results.
 
 ### How a round is scored
 

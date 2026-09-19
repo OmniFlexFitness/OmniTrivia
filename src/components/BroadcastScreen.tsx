@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   BroadcastSnapshot,
+  Category,
   GamePhase,
   LaneStatus,
   Matchup,
@@ -20,6 +21,7 @@ import AvatarDisplay from "./AvatarDisplay";
 import BracketView, { MatchupCard } from "./BracketView";
 import JoinCode from "./JoinCode";
 import CategoryVotePanel from "./CategoryVotePanel";
+import SpectatorWheel from "./SpectatorWheel";
 import { GLOSSARY, SCORING_RULES } from "../content/instructions";
 import {
   CheckCircle2,
@@ -495,18 +497,60 @@ const StandbyStage: React.FC<{ snapshot: BroadcastSnapshot | null }> = ({
   </div>
 );
 
+/**
+ * Between rounds, on the big screen.
+ *
+ * The room used to watch a spinning emoji here. It now watches the wheel
+ * itself: the same slices the host is turning, turning with them, stopping on
+ * the same category. Nothing about which category that will be reaches this
+ * window before the host's wheel has stopped — see `SpectatorWheel`.
+ */
 const RoundIntroStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
   snapshot,
 }) => {
   const bracketRound = snapshot.bracket[snapshot.roundNumber - 1];
+  // Absent from a snapshot written by a build older than the wheel; that game
+  // still runs, it just gets the screen it had before.
+  const slices = snapshot.wheelSlices ?? [];
+  // Named by the wheel on *this* screen once it has stopped, so the room is not
+  // read the answer while it is still watching the wheel travel to it.
+  const [settled, setSettled] = useState<Category | null>(null);
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-center gap-8 text-center">
+    <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-6 text-center">
       <div className="text-3xl font-mono uppercase tracking-[0.4em] text-slate-500">
         Round {snapshot.roundNumber} of {snapshot.totalRounds}
       </div>
 
-      {snapshot.wheelSpinning ? (
+      {slices.length > 0 ? (
+        <>
+          <SpectatorWheel
+            categories={slices}
+            spinning={snapshot.wheelSpinning}
+            landed={snapshot.category}
+            roundNumber={snapshot.roundNumber}
+            onSettled={setSettled}
+            className="w-[30vh] h-[30vh] shrink-0"
+          />
+          {settled ? (
+            <div className="text-6xl font-black text-white neon-text animate-bounce-short">
+              {settled.icon} {settled.name}
+            </div>
+          ) : (
+            <div
+              className={`text-4xl font-black ${
+                snapshot.wheelSpinning || snapshot.category
+                  ? "text-white animate-pulse"
+                  : "text-slate-400"
+              }`}
+            >
+              {snapshot.wheelSpinning || snapshot.category
+                ? "SPINNING FOR THE CATEGORY…"
+                : "CATEGORY UP NEXT"}
+            </div>
+          )}
+        </>
+      ) : snapshot.wheelSpinning ? (
         <div className="flex flex-col items-center gap-6">
           <div className="text-8xl animate-spin-slow">🎡</div>
           <div className="text-4xl font-black text-white animate-pulse">

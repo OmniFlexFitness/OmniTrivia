@@ -53,6 +53,7 @@ import {
   recordLaneAnswer,
   roundIsComplete,
   setLanePaused,
+  stopRoundInPlace,
   syncLaneRosters,
   tickRound,
 } from "../services/lanes";
@@ -2147,10 +2148,25 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
       return roundIsComplete(next) ? finishRound(next) : next;
     });
 
-  /** Cut to the results without waiting for the projector to catch up. */
+  /**
+   * End the round now, on the scores as they stand.
+   *
+   * Two things bring a host here. The field is through and only the projector
+   * is still catching up, and cutting to the results costs nothing. Or a match
+   * is still running and the night has to move anyway — a table that has gone
+   * quiet, a player who has walked off, a room that is being asked to leave.
+   *
+   * Both are the same transition, because a round is *already* scored
+   * continuously: every answer banks its points the moment it is given. So
+   * whatever is on the scoreboard right now is what the matchups are settled
+   * on, and stopping early takes nothing away from anyone except the questions
+   * they had not reached.
+   */
   const endRoundNow = () =>
     setState((prev) =>
-      prev.phase === GamePhase.PLAYING ? finishRound(prev) : prev,
+      prev.phase === GamePhase.PLAYING
+        ? finishRound(stopRoundInPlace(prev))
+        : prev,
     );
 
   const toggleAutoAdvance = () =>

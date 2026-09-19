@@ -55,8 +55,10 @@ const JoinScreen: React.FC = () => {
     if (joinError) clearJoinError();
   };
 
+  // Positioned for the same reason as the start screen: the overlay below is
+  // measured against this box, and against the viewport if this box is static.
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-[url('https://images.unsplash.com/photo-1550751827-4bd374c3f58b?q=80&w=2070&auto=format&fit=crop')] bg-cover bg-center">
+    <div className="relative min-h-screen flex flex-col items-center justify-center p-4 bg-[url('https://images.unsplash.com/photo-1550751827-4bd374c3f58b?q=80&w=2070&auto=format&fit=crop')] bg-cover bg-center">
       <div className="absolute inset-0 bg-slate-900/90 backdrop-blur-sm"></div>
       
       <div className="relative z-10 w-full max-w-md bg-slate-800/90 border border-neon-blue p-6 rounded-2xl shadow-[0_0_30px_rgba(0,255,255,0.2)] flex flex-col max-h-[95vh]">

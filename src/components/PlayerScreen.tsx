@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   BroadcastSnapshot,
+  Category,
   GamePhase,
   LaneStatus,
+  Matchup,
   PublicLane,
   PublicQuestion,
   PublicSeat,
@@ -22,6 +24,7 @@ import QuestionCard from "./QuestionCard";
 import Instructions from "./Instructions";
 import CategoryLikeButton from "./CategoryLikeButton";
 import CategoryVotePanel from "./CategoryVotePanel";
+import SpectatorWheel from "./SpectatorWheel";
 import Button from "./Button";
 import {
   ArrowRight,
@@ -62,6 +65,154 @@ const asAnswerable = (question: PublicQuestion): Question => ({
   correctIndex: -1,
   type: question.type,
 });
+
+/**
+ * Who this player is drawn against, for a round that has not started yet.
+ *
+ * Between rounds a phone has nothing in front of it — no question, no clock —
+ * and the one thing its owner wants to know is who they are playing. The
+ * bracket travels on the snapshot, so it can be answered here rather than left
+ * to whoever can read the projector from where they are sitting.
+ */
+const MyMatchup: React.FC<{
+  matchups: Matchup[];
+  snapshot: BroadcastSnapshot;
+  playerId: string | null;
+  label: string;
+}> = ({ matchups, snapshot, playerId, label }) => {
+  if (!playerId) return null;
+
+  const matchup = matchups.find(
+    (candidate) =>
+      candidate.playerAId === playerId || candidate.playerBId === playerId,
+  );
+
+  const opponentId = matchup
+    ? matchup.playerAId === playerId
+      ? matchup.playerBId
+      : matchup.playerAId
+    : null;
+  const opponent = opponentId
+    ? snapshot.players.find((player) => player.id === opponentId)
+    : null;
+
+  return (
+    <div className="bg-slate-900 border border-slate-800 rounded-2xl px-4 py-3">
+      <div className="text-[11px] font-mono uppercase tracking-widest text-slate-500 mb-2">
+        {label}
+      </div>
+
+      {!matchup ? (
+        <div className="text-sm text-slate-400">
+          Not in this one — you are out of the bracket, watching from the
+          leaderboard.
+        </div>
+      ) : opponent ? (
+        <div className="flex items-center justify-center gap-3">
+          <span className="font-bold text-white">You</span>
+          <Swords size={16} className="text-neon-pink shrink-0" />
+          <AvatarDisplay
+            avatar={opponent.avatar}
+            color={opponent.avatarColor}
+            accessory={opponent.avatarAccessory}
+            size="sm"
+          />
+          <span className="font-bold text-neon-blue truncate">
+            {opponent.name}
+          </span>
+        </div>
+      ) : (
+        <div className="text-sm text-neon-green font-bold">
+          Bye — you go through without playing anyone.
+        </div>
+      )}
+    </div>
+  );
+};
+
+/**
+ * The wheel, on a player's phone, between rounds.
+ *
+ * Everyone in the room is looking at the same spin; there is no reason the
+ * people holding the phones should be the only ones watching an emoji. The
+ * wheel here turns with the host's and stops on the same category — and, like
+ * the projector, is never told which one that is until it has stopped.
+ */
+const RoundIntro: React.FC<{
+  snapshot: BroadcastSnapshot;
+  playerId: string | null;
+  /** Shown once the wheel has stopped — it names the category. */
+  children?: React.ReactNode;
+}> = ({ snapshot, playerId, children }) => {
+  // Missing from a snapshot written by a build older than the wheel, which is
+  // a game that keeps running — it just gets the screen it had before.
+  const slices = snapshot.wheelSlices ?? [];
+  const round = snapshot.bracket[snapshot.roundNumber - 1];
+  // What this phone's own wheel has stopped on. Naming the category the moment
+  // the host's wheel stops would spoil the one on the screen in front of them.
+  const [settled, setSettled] = useState<Category | null>(null);
+  // Without a wheel there is nothing to spoil, so the caption follows the host.
+  const announced = slices.length > 0 ? settled : snapshot.category;
+  const turning = snapshot.wheelSpinning || (!!snapshot.category && !announced);
+
+  return (
+    <div className="flex flex-col items-center gap-5 py-6">
+      <div className="text-xs font-mono uppercase tracking-[0.3em] text-slate-500">
+        Round {snapshot.roundNumber} of {snapshot.totalRounds}
+      </div>
+
+      {slices.length > 0 ? (
+        <SpectatorWheel
+          categories={slices}
+          spinning={snapshot.wheelSpinning}
+          landed={snapshot.category}
+          roundNumber={snapshot.roundNumber}
+          onSettled={setSettled}
+          className="w-56 h-56 sm:w-64 sm:h-64"
+        />
+      ) : (
+        <div
+          className={`text-6xl ${snapshot.wheelSpinning ? "animate-spin-slow" : ""}`}
+        >
+          🎡
+        </div>
+      )}
+
+      <div className="text-center">
+        {announced ? (
+          <div className="text-2xl font-black text-white">
+            {announced.icon} {announced.name}
+          </div>
+        ) : (
+          <div className="text-xl font-bold text-slate-300">
+            {turning ? "Spinning…" : "Waiting on the spin"}
+          </div>
+        )}
+        <p className="text-slate-500 font-mono uppercase tracking-widest mt-1 text-xs">
+          {announced ? "Get ready" : "Category up next"}
+        </p>
+      </div>
+
+      {round && (
+        <div className="w-full max-w-sm">
+          <MyMatchup
+            matchups={round.matchups}
+            snapshot={snapshot}
+            playerId={playerId}
+            label="Your matchup this round"
+          />
+        </div>
+      )}
+
+      <p className="text-slate-500 text-sm text-center max-w-sm">
+        You play this round against one opponent, at your own pace. Answer fast
+        — every second left on your clock is worth points.
+      </p>
+
+      {announced && children}
+    </div>
+  );
+};
 
 /** This round's opponent, and where they have got to in their own match. */
 const OpponentStrip: React.FC<{
@@ -438,21 +589,9 @@ const PlayerScreen: React.FC = () => {
 
       case GamePhase.CATEGORY_SELECT:
         return (
-          <div className="text-center py-12">
-            <div className="text-6xl mb-4">🎡</div>
-            <div className="text-xl font-bold text-white">
-              Round {snapshot.roundNumber}
-              {snapshot.category ? ` — ${snapshot.category.name}` : ""}
-            </div>
-            <p className="text-slate-500 font-mono uppercase tracking-widest mt-2 text-sm">
-              {snapshot.category ? "Get ready" : "Waiting on the spin"}
-            </p>
-            <p className="text-slate-500 text-sm mt-4 max-w-sm mx-auto">
-              You play this round against one opponent, at your own pace. Answer
-              fast — every second left on your clock is worth points.
-            </p>
+          <RoundIntro snapshot={snapshot} playerId={currentPlayerId}>
             {likeStrip}
-          </div>
+          </RoundIntro>
         );
 
       case GamePhase.PLAYING:
@@ -466,6 +605,18 @@ const PlayerScreen: React.FC = () => {
       default:
         return (
           <>
+            {/* The pairings for the round after this one are drawn the moment
+                this one is settled, so the wait between rounds can at least
+                say who you are playing next. */}
+            {snapshot.nextRoundMatchups && (
+              <MyMatchup
+                matchups={snapshot.nextRoundMatchups}
+                snapshot={snapshot}
+                playerId={currentPlayerId}
+                label="Next round"
+              />
+            )}
+
             <div className="space-y-2 py-6">
               {[...snapshot.players]
                 .sort((a, b) => b.score - a.score)
