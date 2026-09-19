@@ -28,7 +28,7 @@ hear each other.
        │  "my answer is B"  ──>  /rooms/8141/bus  ──>   scored here ───┘
 ```
 
-Three paths under each room's PIN:
+Three paths carry the game:
 
 | Path | Written by | Holds |
 | --- | --- | --- |
@@ -39,6 +39,11 @@ Three paths under each room's PIN:
 The snapshot is the same one the projector renders, which is the point: it is
 already built to **withhold the answer** until the question is over. Nothing a
 phone receives contains the answer key while the clock is running.
+
+Three more exist only so a host who loses their window can get the game back —
+`/roomSecrets`, `/roomClaims` and `/hostState`. Unlike the three above, none of
+them is readable by the room; see
+[Coming back after a disconnect](#8-coming-back-after-a-disconnect).
 
 ---
 
@@ -210,23 +215,74 @@ it is republished on every tick of the question clock.
 
 ---
 
-## 8. Known limits
+## 8. Coming back after a disconnect
 
-- **A phone that reloads rejoins its own seat**, because the seat is remembered
-  in that browser (`src/services/seat.ts`) and the host recognises a returning
-  player id — including mid-game, which an ordinary latecomer is not.
-- **If the host's browser closes, the game is over.** State lives in the host's
-  window; the database only carries it. Recovering a host mid-game would mean
-  making the database authoritative, which is a much larger change.
+Both halves of a room can lose the game, and both get back in with something
+typed rather than something remembered.
+
+### The host
+
+The host names a **host password** on the setup screen (one is suggested; it is
+shown again in the lobby). With that and the PIN, **RESUME HOSTING** on the
+start screen takes the running game back — from the machine that lost it, or
+from a phone if that laptop is not coming back.
+
+Three pieces make it work, and all three are enforced by the rules in
+`firebase/database.rules.json`:
+
+| Path | Who can read it | Who can write it |
+| --- | --- | --- |
+| `/roomSecrets/{pin}` | **nobody** — not even the host | the room's host |
+| `/roomClaims/{pin}/{uid}` | **nobody** | anyone, but *only* a value equal to the stored hash |
+| `/hostState/{pin}` | the host, or a device that has claimed | same |
+
+A returning device writes what it thinks the password hashes to into
+`roomClaims`. The rules compare it against `roomSecrets` **server-side**, so the
+write landing *is* the check — the hash is never handed out to be echoed back.
+Holding a claim is then what lets that device read the saved game and rewrite
+`meta.hostUid` to take the room over. The saved game is the whole game, correct
+answers included, which is why nothing but those two can read it.
+
+A **room now outlives its host's window** — that was the bug. Every way a host
+leaves a page looks the same from the outside, so the room stays claimed and
+simply stops being refreshed: a joining phone is told nobody is answering, while
+the host can still come back for **30 minutes**. Past that any device may clear
+it out, and the next PIN allocation does. Ending a game on purpose deletes the
+room, the saved game and the password's hash then and there.
+
+### A player
+
+A player picks a four-digit **rejoin code** on the join screen, next to their
+name and avatar. The host keeps only `playerProof` of it against their seat —
+never on the snapshot every device renders. Their name and that code put them
+back in *their own seat*, with their score, their streak and their place in the
+bracket, from any phone and at any point in the game. The device that can prove
+a seat outranks the device that merely holds it, so a dead phone waking up later
+cannot answer for them.
+
+`npm run check-returns` proves both paths without a browser; the rules table
+above is covered by `npm run check-room-rules`.
+
+## 9. Known limits
+
+- **A phone that reloads rejoins its own seat** with nothing typed, because the
+  seat is remembered in that browser (`src/services/seat.ts`).
+- **The host's browser is still the referee.** The database carries the game and
+  now keeps a copy of it for its host, but nothing on the server decides
+  anything.
 - **Anyone who guesses a PIN can watch a room.** They see exactly what the
   projector shows and cannot affect it. Four digits is 9,000 rooms, and a night
   runs one.
-- **Rooms clean themselves up.** The host's connection carries an `onDisconnect`
-  that deletes the room, so a closed laptop does not leave its PIN held.
+- **A player's proof crosses the room's message bus**, which every device in the
+  room can read. So a rejoin code raises the bar from "knows a player id off the
+  leaderboard" — which is everyone — to "was watching the database at the moment
+  that player joined". The host password never crosses it at all.
+- **A four-digit code is guessable by brute force**, but only online, one write
+  at a time, against a room that is running tonight.
 
 ---
 
-## 9. Key takeaways
+## 10. Key takeaways
 
 - **Three console steps**: create the database, enable Anonymous sign-in,
   register a web app.
@@ -237,5 +293,8 @@ it is republished on every tick of the question clock.
 - **Publishing the rules is a separate step from writing them**, and the app
   cannot tell you that you skipped it. `npm run check-live` can.
 - **The host still runs the game.** Firebase is the wire, not the referee.
+- **A lost game is recoverable.** The host comes back with the PIN and the host
+  password; a player comes back with their name and their rejoin code. The room
+  waits 30 minutes for the host before it clears itself away.
 - **`npm run check-room-rules` and `npm run check-room-join`** prove both halves
   against a local emulator, without touching the real project.

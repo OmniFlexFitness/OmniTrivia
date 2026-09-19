@@ -13,8 +13,8 @@ push. See [DEPLOYMENT.md](DEPLOYMENT.md) for hosting and
 
 ## Rules and terminology
 
-Four words in this game sound alike and mean different things. The app uses
-them exactly as they are defined here, and so does the code.
+Some of these words sound alike and mean different things. The app uses them
+exactly as they are defined here, and so does the code.
 
 | Term | What it means |
 | --- | --- |
@@ -24,6 +24,8 @@ them exactly as they are defined here, and so does the code.
 | **Match** | A matchup actually being played — the round's questions, answered by the two people in it. A round has one match per matchup, and every match runs at its own pace. |
 | **Bracket** | Single elimination. The higher round score in a matchup advances; the other player is out. The odd player out each round gets a **bye** and advances unopposed — and a bye goes to whoever has had the fewest so far, so the same person cannot keep drawing them. |
 | **Category pool** | The host's own standing list of categories. The end-of-round vote draws its options from it. It is separate from the questions a game happens to be loaded with. |
+| **Rejoin code** | Four digits a player picks when they join. Their name and that code get them back into the same seat — score, streak and place in the bracket — from any phone, at any point in the game. |
+| **Host password** | What the host sets when they open the game. With the PIN it takes the running game back on any device if the host's window closes, reloads or dies. |
 
 ### How a game runs
 
@@ -270,6 +272,13 @@ The app now handles this itself:
 If you are looking at a blank screen on a build from before those landed,
 reload the page — on iOS, close the tab and open the link again.
 
+A reload is not the end of a game for anybody. A player's phone comes back to
+its own seat on its own; the **host's** window comes back through
+[Getting a lost game back](#getting-a-lost-game-back) — the start screen offers
+the game by its PIN, and the host password finishes it. That is worth knowing
+before it happens, because the reload is automatic and the password is not
+recoverable after the fact.
+
 ### 6. Two-Screen Hosting Procedure
 
 OmniTrivia uses a dual-screen architecture where host controls and player-facing visuals stay separate:
@@ -310,6 +319,7 @@ npm run preview
 | `npm run generate-questions` | Write a question CSV with Claude from Node, keeping the key off the browser |
 | `npm run check-key` | Diagnose why AI generation is returning placeholders |
 | `npm run check-round-pacing` | Play a round headlessly and assert nobody waits for anybody |
+| `npm run check-returns` | Take a lost game back headlessly, and check the wrong code cannot |
 | `npm run check-live` | Check the *deployed* site: sign-in, published rules, and the proxy's key |
 | `npm run rules:deploy` | Publish `firebase/database.rules.json` to the live database |
 
@@ -454,15 +464,87 @@ the host's machine**, which is as far as `BroadcastChannel` and `localStorage`
 go, and a phone that scans the code is told so plainly instead of being dropped
 into a room of its own.
 
+## Getting a lost game back
+
+A trivia night has two ways of falling apart mid-round, and both are somebody
+losing a page they cannot get back to. Both are recoverable with something
+typed, because something remembered is exactly what has just been lost.
+
+Losing the page is not always a choice, either: a page whose build has been
+replaced underneath it reloads itself (see
+[A screen went blank](#5b-a-screen-went-blank)), which puts a host back on the
+start screen mid-game. When that happens the start screen offers the game it
+was hosting by PIN, and the password takes it back.
+
+### The host: PIN + host password
+
+The host window *is* the game — the questions, the scores, the bracket and every
+clock in the round live in it. So the room it claimed no longer dies with it.
+Closing the tab, hitting back, reloading or letting the laptop sleep leaves the
+room standing and simply stops refreshing it: phones are told nobody is
+answering, and the game waits.
+
+**RESUME HOSTING**, on the start screen, asks for the PIN and the host password.
+With both, the game comes back as it was — every score, the bracket, the round
+in progress, the clock where it stopped — and the players' phones reconnect on
+their own within a few seconds. It works from the machine that lost the game
+*or* from any other device, including a phone, which is the point of there being
+a password at all: a new device has a new identity and nothing else to show.
+
+- The room waits **30 minutes** for its host. After that any device may clear it
+  away, and the next game that allocates PINs does.
+- **Ending a game on purpose** closes the door: the room, the saved copy of the
+  game and the password's hash are all deleted.
+- If a second device takes the game over, the window it replaced says so rather
+  than carrying on looking like it is still running the night.
+- With multiplayer not configured, this still works on the machine that was
+  hosting — the saved game is on that browser too.
+
+### A player: name + rejoin code
+
+Every player picks a four-digit **rejoin code** when they join, on the same
+screen as their name and avatar. A phone that just reloads or locks comes back
+by itself and never needs it. A phone that is flat, wiped, or a friend's has
+nothing to come back with — and that is what the code is for: the same name and
+the same code put them back in **their own seat**, with their score, their
+streak and their place in the bracket, at any point in the game.
+
+- It is the same form either way. A player does not have to know whether they
+  are "joining" or "rejoining"; the host works out which it is.
+- A seat is handed to the device that can prove it, not the one holding it, so a
+  dead phone waking up an hour later cannot answer for somebody else.
+- Two players cannot wear one name. Someone typing a name that is already in the
+  game is asked for that player's code.
+
+### What is stored, and where
+
+Nothing is kept in the clear. Both secrets are salted with the game's PIN and
+hashed (`src/services/proof.ts`), and only the hash is written down:
+
+| | Where it lives | Who can read it |
+| --- | --- | --- |
+| Host password | `/roomSecrets/{pin}` and the host's own browser | **nobody**, host included — the rules compare against it without handing it out |
+| The running game | `/hostState/{pin}` and the host's own browser | the host, or a device that has proved the password |
+| Rejoin code | against that player's seat, in the host's game | the host only — never on the snapshot every device renders |
+
+The full data model, and the rule that lets a returning device prove itself
+without the hash ever being readable, is in
+**[MULTIPLAYER.md](MULTIPLAYER.md#8-coming-back-after-a-disconnect)**.
+
 ## Hosting a game
 
-1. **HOST GAME** → name the game, then choose rounds and questions per round.
-   The name is what the room sees; the PIN is only the code players type.
+1. **HOST GAME** → name the game, set the **host password**, then choose rounds
+   and questions per round. The name is what the room sees; the PIN is only the
+   code players type. The password is the one thing on that screen that is not
+   about the questions — it is what gets this game back if the window dies, so
+   write it down.
 2. **GENERATE & REVIEW**, or **IMPORT MY OWN QUESTIONS**. Read the review
    screen — the ↻ on any question regenerates just that one.
 3. **APPROVE & OPEN LOBBY** → you get a PIN and a QR code, and you are seated
-   as a player automatically. **OPEN BROADCAST DISPLAY** and move it to the big
-   screen. **EDIT MY PLAYER** renames your seat, **ADD BOT** adds opponents.
+   as a player automatically. The lobby shows the host password one last time
+   (behind an eye toggle, because a laptop on a bar table gets read over
+   shoulders). **OPEN BROADCAST DISPLAY** and move it to the big screen.
+   **EDIT MY PLAYER** renames your seat, **ADD BOT** adds opponents.
 4. **START GAME** → **SPIN THE WHEEL** each round, then **START ROUND**. That
    deals every matchup its match, every player their own seat in it, and stops
    coordinating them. Your own match sits beside the controls, with an
@@ -548,15 +630,34 @@ that the draw after round one is fixed rather than redrawn — and the likes and
 the ballot, that a re-sent like still counts once and that every screen is
 published the same four options.
 
+Coming back from a disconnect is checked the same way, and it is the half worth
+checking hardest, because the same code that lets somebody back into their own
+game is the code that must not let anybody into anyone else's:
+
+```bash
+npm run check-returns
+```
+
+It saves a game mid-round and takes it back, asserting every score and clock
+returns and that the password never appears in what was written down; then it
+puts a player's seat in front of the wrong code, somebody else's code, a name
+with no code at all, and a stranger who knows the name — and checks that only
+the right pair gets the seat, and that the phone which lost it stops being able
+to answer for it. `npm run check-room-rules` covers the database side of the
+same story against a local emulator.
+
 ## What this is not
 
 **The host's browser is still the whole game.** Players on their phones join a
 room, answer questions and are scored, but everything that decides any of that
-lives in the hosting tab — Firebase only carries messages between devices. Two
-things follow from that:
+lives in the hosting tab — Firebase only carries messages between devices, and
+keeps a copy of the game for whoever can prove they host it. Two things follow
+from that:
 
-- **If the host's window closes, the game is gone.** There is no state on the
-  server to recover it from.
+- **Nothing on the server decides anything.** If a round is scored wrongly, it
+  was scored wrongly in a browser. A lost host window is recoverable (see
+  "Getting a lost game back"); a lost host *machine* takes the broadcast
+  display with it.
 - **The broadcast screen is still a second window of the host's own browser**,
   synced over `BroadcastChannel`. A projector on the host machine, not a device
   you point at the URL.

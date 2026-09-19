@@ -1,17 +1,28 @@
 import { BroadcastMessage, BroadcastSnapshot, RoomRecord } from "../types";
 import {
   attachRoom,
+  claimRemoteRoom,
   currentUid,
   detachRoom,
   lastRoomFailure,
   publishRemote,
+  publishRoomSecret,
+  readRemoteHostState,
   registerRemoteRoom,
   releaseRemoteRoom,
   remoteEnabled,
   remotePinTaken,
   whenConnected,
+  writeRemoteHostState,
 } from "./remoteRoom";
-import type { MessageMeta } from "./remoteRoom";
+import type {
+  ClaimResult,
+  HostWriteResult,
+  MessageMeta,
+  RemoteHostState,
+} from "./remoteRoom";
+
+export type { ClaimResult, HostWriteResult, RemoteHostState };
 
 /**
  * A message, and who the database says sent it. `meta` is absent for anything
@@ -330,11 +341,32 @@ export const registerRoom = (
   hostId: string,
   gameName: string,
   open = true,
-): void => {
+): Promise<HostWriteResult> => {
   const others = readRooms().filter((room) => room.hostId !== hostId);
   writeRooms([...others, { pin, hostId, gameName, updatedAt: Date.now() }]);
-  void registerRemoteRoom(pin, hostId, gameName, open);
+  return registerRemoteRoom(pin, hostId, gameName, open);
 };
+
+/* ------------------------------------------------------------------ *
+ * Getting a game back
+ *
+ * A host's window is the game, so losing it used to lose the night. These
+ * carry the password's proof and a copy of the running game into the room, and
+ * back out again for whoever can prove they are its host. The plumbing is in
+ * `remoteRoom`; the derivation is in `hostSession`.
+ * ------------------------------------------------------------------ */
+
+/** Record what this room's host password hashes to. Host only, room must exist. */
+export const publishHostSecret = publishRoomSecret;
+
+/** Prove this device knows the room's host password. */
+export const claimRoomAsHost = claimRemoteRoom;
+
+/** Publish the running game where only its host can read it back. */
+export const publishHostState = writeRemoteHostState;
+
+/** The running game this room is holding for its host. */
+export const fetchHostState = readRemoteHostState;
 
 /** Give the PIN back when a host closes its game. */
 export const releaseRoom = (hostId: string, pin?: string | null): void => {

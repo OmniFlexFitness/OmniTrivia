@@ -3,16 +3,33 @@ import { useGame } from '../context/GameContext';
 import Button from './Button';
 import Instructions from './Instructions';
 import CategoryPoolManager from './CategoryPoolManager';
-import { Settings, ArrowRight, ListPlus, Loader2, Upload, AlertTriangle } from 'lucide-react';
+import { MIN_HOST_PASSWORD_LENGTH, suggestHostPassword } from '../services/proof';
+import { Settings, ArrowRight, KeyRound, ListPlus, Loader2, RefreshCw, Upload, AlertTriangle } from 'lucide-react';
 
 const HostConfigScreen: React.FC = () => {
-  const { generateGame, loading, error, initImport, gameName, setGameName } =
-    useGame();
+  const {
+    generateGame,
+    loading,
+    error,
+    initImport,
+    gameName,
+    setGameName,
+    hostPassword,
+    setHostPassword,
+  } = useGame();
   const [rounds, setRounds] = useState(3);
   const [questions, setQuestions] = useState(5);
   const [showPool, setShowPool] = useState(false);
 
+  // Blank is fine — a password is suggested when the lobby opens, and the
+  // lobby shows whatever it ended up being. Two characters is not fine, and
+  // the place to say so is before a room is waiting on this game.
+  const password = hostPassword.trim();
+  const passwordTooShort =
+    password.length > 0 && password.length < MIN_HOST_PASSWORD_LENGTH;
+
   const handleGenerate = () => {
+    if (passwordTooShort) return;
     generateGame(rounds, questions);
   };
 
@@ -65,6 +82,46 @@ const HostConfigScreen: React.FC = () => {
             </p>
           </div>
 
+          {/* The one thing on this screen that is not about the questions.
+              A host's window is the whole game, so a host who loses it needs
+              something to prove the game is theirs — and the moment to decide
+              that is before there is a room waiting on them. */}
+          <div>
+            <label className="block text-slate-400 mb-2 text-sm uppercase tracking-wider">
+              Host Password
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={hostPassword}
+                onChange={(e) => setHostPassword(e.target.value)}
+                placeholder="something you will remember"
+                maxLength={64}
+                className="flex-1 bg-slate-900 border border-slate-600 rounded-lg p-3 text-white font-mono focus:border-neon-yellow outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => setHostPassword(suggestHostPassword())}
+                title="Suggest another"
+                className="px-3 rounded-lg border border-slate-600 text-slate-400 hover:text-neon-yellow hover:border-neon-yellow transition-colors"
+              >
+                <RefreshCw size={16} />
+              </button>
+            </div>
+            <p
+              className={`text-xs mt-2 flex items-start gap-1.5 ${
+                passwordTooShort ? 'text-amber-300' : 'text-slate-500'
+              }`}
+            >
+              <KeyRound size={13} className="shrink-0 mt-0.5 text-neon-yellow" />
+              <span>
+                {passwordTooShort
+                  ? `At least ${MIN_HOST_PASSWORD_LENGTH} characters — this is the only thing that gets the game back if this window dies.`
+                  : 'Write this down. With it and the PIN you can take this game back from any device — after a reload, a closed tab, or a dead laptop.'}
+              </span>
+            </p>
+          </div>
+
           <div>
             <label className="block text-slate-400 mb-2 text-sm uppercase tracking-wider">Number of Rounds</label>
             <div className="flex items-center gap-4">
@@ -96,10 +153,10 @@ const HostConfigScreen: React.FC = () => {
           </div>
 
           <div className="pt-4 space-y-3">
-            <Button onClick={handleGenerate} fullWidth variant="neon" className="flex items-center justify-center gap-2">
+            <Button onClick={handleGenerate} fullWidth variant="neon" disabled={passwordTooShort} className="flex items-center justify-center gap-2">
               GENERATE & REVIEW <ArrowRight />
             </Button>
-            <Button onClick={initImport} fullWidth variant="secondary" className="flex items-center justify-center gap-2 border-slate-600">
+            <Button onClick={initImport} fullWidth variant="secondary" disabled={passwordTooShort} className="flex items-center justify-center gap-2 border-slate-600">
               <Upload size={18} /> IMPORT MY OWN QUESTIONS
             </Button>
             {/* The pool is not part of this game's setup — it is the standing

@@ -27,6 +27,8 @@
         "check-room-rules": "node scripts/check-room-rules.mjs",
         "check-room-join": "node scripts/check-room-join.mjs",
         "check-round-pacing": "node scripts/check-round-pacing.mjs",
+        "precheck-returns": "node scripts/check-deps.mjs",
+        "check-returns": "node scripts/check-returns.mjs",
         "check-live": "node scripts/check-live.mjs",
         "worker:dev": "npx --yes wrangler@latest dev --config worker/wrangler.toml --port 8787 --local",
         "worker:deploy": "npx --yes wrangler@latest deploy --config worker/wrangler.toml",
