@@ -195,7 +195,8 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
     points: [
       "One spin, one category, one round. The spin genuinely decides it — whichever slice stops under the pointer is what you play.",
       "The wheel only carries the categories still to be played, so it loses a slice every round and the last round is a wheel of one.",
-      "The matchups for this round are on the big screen — that is who you are playing.",
+      "The host spins it, and the big screen and every phone in the room turn the same wheel alongside them — nobody is told where it is going until it stops.",
+      "The matchups for this round are on the big screen and on your own phone — that is who you are playing.",
       "START ROUND deals every match its questions and stops coordinating them. From there, nobody waits for anybody.",
     ],
   },
@@ -218,6 +219,7 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
       "Pause, +10s and Reveal act on one table. The 'every table' buttons are for when you really do mean the whole room.",
       "A player's question closes the moment they answer it — that is the format, not a bug. Their opponent may be three questions behind.",
       "The projector holds whichever question the slowest player is still on and only shows the answer once everyone is through it.",
+      "END ROUND NOW stops the whole round wherever it has got to and settles it on the scores as they stand. Nothing is lost by it: points are banked as each answer is given, and a question nobody reached is simply not played.",
       "Your own matchup is beside the board. 'Answering off' takes you out of it so nothing waits on you while you run the show.",
     ],
   },
@@ -228,6 +230,7 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
     points: [
       "Every matchup is decided on the round just played, not on the running total — so every round starts level.",
       "Losers stay on the leaderboard with their score; they are just out of the bracket.",
+      "The next round's pairings are drawn as soon as this one is settled, so who you play next is on your screen before the wheel is spun for it.",
       "Vote on what you want to play in future: the options are the same on every screen, and the host keeps the results.",
       "Liking the category you have just played tells the host to write more of it.",
     ],

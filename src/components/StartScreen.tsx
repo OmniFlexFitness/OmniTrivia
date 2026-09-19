@@ -18,8 +18,13 @@ const StartScreen: React.FC = () => {
   // rather than making them remember that "resume" is a thing.
   const [pending] = useState(() => readHostSession());
 
+  // `relative` on the page box is what makes the overlay below cover the whole
+  // page rather than the first screenful of it: an absolutely-positioned child
+  // is measured against its nearest positioned ancestor, and with none it falls
+  // back to the viewport. So everything past the fold — which on this screen is
+  // most of the guide — sat on the raw photograph, undimmed and unblurred.
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-[url('https://images.unsplash.com/photo-1550751827-4bd374c3f58b?q=80&w=2070&auto=format&fit=crop')] bg-cover bg-center">
+    <div className="relative min-h-screen flex flex-col items-center justify-center p-4 bg-[url('https://images.unsplash.com/photo-1550751827-4bd374c3f58b?q=80&w=2070&auto=format&fit=crop')] bg-cover bg-center">
       <div className="absolute inset-0 bg-slate-900/90 backdrop-blur-sm"></div>
 
       {showPool && <CategoryPoolManager onClose={() => setShowPool(false)} />}

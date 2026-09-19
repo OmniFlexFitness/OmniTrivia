@@ -403,6 +403,89 @@ const LaneCard: React.FC<{ lane: MatchupLane }> = ({ lane }) => {
   );
 };
 
+/**
+ * Ending the round before the field has finished it.
+ *
+ * A round is scored continuously — every answer banks its points as it is
+ * given — so there is nothing to settle here and nothing to wait for. Whatever
+ * the scoreboard says at the moment this is pressed is what the matchups are
+ * decided on, and the questions nobody reached are simply not played.
+ *
+ * It is still the one button on this screen that takes something away from the
+ * room, so it asks first whenever anybody is still answering, and says how
+ * many. Once the field is through there is nothing left to interrupt and it
+ * stops asking.
+ */
+const EndRoundControl: React.FC<{ className?: string }> = ({
+  className = "",
+}) => {
+  const { lanes, endRoundNow } = useGame();
+  const [confirming, setConfirming] = React.useState(false);
+
+  const liveMatches = lanes.filter(
+    (lane) => laneStatus(lane) !== LaneStatus.DONE,
+  ).length;
+  const livePlayers = lanes
+    .flatMap((lane) => lane.seats)
+    .filter((seat) => seat.status !== LaneStatus.DONE).length;
+
+  if (livePlayers === 0) {
+    return (
+      <Button
+        variant="secondary"
+        onClick={endRoundNow}
+        className={`flex items-center gap-2 py-1.5 px-3 text-xs ${className}`}
+        title="Everyone is through — go straight to the results"
+      >
+        <Flag size={14} /> Cut to round results
+      </Button>
+    );
+  }
+
+  if (!confirming) {
+    return (
+      <Button
+        variant="secondary"
+        onClick={() => setConfirming(true)}
+        className={`flex items-center gap-2 py-1.5 px-3 text-xs border-red-500/60 text-red-300 hover:text-white hover:bg-red-600/20 ${className}`}
+        title="Stop every match and settle the round on the scores as they stand"
+      >
+        <Flag size={14} /> End round now
+      </Button>
+    );
+  }
+
+  return (
+    <div className="w-full space-y-2 rounded-xl border border-red-500/50 bg-red-500/10 px-3 py-2.5">
+      <p className="text-xs text-red-100 leading-snug">
+        {liveMatches} match{liveMatches === 1 ? "" : "es"} still going,{" "}
+        {livePlayers} player{livePlayers === 1 ? "" : "s"} still answering. The
+        round is settled on the scores as they stand — anything they have not
+        answered yet is simply not played.
+      </p>
+      <div className="flex items-center justify-end gap-2">
+        <Button
+          variant="secondary"
+          onClick={() => setConfirming(false)}
+          className="py-1.5 px-3 text-xs"
+        >
+          Keep playing
+        </Button>
+        <Button
+          variant="danger"
+          onClick={() => {
+            setConfirming(false);
+            endRoundNow();
+          }}
+          className="py-1.5 px-3 text-xs"
+        >
+          End the round
+        </Button>
+      </div>
+    </div>
+  );
+};
+
 /** Every match, side by side. */
 const LaneBoard: React.FC = () => {
   const { lanes, setAllLanesPaused, addTimeToAllLanes, revealAllLanesNow } =
@@ -441,6 +524,10 @@ const LaneBoard: React.FC = () => {
         >
           Reveal every table
         </Button>
+
+        {/* Away from the three buttons that only nudge the round along: this
+            is the one that ends it. */}
+        <EndRoundControl className="ml-auto" />
       </div>
 
       <div className="grid grid-cols-1 2xl:grid-cols-2 gap-3">
@@ -469,7 +556,6 @@ const RoomScreenPanel: React.FC = () => {
     broadcastRevealSecondsLeft,
     autoAdvance,
     advanceBroadcastNow,
-    endRoundNow,
   } = game;
 
   const index = broadcastIndex(game);
@@ -526,15 +612,12 @@ const RoomScreenPanel: React.FC = () => {
         </div>
       )}
 
+      {/* Ending the round lives on the match board, with the other controls
+          that reach the whole field. */}
       {allDone && (
-        <Button
-          variant="secondary"
-          fullWidth
-          onClick={endRoundNow}
-          className="flex items-center justify-center gap-2 py-2 text-sm"
-        >
-          <Flag size={16} /> CUT TO ROUND RESULTS
-        </Button>
+        <div className="text-xs font-mono uppercase tracking-widest text-slate-500">
+          Every player is through — the round can be ended from the match board.
+        </div>
       )}
     </div>
   );

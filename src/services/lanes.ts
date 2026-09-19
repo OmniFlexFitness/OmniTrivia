@@ -548,6 +548,51 @@ export const laneIsRunning = (lane: MatchupLane): boolean =>
     (seat) => seat.status === LaneStatus.ANSWERING && !seat.timerPaused,
   );
 
+/**
+ * End the round where it stands, for every table at once.
+ *
+ * Points are banked when a player answers, not when the round ends, so the
+ * scoreboard at this instant already *is* the result — this only has to stop
+ * the clocks and retire the seats that are still on them.
+ *
+ * Which is why an unfinished question is not closed as a missed one. Closing a
+ * seat scores it: a question nobody got the chance to answer would be recorded
+ * as a wrong answer, break that player's streak and count against them in a
+ * matchup they were never given the time to lose. It is not their miss. Their
+ * round simply stopped, and it stopped on the points they had earned.
+ *
+ * The room's screen is settled at the same time; the round is over and the
+ * results are what comes next.
+ */
+export const stopRoundInPlace = (state: GameState): GameState => {
+  if (state.phase !== GamePhase.PLAYING) return state;
+
+  const questionCount = state.questionsQueue.length;
+
+  return {
+    ...state,
+    lanes: state.lanes.map((lane) => ({
+      ...lane,
+      seats: lane.seats.map((seat) =>
+        seat.status === LaneStatus.DONE
+          ? seat
+          : {
+              ...seat,
+              status: LaneStatus.DONE,
+              // A finished seat parks on the round's length, the same as one
+              // that played every question, so every count of the field reads
+              // the round as through rather than stalled part-way.
+              questionIndex: questionCount,
+              timerPaused: false,
+              revealReason: null,
+            },
+      ),
+    })),
+    broadcastRevealing: false,
+    broadcastRevealSecondsLeft: 0,
+  };
+};
+
 /* ------------------------------------------------------------------ *
  * The room's screen
  *

@@ -1,3 +1,6 @@
+import { Category, RoundConfig } from "../types";
+import { CATEGORIES } from "../constants";
+
 /**
  * Where a spin lands.
  *
@@ -72,4 +75,61 @@ export const planSpin = (
   const overshoot = (((raw - centre) % 360) + 360) % 360;
 
   return { finalRotation: raw - overshoot, landedIndex };
+};
+
+/**
+ * The slices a round's wheel is drawn from: every category still to be played.
+ *
+ * A category is played once and its questions go with it, so the wheel loses a
+ * slice each round and the last round is a wheel of one. Read from
+ * `roundsConfig` rather than from the built-in list because a game that
+ * imported its own questions is frequently not the built-in ten; the built-ins
+ * are the fallback for a wheel drawn before a game has been configured.
+ *
+ * Every screen that turns a wheel — the host's, the projector's and each
+ * player's phone — comes through here, so they cannot end up showing the room
+ * three different wheels.
+ */
+export const wheelCategories = (
+  roundsConfig: RoundConfig[],
+  currentRound: number,
+): Category[] => {
+  const firstUnplayed = Math.min(
+    Math.max(0, currentRound - 1),
+    Math.max(0, roundsConfig.length - 1),
+  );
+  const remaining = roundsConfig
+    .slice(firstUnplayed)
+    .map((round) => round.category);
+
+  return remaining.length > 0 ? remaining : CATEGORIES;
+};
+
+/**
+ * A rotation that parks slice `index` under the pointer, reached by turning
+ * forwards from `from`.
+ *
+ * This is how a screen that is *watching* a spin lands its own wheel. Those
+ * screens are never told where the host's wheel is going — the result is not
+ * published until it has been decided, so that nobody can read the category
+ * off a snapshot while the room is still watching it spin. What they are told,
+ * a beat later, is which category won; this turns that back into an angle.
+ *
+ * Always forwards, and by at least `extraTurns` whole turns, so a wheel eases
+ * to rest the way it was going rather than snapping backwards onto the answer.
+ */
+export const restingRotation = (
+  from: number,
+  index: number,
+  sliceCount: number,
+  extraTurns = 1,
+): number => {
+  const slices = Math.max(1, sliceCount);
+  const sliceAngle = 360 / slices;
+  // The inverse of `landedSliceIndex`: slice `index` sits under the pointer
+  // when the wheel is turned back onto that slice's centre line.
+  const centre = -((index + 0.5) * sliceAngle);
+  const ahead = (((centre - from) % 360) + 360) % 360;
+
+  return from + ahead + Math.max(0, extraTurns) * 360;
 };

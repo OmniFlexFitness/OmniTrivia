@@ -28,6 +28,7 @@ import {
   recordLaneAnswer,
   roundIsComplete,
   seatForPlayer,
+  stopRoundInPlace,
   tickRound,
 } from "../../src/services/lanes";
 import { buildSnapshot } from "../../src/services/snapshot";
@@ -326,6 +327,56 @@ check(
   "the table beside it carries on",
   seat(desk, "p3")?.status === LaneStatus.ANSWERING &&
     seat(desk, "p4")?.status === LaneStatus.ANSWERING,
+);
+
+/* ------------------------------------------------------------------ *
+ * 6a. Ending the round where it stands
+ *
+ * The host can stop a round with matches still running — a table that has gone
+ * quiet, a player who has walked off, a room that has to move on. What that
+ * must not do is invent a result. A round is scored continuously, so the
+ * scoreboard at the moment it is stopped already is the result; the questions
+ * nobody reached are simply not played, and an unanswered one is not a miss.
+ * ------------------------------------------------------------------ */
+
+let cut = baseState();
+// One table plays a question through; the other has not answered anything.
+cut = recordLaneAnswer(cut, "p1", 0);
+cut = recordLaneAnswer(cut, "p2", 1);
+
+const scoresBeforeCut = cut.players.map((player) => player.roundScore);
+const streakBeforeCut = cut.players.find((p) => p.id === "p1")?.streak ?? 0;
+
+cut = stopRoundInPlace(cut);
+
+check(
+  "ending the round early leaves every seat done",
+  cut.lanes.every((lane) => laneStatus(lane) === LaneStatus.DONE),
+);
+check(
+  "the projector is not left holding a question open",
+  !cut.broadcastRevealing && cut.broadcastRevealSecondsLeft === 0,
+);
+check(
+  "stopping a round changes nobody's score",
+  cut.players.every(
+    (player, index) => player.roundScore === scoresBeforeCut[index],
+  ),
+  cut.players.map((p) => `${p.id}:${p.roundScore}`).join(" "),
+);
+check(
+  "a question nobody was given time to answer is not counted as a miss",
+  // p3 and p4 never answered anything and are still on nothing; p1 answered
+  // correctly and keeps the streak that earned.
+  cut.players.find((p) => p.id === "p3")?.roundScore === 0 &&
+    cut.players.find((p) => p.id === "p3")?.lastAnswerCorrect === undefined &&
+    (cut.players.find((p) => p.id === "p1")?.streak ?? 0) === streakBeforeCut,
+);
+check(
+  "a seat stopped part-way still reads as through the round",
+  cut.lanes
+    .flatMap((lane) => lane.seats)
+    .every((seatAt) => seatAt.questionIndex === questions.length),
 );
 
 /* ------------------------------------------------------------------ *

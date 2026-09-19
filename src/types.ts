@@ -495,6 +495,15 @@ export interface BroadcastSnapshot {
   totalRounds: number;
   category: Category | null;
   wheelSpinning: boolean;
+  /**
+   * The slices on the wheel: every category still to be played.
+   *
+   * Sent so the room's screen and the players' phones can turn the same wheel
+   * the host is turning, rather than watching an emoji. Which slice the spin
+   * lands on is *not* in here — that is `category`, and it is published only
+   * once the wheel has stopped.
+   */
+  wheelSlices: Category[];
 
   /* --- the room's question: the one the slowest player is still on --- */
   questionNumber: number;
