@@ -51,3 +51,31 @@ export const REVEAL_DURATION = 6; // seconds
 export const BOT_ACCURACY = 0.6;
 export const BOT_MIN_THINK_SECONDS = 2;
 export const BOT_MAX_THINK_SECONDS = TIMER_DURATION - 2;
+
+/**
+ * How many options an end-of-round category vote puts up. Four reads cleanly
+ * on a phone and on a projector; a pool smaller than this offers what it has.
+ */
+export const CATEGORY_VOTE_OPTIONS = 4;
+
+/**
+ * The pool an end-of-round vote draws its options from, before the host has
+ * edited one of their own.
+ *
+ * This is deliberately wider than `CATEGORIES` — that list is what a generated
+ * game picks its rounds from, this one is what a room is asked what it wants
+ * to play next time, and those are not the same question.
+ */
+export const DEFAULT_CATEGORY_POOL: Category[] = [
+  ...CATEGORIES,
+  { id: 'fitness', name: 'Fitness', icon: '🏋️', color: 'bg-lime-500' },
+  { id: 'nutrition', name: 'Nutrition', icon: '🥗', color: 'bg-emerald-500' },
+  { id: 'anatomy', name: 'Anatomy', icon: '🦴', color: 'bg-rose-500' },
+  { id: 'supplements', name: 'Supplements', icon: '💊', color: 'bg-cyan-500' },
+  { id: 'movies', name: 'Movies', icon: '🍿', color: 'bg-fuchsia-500' },
+  { id: 'gaming', name: 'Video Games', icon: '🎮', color: 'bg-violet-500' },
+  { id: 'space', name: 'Space', icon: '🚀', color: 'bg-sky-500' },
+  { id: 'animals', name: 'Animals', icon: '🐘', color: 'bg-orange-500' },
+  { id: 'mythology', name: 'Mythology', icon: '🏛️', color: 'bg-amber-500' },
+  { id: 'internet', name: 'Internet Culture', icon: '📡', color: 'bg-pink-500' },
+];

@@ -5,6 +5,7 @@ import {
   LaneStatus,
   PublicLane,
   PublicQuestion,
+  PublicSeat,
   Question,
 } from "../types";
 import { useGame } from "../context/GameContext";
@@ -15,7 +16,19 @@ import {
 } from "../services/broadcastBus";
 import AvatarDisplay from "./AvatarDisplay";
 import QuestionCard from "./QuestionCard";
-import { CheckCircle2, Flag, Hourglass, Pause, Radio, Swords, Trophy } from "lucide-react";
+import Instructions from "./Instructions";
+import CategoryLikeButton from "./CategoryLikeButton";
+import CategoryVotePanel from "./CategoryVotePanel";
+import Button from "./Button";
+import {
+  ArrowRight,
+  Flag,
+  Hourglass,
+  Pause,
+  Radio,
+  Swords,
+  Trophy,
+} from "lucide-react";
 
 /**
  * What a guest player sees after joining with a PIN.
@@ -25,11 +38,10 @@ import { CheckCircle2, Flag, Hourglass, Pause, Radio, Swords, Trophy } from "luc
  * an answer panel added — so a player can never see or change anything the
  * host has not published.
  *
- * Everything on this screen comes from *this player's matchup*, never from the
- * room. The big screen is a question or two behind on purpose; a player who is
- * flying through their round should not be dragged back to it, and a player
- * taking their time should not see the answer to the question in front of them
- * because the table next door has finished.
+ * Everything on this screen comes from *this player's own seat*, never from
+ * the room and not even from the person they are playing. Answer, see how you
+ * did, take the next one: the only thing that ever holds this screen up is the
+ * player holding it.
  */
 
 const HOST_TIMEOUT_MS = 8000;
@@ -48,7 +60,7 @@ const asAnswerable = (question: PublicQuestion): Question => ({
   type: question.type,
 });
 
-/** This round's opponent, and where they have got to. */
+/** This round's opponent, and where they have got to in their own match. */
 const OpponentStrip: React.FC<{
   lane: PublicLane;
   snapshot: BroadcastSnapshot;
@@ -58,6 +70,7 @@ const OpponentStrip: React.FC<{
   const opponent = opponentId
     ? snapshot.players.find((p) => p.id === opponentId)
     : null;
+  const opponentSeat = lane.seats.find((seat) => seat.playerId === opponentId);
   const me = snapshot.players.find((p) => p.id === playerId);
 
   return (
@@ -83,11 +96,13 @@ const OpponentStrip: React.FC<{
             accessory={opponent.avatarAccessory}
             size="sm"
           />
-          {lane.answeredPlayerIds.includes(opponent.id) ? (
-            <CheckCircle2 size={16} className="text-neon-green shrink-0" />
-          ) : (
-            <Hourglass size={14} className="text-slate-500 shrink-0" />
-          )}
+          {/* Where they are, not whether you are waiting on them — you never
+              are. It is a scoreboard, not a queue. */}
+          <span className="text-[10px] font-mono uppercase tracking-widest text-slate-500 shrink-0">
+            {opponentSeat?.status === LaneStatus.DONE
+              ? "done"
+              : `Q${opponentSeat?.questionNumber ?? 1}`}
+          </span>
         </div>
       ) : (
         <span className="italic text-slate-500 text-sm">bye — no opponent</span>
@@ -96,32 +111,42 @@ const OpponentStrip: React.FC<{
   );
 };
 
-/** How far into the round this matchup is, against the rest of the field. */
-const LaneProgress: React.FC<{ lane: PublicLane; snapshot: BroadcastSnapshot }> = ({
-  lane,
-  snapshot,
-}) => {
+/** How far into the round this player is, against the rest of the field. */
+const SeatProgress: React.FC<{
+  seat: PublicSeat;
+  snapshot: BroadcastSnapshot;
+}> = ({ seat, snapshot }) => {
   const total = snapshot.questionsInRound || 1;
-  const ahead = snapshot.lanes.filter(
-    (other) => other.id !== lane.id && other.completed > lane.completed,
-  ).length;
+  const ahead = snapshot.lanes
+    .flatMap((lane) => lane.seats)
+    .filter(
+      (other) =>
+        other.playerId !== seat.playerId && other.completed > seat.completed,
+    ).length;
 
   return (
     <div className="mb-4">
       <div className="flex items-center justify-between text-[11px] font-mono uppercase tracking-widest text-slate-500 mb-1">
+        {/* Which question this is about, not which one is next: on the reveal
+            these two differ, and the answer on screen belongs to the one just
+            closed. */}
         <span>
-          Question {Math.min(lane.completed + 1, total)} of {total}
+          {seat.status === LaneStatus.REVEAL
+            ? `Answer to question ${seat.questionNumber} of ${total}`
+            : seat.status === LaneStatus.DONE
+              ? `All ${total} questions done`
+              : `Question ${Math.min(seat.completed + 1, total)} of ${total}`}
         </span>
         <span>
           {ahead === 0
             ? "you're leading the field"
-            : `${ahead} matchup${ahead === 1 ? " is" : "s are"} ahead`}
+            : `${ahead} player${ahead === 1 ? " is" : "s are"} ahead`}
         </span>
       </div>
       <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
         <div
           className="h-full bg-neon-pink transition-all duration-500"
-          style={{ width: `${(lane.completed / total) * 100}%` }}
+          style={{ width: `${(seat.completed / total) * 100}%` }}
         />
       </div>
     </div>
@@ -129,7 +154,15 @@ const LaneProgress: React.FC<{ lane: PublicLane; snapshot: BroadcastSnapshot }> 
 };
 
 const PlayerScreen: React.FC = () => {
-  const { clientPin, currentPlayerId, gameName, restartGame } = useGame();
+  const {
+    clientPin,
+    currentPlayerId,
+    gameName,
+    restartGame,
+    advanceMyQuestion,
+    setCategoryLike,
+    voteForCategory,
+  } = useGame();
   const [snapshot, setSnapshot] = useState<BroadcastSnapshot | null>(() => {
     const stored = readStoredSnapshot();
     return stored?.gamePin === clientPin ? stored : null;
@@ -173,7 +206,8 @@ const PlayerScreen: React.FC = () => {
   const hostLive = hostSeenAt > 0 && now - hostSeenAt < HOST_TIMEOUT_MS;
   const me = snapshot?.players.find((p) => p.id === currentPlayerId);
 
-  // The one thing this screen is built around: the lane this player is in.
+  // The two things this screen is built around: the match this player is in,
+  // and their own seat at it.
   const lane = useMemo(
     () =>
       snapshot?.lanes.find((candidate) =>
@@ -181,11 +215,47 @@ const PlayerScreen: React.FC = () => {
       ) ?? null,
     [snapshot, currentPlayerId],
   );
-  const answering = lane?.answeringIds.includes(currentPlayerId ?? "") ?? false;
-  const answered = lane?.answeredPlayerIds.includes(currentPlayerId ?? "") ?? false;
+  const seat = useMemo(
+    () =>
+      lane?.seats.find((candidate) => candidate.playerId === currentPlayerId) ??
+      null,
+    [lane, currentPlayerId],
+  );
   const question = useMemo(
-    () => (lane?.question ? asAnswerable(lane.question) : null),
-    [lane?.question],
+    () => (seat?.question ? asAnswerable(seat.question) : null),
+    [seat?.question],
+  );
+
+  /* --- liking the category this game is on --- */
+  const category = snapshot?.category ?? null;
+  const likeRow = category
+    ? snapshot?.categoryLikes.find((row) => row.categoryId === category.id)
+    : undefined;
+  const liked = Boolean(
+    currentPlayerId && likeRow?.playerIds.includes(currentPlayerId),
+  );
+
+  const likeStrip = category && (
+    <div className="flex justify-center mt-5">
+      <CategoryLikeButton
+        category={category}
+        count={likeRow?.count ?? 0}
+        liked={liked}
+        onToggle={(next) => setCategoryLike(category.id, next)}
+        compact
+      />
+    </div>
+  );
+
+  const poll = snapshot?.categoryPoll ?? null;
+  const ballot = poll && (
+    <div className="mt-5">
+      <CategoryVotePanel
+        poll={poll}
+        myVote={currentPlayerId ? (poll.votes[currentPlayerId] ?? null) : null}
+        onVote={(categoryId) => voteForCategory(poll.id, categoryId)}
+      />
+    </div>
   );
 
   const roundBody = () => {
@@ -197,72 +267,87 @@ const PlayerScreen: React.FC = () => {
       );
     }
 
-    if (lane.status === LaneStatus.DONE) {
+    if (!seat) {
+      return (
+        <div className="text-center py-12 text-slate-400">
+          You are not answering this round — watching your match play out.
+        </div>
+      );
+    }
+
+    if (seat.status === LaneStatus.DONE) {
+      const stillGoing = snapshot
+        ? snapshot.lanes
+            .flatMap((other) => other.seats)
+            .filter((other) => other.status !== LaneStatus.DONE).length
+        : 0;
+
       return (
         <div className="text-center py-12">
           <Flag size={40} className="mx-auto text-neon-green mb-3" />
-          <div className="text-3xl font-black text-white mb-2">
-            Round done
-          </div>
+          <div className="text-3xl font-black text-white mb-2">Round done</div>
           <p className="text-slate-400">
             You are through all {snapshot?.questionsInRound} questions.{" "}
-            {snapshot && snapshot.lanesInPlay - snapshot.lanesCompleted > 0
-              ? "Waiting on the other matchups to finish theirs."
+            {stillGoing > 0
+              ? `${stillGoing} player${stillGoing === 1 ? " is" : "s are"} still going.`
               : "Results are coming up."}
           </p>
         </div>
       );
     }
 
-    if (lane.status === LaneStatus.REVEAL) {
-      const wasRight = lane.correctPlayerIds.includes(currentPlayerId ?? "");
+    if (seat.status === LaneStatus.REVEAL) {
+      const wasRight = seat.wasCorrect === true;
       return (
-        <div className="text-center py-8">
+        <div className="text-center py-6">
           <div className="text-xs font-mono uppercase tracking-widest text-slate-500 mb-2">
             Answer
           </div>
           <div className="text-3xl font-black text-green-400 mb-3">
-            {lane.reveal?.label}
+            {seat.reveal?.label}
           </div>
-          {lane.reveal?.explanation && (
+          {seat.reveal?.explanation && (
             <p className="text-sm text-slate-400 max-w-md mx-auto mb-4">
-              {lane.reveal.explanation}
+              {seat.reveal.explanation}
             </p>
           )}
           <div
             className={`text-xl font-bold ${wasRight ? "text-green-400" : "text-red-400"}`}
           >
-            {wasRight ? "You got it" : answered ? "Not this time" : "No answer"}
+            {wasRight
+              ? `You got it — +${seat.lastPoints ?? 0}`
+              : seat.answered
+                ? "Not this time"
+                : "No answer"}
           </div>
-          <div className="mt-4 text-sm font-mono uppercase tracking-widest text-neon-blue animate-pulse">
-            Next question in {lane.revealSecondsLeft}…
+
+          {/* The whole point of the format: read it, move on, keep the clock
+              on your side. The countdown below is only a backstop. */}
+          <Button
+            onClick={advanceMyQuestion}
+            variant="neon"
+            fullWidth
+            className="mt-6 h-14 text-lg flex items-center justify-center gap-2"
+          >
+            {seat.questionNumber >= (snapshot?.questionsInRound ?? 0)
+              ? "FINISH THE ROUND"
+              : "NEXT QUESTION"}
+            <ArrowRight size={20} />
+          </Button>
+          <div className="mt-2 text-[11px] font-mono uppercase tracking-widest text-slate-600">
+            moves on by itself in {seat.revealSecondsLeft}s
           </div>
         </div>
       );
     }
 
-    if (!answering) {
-      return (
-        <div className="text-center py-12 text-slate-400">
-          You are not answering this round — watching your matchup play out.
-        </div>
-      );
-    }
-
-    if (answered) {
-      const waiting = lane.answeringIds.filter(
-        (id) => !lane.answeredPlayerIds.includes(id),
-      ).length;
+    if (seat.answered) {
       return (
         <div className="text-center py-12">
           <div className="text-3xl font-black text-neon-green mb-2">
             Locked in
           </div>
-          <p className="text-slate-400">
-            {waiting > 0
-              ? "Waiting on your opponent — the answer comes up as soon as they are in."
-              : "Scoring it now…"}
-          </p>
+          <p className="text-slate-400">Scoring it…</p>
         </div>
       );
     }
@@ -271,16 +356,16 @@ const PlayerScreen: React.FC = () => {
 
     return (
       <>
-        {lane.timerPaused && (
+        {seat.timerPaused && (
           <div className="flex items-center justify-center gap-2 text-neon-yellow font-mono uppercase tracking-widest text-xs mb-3">
             <Pause size={14} /> the host paused your clock
           </div>
         )}
         <QuestionCard
-          key={question.id}
+          key={`${question.id}-${seat.questionNumber}`}
           question={question}
-          timeLeft={lane.timeLeft}
-          duration={lane.timerDuration}
+          timeLeft={seat.timeLeft}
+          duration={seat.timerDuration}
           canGrade={false}
           compact
         />
@@ -324,59 +409,85 @@ const PlayerScreen: React.FC = () => {
               {snapshot.category ? "Get ready" : "Waiting on the spin"}
             </p>
             <p className="text-slate-500 text-sm mt-4 max-w-sm mx-auto">
-              You play this round against your own opponent, at your own pace —
-              answer as fast as you like.
+              You play this round against one opponent, at your own pace. Answer
+              fast — every second left on your clock is worth points.
             </p>
+            {likeStrip}
           </div>
         );
 
       case GamePhase.PLAYING:
-        return roundBody();
+        return (
+          <>
+            {roundBody()}
+            {likeStrip}
+          </>
+        );
 
       default:
         return (
-          <div className="space-y-2 py-6">
-            {[...snapshot.players]
-              .sort((a, b) => b.score - a.score)
-              .map((player, index) => (
-                <div
-                  key={player.id}
-                  className={`flex items-center gap-3 p-3 rounded-xl border ${
-                    player.id === currentPlayerId
-                      ? "bg-slate-800 border-neon-blue"
-                      : "bg-slate-900 border-slate-800"
-                  } ${player.eliminated ? "opacity-50" : ""}`}
-                >
-                  <span className="w-8 text-center font-mono text-slate-500">
-                    {index === 0 ? (
-                      <Trophy size={16} className="text-yellow-400 mx-auto" />
-                    ) : (
-                      index + 1
-                    )}
-                  </span>
-                  <AvatarDisplay
-                    avatar={player.avatar}
-                    color={player.avatarColor}
-                    accessory={player.avatarAccessory}
-                    size="sm"
-                  />
-                  <span className="flex-1 truncate font-bold text-white">
-                    {player.name}
-                  </span>
-                  <span className="font-mono font-bold text-neon-pink">
-                    {player.score}
-                  </span>
-                </div>
-              ))}
-          </div>
+          <>
+            <div className="space-y-2 py-6">
+              {[...snapshot.players]
+                .sort((a, b) => b.score - a.score)
+                .map((player, index) => (
+                  <div
+                    key={player.id}
+                    className={`flex items-center gap-3 p-3 rounded-xl border ${
+                      player.id === currentPlayerId
+                        ? "bg-slate-800 border-neon-blue"
+                        : "bg-slate-900 border-slate-800"
+                    } ${player.eliminated ? "opacity-50" : ""}`}
+                  >
+                    <span className="w-8 text-center font-mono text-slate-500">
+                      {index === 0 ? (
+                        <Trophy size={16} className="text-yellow-400 mx-auto" />
+                      ) : (
+                        index + 1
+                      )}
+                    </span>
+                    <AvatarDisplay
+                      avatar={player.avatar}
+                      color={player.avatarColor}
+                      accessory={player.avatarAccessory}
+                      size="sm"
+                    />
+                    <span className="flex-1 truncate font-bold text-white">
+                      {player.name}
+                    </span>
+                    <span className="font-mono font-bold text-neon-pink">
+                      {player.score}
+                    </span>
+                  </div>
+                ))}
+            </div>
+            {likeStrip}
+            {ballot}
+          </>
         );
     }
   };
 
+  const guide = (() => {
+    switch (snapshot?.phase) {
+      case GamePhase.PLAYING:
+        return "playing" as const;
+      case GamePhase.CATEGORY_SELECT:
+        return "categorySelect" as const;
+      case GamePhase.ROUND_END:
+        return "roundEnd" as const;
+      case GamePhase.GAME_OVER:
+        return "gameOver" as const;
+      default:
+        return "join" as const;
+    }
+  })();
+
   const showingQuestion =
     snapshot?.phase === GamePhase.PLAYING &&
-    lane?.status === LaneStatus.ANSWERING &&
-    !!lane.question;
+    seat?.status === LaneStatus.ANSWERING &&
+    !seat.answered &&
+    !!seat.question;
 
   return (
     <div className="min-h-screen bg-slate-900 text-white p-4 flex flex-col">
@@ -419,21 +530,23 @@ const PlayerScreen: React.FC = () => {
       </header>
 
       <main className="flex-1 flex flex-col justify-center max-w-3xl w-full mx-auto">
-        {snapshot?.phase === GamePhase.PLAYING && lane && (
+        <Instructions guide={guide} className="mb-4" />
+
+        {snapshot?.phase === GamePhase.PLAYING && lane && seat && (
           <>
             <OpponentStrip
               lane={lane}
               snapshot={snapshot}
               playerId={currentPlayerId ?? ""}
             />
-            <LaneProgress lane={lane} snapshot={snapshot} />
+            <SeatProgress seat={seat} snapshot={snapshot} />
           </>
         )}
 
         {showingQuestion && (
           <div className="bg-white text-slate-900 p-5 rounded-2xl mb-4 text-center">
             <h1 className="text-xl md:text-2xl font-black leading-snug">
-              {lane?.question?.text}
+              {seat?.question?.text}
             </h1>
           </div>
         )}

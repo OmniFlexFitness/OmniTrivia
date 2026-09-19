@@ -11,6 +11,98 @@ Live at **https://trivia.omniflexfitness.com** — deployed from `master` on eve
 push. See [DEPLOYMENT.md](DEPLOYMENT.md) for hosting and
 [MULTIPLAYER.md](MULTIPLAYER.md) for letting phones in the room join the game.
 
+## Rules and terminology
+
+Four words in this game sound alike and mean different things. The app uses
+them exactly as they are defined here, and so does the code.
+
+| Term | What it means |
+| --- | --- |
+| **Game** | The whole night: one host, one PIN, and the set of rounds they have loaded. |
+| **Round** | One spin of the wheel. The wheel picks a category, then every player still in the bracket is paired off. A round has one category and one set of questions. |
+| **Matchup** | One pairing for one round: you against one other player. Round one is drawn at random; from then on the bracket decides who you face, because it pairs the players who won. |
+| **Match** | A matchup actually being played — the round's questions, answered by the two people in it. A round has one match per matchup, and every match runs at its own pace. |
+| **Bracket** | Single elimination. The higher round score in a matchup advances; the other player is out. The odd player out each round gets a **bye** and advances unopposed. |
+| **Category pool** | The host's own standing list of categories. The end-of-round vote draws its options from it. It is separate from the questions a game happens to be loaded with. |
+
+### How a game runs
+
+1. The host loads questions, opens a lobby, and players join with the PIN.
+2. **START GAME** closes the lobby and draws the round-one matchups at random.
+3. Each round: the wheel picks the category, every matchup is dealt the round's
+   questions, and the matches play out.
+4. At the end of a round, every matchup is settled on that round's points. The
+   winners are paired into next round's matchups; the losers are out of the
+   bracket but stay on the leaderboard.
+5. The game ends when one player is left standing, or when the rounds run out —
+   whichever comes first. If the rounds run out first, the highest score among
+   the players still in it takes the night.
+
+### Nobody waits for anybody
+
+**Every player is on their own question, on their own clock.** That is the one
+rule the whole format hangs on, and it goes all the way down:
+
+- A player's question closes the **moment they answer it**. Not when their
+  opponent answers, not when the room does.
+- They see whether they got it, and then take the next question whenever they
+  like — there is a **NEXT QUESTION** button on the feedback, and a short
+  countdown only as a backstop for a phone nobody has picked up.
+- So one player can be on question five of a round while the person they are
+  playing is still reading question two, and neither of them is being held up.
+
+This is deliberate rather than convenient: **points include a bonus for every
+second left on your clock**, so answering quickly is worth something, and
+making the quick answerer sit and wait would spend the very thing they just
+earned. The two players in a matchup are compared on the points they finish
+the round with — not on the pace they got there at.
+
+**The projector trails the field rather than driving it.** The big screen holds
+whichever question the *slowest* player in the room is still working on, and
+only puts the answer up once every player has been through it. Nobody can be
+shown a question — or an answer — ahead of where they are. The field board down
+the side is where the room watches somebody pull three questions clear.
+
+### How points work
+
+- **100** for a correct answer.
+- **+10** for every second still on your own clock when you lock it in.
+- Each round is scored on its own. Every matchup starts level at zero, so only
+  the round you are in decides it.
+- A tie in a matchup is settled on total score, then on the draw. Never on a
+  coin flip in front of a room.
+
+### Likes and the end-of-round vote
+
+Two different questions get asked of the room, and the host keeps the answers
+across games:
+
+- **Likes** are for a category people have actually played. The heart is on the
+  playing and results screens, one like per player per category, and it means
+  "that round was good, write more of it".
+- **The end-of-round vote** is for categories nobody has played yet. At the end
+  of every round a ballot of four categories goes up, drawn at random from the
+  host's **category pool** and skipping what this game has already played. The
+  host draws it once and publishes it, so **every phone and the big screen show
+  the same four options**. One vote each, changeable while the ballot is up.
+
+The host manages the pool — add, edit, delete — from **CATEGORY POOL** on the
+start screen, the setup screen, or the **pool** button on the control screen.
+The totals live behind **CATEGORY DATA**: likes, votes, how many ballots a
+category has appeared on, and how many rounds have been played on it, sortable
+and exportable as CSV. Bots never like or vote, so every number there came from
+a person.
+
+> Both the pool and the data are kept in the host machine's browser storage,
+> the same place the rest of the game's authority lives. They survive across
+> games and across restarts on that machine; they do not follow you to another
+> one, and clearing the browser's site data clears them.
+
+**The rules are in the app as well as here.** Every screen carries a "how this
+works" card explaining what that screen is for — collapsible, and it remembers
+being closed — and the projector puts the terminology and the scoring up in
+front of the room during the lobby and between rounds.
+
 ## Local Runbook
 
 This guide covers everything needed to run OmniTrivia locally, configure displays for hosting, and troubleshoot local network, firewall, or port issues.
@@ -189,6 +281,7 @@ npm run preview
 | `npm run check-deps` | Verify Node and dependencies without starting a server |
 | `npm run generate-questions` | Write a question CSV with Claude from Node, keeping the key off the browser |
 | `npm run check-key` | Diagnose why AI generation is returning placeholders |
+| `npm run check-round-pacing` | Play a round headlessly and assert nobody waits for anybody |
 | `npm run check-live` | Check the *deployed* site: sign-in, published rules, and the proxy's key |
 | `npm run rules:deploy` | Publish `firebase/database.rules.json` to the live database |
 
@@ -296,13 +389,14 @@ server after creating it. Vite reads it only at startup.
 A game runs on two windows, and they show completely different things.
 
 - **The hosting interface** is the host's own screen. It is a board of every
-  matchup in the round, each with its own question, clock, answer and controls,
-  plus a panel showing what the projector is holding up, the scores and the
-  bracket. Nobody else should see it.
+  match in the round, each showing both players' seats with their own clocks
+  and controls, plus a panel showing what the projector is holding up, the
+  scores and the bracket. Nobody else should see it.
 - **The broadcast interface** is the projector or TV. It shows one question,
-  the answer choices, a countdown, how many matchups are through that question,
-  and a race board of how far each matchup has got — and nothing else. The
-  answer never reaches it until every matchup is through the question.
+  the answer choices, a countdown, how many matches are through that question,
+  a field board of how far each player has got, and — between rounds — the vote
+  on what to play next. The answer never reaches it until everybody is through
+  the question.
 
 Open the broadcast window from **OPEN BROADCAST DISPLAY** in the lobby or in
 the header of the control screen, then drag it onto the second display and put
@@ -342,46 +436,55 @@ into a room of its own.
    as a player automatically. **OPEN BROADCAST DISPLAY** and move it to the big
    screen. **EDIT MY PLAYER** renames your seat, **ADD BOT** adds opponents.
 4. **START GAME** → **SPIN THE WHEEL** each round, then **START ROUND**. That
-   deals every matchup its own lane and stops coordinating them. Your own
-   matchup sits beside the controls, with an **answering on/off** toggle: off
-   takes you out of your matchup's answer count so it stops waiting on you, and
-   brings the answer reference back.
-5. Each matchup runs itself: its clock counts down, its question closes as soon
-   as both players are in, its answer goes up for those two, and it moves
-   straight on to the next question. A quick pair can be finished with the
-   round while the table beside them is on question two. **Pause**, **+10s**
-   and **Reveal** are per matchup on the lane board, with "every table"
+   deals every matchup its match, every player their own seat in it, and stops
+   coordinating them. Your own match sits beside the controls, with an
+   **answering on/off** toggle: off takes you out of the round so nothing waits
+   on you, and brings the answer reference back.
+5. Every player runs themselves: their clock counts down, their question closes
+   the moment they answer it, their answer goes up for them alone, and
+   **NEXT QUESTION** takes them straight on. Somebody can be finished with the
+   round while the person they are playing is on question two. **Pause**,
+   **+10s** and **Reveal** act on one table — both seats at it — with "everyone"
    versions beside them.
 6. The projector follows the field: it holds whichever question the slowest
-   matchup is still on, and puts the answer up once every matchup is through
-   it. **MOVE THE ROOM ON** does that by hand when **auto-advance** is off.
-7. At the end of a round the broadcast shows the round's results, the standings
-   and the bracket, including who is up against whom next. **START ROUND N** to
-   carry on.
+   player is still on, and puts the answer up once everyone is through it.
+   **MOVE THE ROOM ON** does that by hand when **auto-advance** is off.
+7. At the end of a round the broadcast shows the round's results, the standings,
+   the bracket including who is up against whom next, and the **vote on what to
+   play next time**. **START ROUND N** to carry on.
 8. **PLAY AGAIN** replays the same questions with scores reset — no
    regeneration, no API spend.
 
+Two host-only panels sit outside a game: **pool** edits the categories the
+end-of-round vote offers, and **data** shows the likes and votes collected
+across every game this browser has hosted. Both are reachable from the start
+screen as well as from the control screen.
+
 ### How a round is played
 
-**A round is asynchronous.** Every matchup gets the round's questions and works
-through them at its own speed — nobody waits on the room. The two players in a
-matchup do share a clock, because they are playing each other and a duel is
-only fair if both sides get the same question for the same number of seconds;
-what was removed is the synchronisation *between* matchups.
+**A round is asynchronous, down to the individual.** Every matchup gets the
+round's questions, and every player in it works through them on a clock of
+their own. Nobody waits on the room, and — unlike the first version of this
+format — nobody waits on the person they are playing either.
 
-So one question, in one matchup:
+So one question, for one player:
 
-1. Both players get it at the same moment, on that matchup's own clock.
-2. It closes the instant both of them are in — or when their clock runs out.
-3. The answer goes up for those two players, and nobody else.
-4. A few seconds later that matchup moves to its next question, whatever the
-   rest of the field is doing.
+1. They get it on their own clock, the same question their opponent gets.
+2. It closes the instant **they** answer it, or when their own clock runs out.
+3. The answer goes up for them, with what it scored.
+4. They take the next one when they are ready. A countdown moves them on by
+   itself if they do not, which is only there for a phone face-down on a table.
+
+The two players in a matchup are still playing each other — same questions,
+same clock length, and the round's points decide the matchup — but their pace
+is their own. Points include ten a second for time left, so making the quick
+answerer wait would take back what they just earned.
 
 **The projector trails the field rather than driving it.** It holds whichever
-question the slowest matchup is still working on, so nobody in the room can be
+question the slowest player is still working on, so nobody in the room can be
 shown a question — or an answer — ahead of where they are, and it only puts the
-answer up once every matchup has been through it. The race board down the side
-is where the room watches a fast pair pull three questions clear.
+answer up once everybody has been through it. The field board down the side is
+where the room watches somebody pull three questions clear.
 
 ### How a round is scored
 
@@ -390,12 +493,30 @@ player out gets a bye. Each round is scored on its own — every pairing starts
 level at zero — and the higher score in a pairing advances. A tie is settled on
 the running total, then on the draw; never on a coin flip in front of a room.
 
-Points are 100 for a correct answer plus 10 for every second left on **that
-matchup's** clock, so answering quickly is worth the same wherever you are in
-the field.
+Points are 100 for a correct answer plus 10 for every second left on **your
+own** clock, so answering quickly is worth the same wherever you are in the
+field, and getting there quickly also means getting to the next question first.
 
 The game ends when one player is left standing, or when the rounds run out,
 whichever comes first.
+
+### Checking the format still holds
+
+The claim that nobody waits for anybody is the sort of thing that looks true
+with four bots on a host's laptop and quietly stops being true the next time
+the engine is touched, so it is checked against the app's own services:
+
+```bash
+npm run check-round-pacing
+```
+
+It plays a round with two players answering at wildly different speeds and
+asserts what matters: a question closes for the player who answered it and
+nobody else, the next one is available immediately, a faster correct answer
+scores more, the projector refuses to reveal while anyone could still be
+looking, and the round only ends once the big screen has caught up. It also
+covers the likes and the ballot — that a re-sent like still counts once, and
+that every screen is published the same four options.
 
 ## What this is not
 

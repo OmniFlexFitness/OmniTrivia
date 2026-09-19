@@ -50,7 +50,7 @@ const ROOMS_KEY = "omnitrivia:rooms";
  */
 const ROOM_TTL_MS = 20000;
 
-export const SNAPSHOT_VERSION = 2;
+export const SNAPSHOT_VERSION = 3;
 
 /** Query param that turns this window into the projector view. */
 export const BROADCAST_VIEW_PARAM = "view";

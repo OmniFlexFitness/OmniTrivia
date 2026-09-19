@@ -1,14 +1,19 @@
 import {
   AnswerRecord,
   BroadcastSnapshot,
+  CategoryPoll,
   GamePhase,
   GameState,
+  LaneSeat,
   LaneStatus,
   MatchupLane,
   Player,
+  PublicCategoryLike,
+  PublicCategoryPoll,
   PublicLane,
   PublicPlayer,
   PublicQuestion,
+  PublicSeat,
   Question,
   QuestionType,
   RevealDetail,
@@ -16,12 +21,14 @@ import {
 import { CATEGORIES } from "../constants";
 import { answeringRoster } from "./bracket";
 import {
+  answerBy,
   answersForQuestion,
   broadcastIndex,
   everyLaneCompleted,
-  laneAnswers,
   laneCompletedCount,
   laneHasCompleted,
+  laneStatus,
+  seatCompletedCount,
 } from "./lanes";
 import { SNAPSHOT_VERSION } from "./broadcastBus";
 
@@ -31,15 +38,15 @@ import { SNAPSHOT_VERSION } from "./broadcastBus";
  *
  * The broadcast is a public screen, so this is where the answer is held back:
  * `question` carries only what the room may see, and the answer travels
- * separately in `reveal`, which is populated only once *every* matchup is
- * through that question. The room's question is the slowest lane's, so the big
- * screen can never run ahead of anyone playing.
+ * separately in `reveal`, which is populated only once *every* player is
+ * through that question. The room's question is the slowest player's, so the
+ * big screen can never run ahead of anyone playing.
  *
- * Each lane publishes its own question and — while it is revealing — its own
- * answer, because the player in that lane has to render it. Every tab on the
- * channel receives the whole snapshot, so a lane's answer is only as private
- * as the machine the game is running on; a real backend would address each
- * lane's payload to the players in it.
+ * Each seat publishes its own question and — while its player is looking at
+ * the answer — its own reveal, because that phone has to render it. Every tab
+ * on the channel receives the whole snapshot, so a seat's answer is only as
+ * private as the machine the game is running on; a real backend would address
+ * each seat's payload to the player in it.
  */
 
 /** FNV-1a. Enough to turn a question id into a stable shuffle seed. */
@@ -194,39 +201,104 @@ const toPublicPlayer = (player: Player): PublicPlayer => ({
   eliminated: player.eliminated,
 });
 
-/** One matchup's lane, stripped of anything the lane is not owed yet. */
-const toPublicLane = (
+/**
+ * One player's seat, stripped of anything they are not owed yet.
+ *
+ * The answer travels with the seat and only once that seat has closed its
+ * question, so a player who is still reading question two cannot be handed the
+ * answer to it because the person across the table has already moved on.
+ */
+const toPublicSeat = (
+  seat: LaneSeat,
   lane: MatchupLane,
   state: GameState,
-): PublicLane => {
+): PublicSeat => {
   const questionsInRound = state.questionsQueue.length;
-  const question = state.questionsQueue[lane.questionIndex];
-  const isRevealing = lane.status === LaneStatus.REVEAL;
-  const answers = laneAnswers(lane, lane.questionIndex);
+  const question = state.questionsQueue[seat.questionIndex];
+  const isRevealing = seat.status === LaneStatus.REVEAL;
+  const record = answerBy(lane, seat.playerId, seat.questionIndex);
+
+  return {
+    playerId: seat.playerId,
+    status: seat.status,
+    questionNumber: Math.min(
+      seat.questionIndex + 1,
+      Math.max(1, questionsInRound),
+    ),
+    completed: seatCompletedCount(seat, questionsInRound),
+    question:
+      question && seat.status !== LaneStatus.DONE
+        ? toPublicQuestion(question)
+        : null,
+    reveal: isRevealing && question ? buildReveal(question) : null,
+    answered: Boolean(record),
+    // Whether they were right is a spoiler until their own answer is up.
+    wasCorrect: isRevealing ? (record?.isCorrect ?? false) : null,
+    lastPoints: isRevealing ? (record?.points ?? 0) : null,
+    timeLeft: seat.timeLeft,
+    timerDuration: seat.questionDuration,
+    timerPaused: seat.timerPaused,
+    revealSecondsLeft: seat.revealSecondsLeft,
+    revealReason: seat.revealReason,
+  };
+};
+
+/** One match, as the desk and the room see it. */
+const toPublicLane = (lane: MatchupLane, state: GameState): PublicLane => {
+  const questionsInRound = state.questionsQueue.length;
+  const completed = laneCompletedCount(lane, questionsInRound);
 
   return {
     id: lane.id,
     matchupId: lane.matchupId,
     playerIds: lane.playerIds,
     answeringIds: lane.answeringIds,
-    status: lane.status,
-    questionNumber: Math.min(lane.questionIndex + 1, Math.max(1, questionsInRound)),
-    completed: laneCompletedCount(lane, questionsInRound),
-    question:
-      question && lane.status !== LaneStatus.DONE
-        ? toPublicQuestion(question)
-        : null,
-    reveal: isRevealing && question ? buildReveal(question) : null,
-    timeLeft: lane.timeLeft,
-    timerDuration: lane.questionDuration,
-    timerPaused: lane.timerPaused,
-    revealSecondsLeft: lane.revealSecondsLeft,
-    revealReason: lane.revealReason,
-    answeredPlayerIds: answers.map((a) => a.playerId),
-    // Who was right is a spoiler until this lane's own answer is up.
-    correctPlayerIds: isRevealing
-      ? answers.filter((a) => a.isCorrect).map((a) => a.playerId)
-      : [],
+    status: laneStatus(lane),
+    questionNumber: Math.min(completed + 1, Math.max(1, questionsInRound)),
+    completed,
+    seats: lane.seats.map((seat) => toPublicSeat(seat, lane, state)),
+  };
+};
+
+/** The likes this game has collected, ready for a phone or a projector. */
+const toPublicLikes = (state: GameState): PublicCategoryLike[] =>
+  state.categoryLikes
+    .map((tally) => ({
+      categoryId: tally.category.id,
+      name: tally.category.name,
+      icon: tally.category.icon,
+      color: tally.category.color,
+      count: tally.playerIds.length,
+      playerIds: tally.playerIds,
+    }))
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+
+/**
+ * The open ballot.
+ *
+ * The options are published rather than drawn per device on purpose: the host
+ * draws them once, and every phone and the big screen show the same four.
+ */
+export const publicPoll = (
+  poll: CategoryPoll | null,
+): PublicCategoryPoll | null => {
+  if (!poll) return null;
+
+  const tallies: Record<string, number> = {};
+  poll.options.forEach((option) => {
+    tallies[option.id] = 0;
+  });
+  Object.values(poll.votes).forEach((categoryId) => {
+    if (tallies[categoryId] !== undefined) tallies[categoryId] += 1;
+  });
+
+  return {
+    id: poll.id,
+    roundNumber: poll.roundNumber,
+    options: poll.options,
+    tallies,
+    votes: poll.votes,
+    totalVotes: Object.keys(poll.votes).length,
   };
 };
 
@@ -253,8 +325,8 @@ export const buildSnapshot = (
   const questionsInRound = state.questionsQueue.length;
   const roomIndex = broadcastIndex(state);
   const roomQuestion = state.questionsQueue[roomIndex] ?? null;
-  // The answer only goes on the projector once there is no lane left that
-  // could still be looking at the question.
+  // The answer only goes on the projector once there is nobody left who could
+  // still be looking at the question.
   const roomRevealing =
     state.phase === GamePhase.PLAYING &&
     state.broadcastRevealing &&
@@ -263,9 +335,13 @@ export const buildSnapshot = (
   const roomAnswers = roomQuestion
     ? answersForQuestion(state.lanes, roomIndex)
     : [];
-  const lanesOnRoomQuestion = state.lanes.filter(
-    (lane) =>
-      lane.status === LaneStatus.ANSWERING && lane.questionIndex === roomIndex,
+  // Everyone still working on the question the room is showing. The room is
+  // held up by the longest clock among them, not by any one table.
+  const seatsOnRoomQuestion = state.lanes.flatMap((lane) =>
+    lane.seats.filter(
+      (seat) =>
+        seat.status === LaneStatus.ANSWERING && seat.questionIndex === roomIndex,
+    ),
   );
 
   return {
@@ -287,14 +363,14 @@ export const buildSnapshot = (
     question: roomQuestion ? toPublicQuestion(roomQuestion) : null,
     reveal: roomRevealing && roomQuestion ? buildReveal(roomQuestion) : null,
 
-    // The room is waiting on whichever lane has the most clock left on this
+    // The room is waiting on whichever player has the most clock left on this
     // question — that is the longest it can still be held up.
-    timeLeft: lanesOnRoomQuestion.reduce(
-      (longest, lane) => Math.max(longest, lane.timeLeft),
+    timeLeft: seatsOnRoomQuestion.reduce(
+      (longest, seat) => Math.max(longest, seat.timeLeft),
       0,
     ),
-    timerDuration: lanesOnRoomQuestion.reduce(
-      (longest, lane) => Math.max(longest, lane.questionDuration),
+    timerDuration: seatsOnRoomQuestion.reduce(
+      (longest, seat) => Math.max(longest, seat.questionDuration),
       0,
     ),
     revealSecondsLeft: state.broadcastRevealSecondsLeft,
@@ -328,5 +404,8 @@ export const buildSnapshot = (
         ? (state.bracket[state.currentRound]?.matchups ?? null)
         : null,
     championId: state.championId,
+
+    categoryLikes: toPublicLikes(state),
+    categoryPoll: publicPoll(state.categoryPoll),
   };
 };

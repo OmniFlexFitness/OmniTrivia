@@ -1,13 +1,16 @@
 import React, { useState } from 'react';
 import { useGame } from '../context/GameContext';
 import Button from './Button';
-import { Settings, ArrowRight, Loader2, Upload, AlertTriangle } from 'lucide-react';
+import Instructions from './Instructions';
+import CategoryPoolManager from './CategoryPoolManager';
+import { Settings, ArrowRight, ListPlus, Loader2, Upload, AlertTriangle } from 'lucide-react';
 
 const HostConfigScreen: React.FC = () => {
   const { generateGame, loading, error, initImport, gameName, setGameName } =
     useGame();
   const [rounds, setRounds] = useState(3);
   const [questions, setQuestions] = useState(5);
+  const [showPool, setShowPool] = useState(false);
 
   const handleGenerate = () => {
     generateGame(rounds, questions);
@@ -26,6 +29,12 @@ const HostConfigScreen: React.FC = () => {
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-slate-900">
+      {showPool && <CategoryPoolManager onClose={() => setShowPool(false)} />}
+
+      <div className="w-full max-w-md mb-4">
+        <Instructions guide="hostConfig" />
+      </div>
+
       <div className="w-full max-w-md bg-slate-800 border border-slate-700 p-8 rounded-2xl shadow-2xl">
         <div className="flex items-center gap-3 mb-8">
           <Settings className="text-neon-blue" size={32} />
@@ -93,6 +102,15 @@ const HostConfigScreen: React.FC = () => {
             <Button onClick={initImport} fullWidth variant="secondary" className="flex items-center justify-center gap-2 border-slate-600">
               <Upload size={18} /> IMPORT MY OWN QUESTIONS
             </Button>
+            {/* The pool is not part of this game's setup — it is the standing
+                list the end-of-round vote offers — but this is where a host is
+                already thinking about categories. */}
+            <button
+              onClick={() => setShowPool(true)}
+              className="w-full flex items-center justify-center gap-2 text-xs font-mono uppercase tracking-widest text-slate-500 hover:text-neon-blue transition-colors pt-1"
+            >
+              <ListPlus size={14} /> edit the category pool
+            </button>
           </div>
         </div>
       </div>
