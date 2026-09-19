@@ -19,6 +19,16 @@ import type { BroadcastMessage, BroadcastSnapshot } from "../types";
  *   /rooms/{pin}/snapshot  { from, at, payload }   <- host writes, room reads
  *   /rooms/{pin}/bus/{id}  { from, at, payload }   <- one message, then pruned
  *
+ * and, so that a host who loses their window can get the game back:
+ *
+ *   /roomSecrets/{pin}     { hash }        <- nobody may read this, rules included
+ *   /roomClaims/{pin}/{uid}                <- writable only by producing that hash
+ *   /hostState/{pin}       { hostId, uid, at, payload }
+ *
+ * The last of those is the running game, answers and all, so it is readable
+ * only by the room's host or by a device that has proved it knows the host
+ * password. See `src/services/hostSession.ts` for how the proof is derived.
+ *
  * Payloads are JSON strings rather than nested objects on purpose. Realtime
  * Database drops `undefined`, turns `null` into a deleted key and stores
  * arrays as objects keyed by index — an empty array comes back as nothing at
@@ -56,6 +66,17 @@ export const remoteEnabled = (): boolean =>
 
 /** A room whose host has not checked in for this long has gone. */
 export const ROOM_TTL_MS = 20000;
+
+/**
+ * How long a room with no host answering for it is still that host's to come
+ * back to. Its PIN stays reserved for the whole window, and past it any device
+ * may clear the room out — which is the only garbage collection there is now
+ * that a host's window closing no longer takes the room with it.
+ *
+ * The same number is written into `firebase/database.rules.json`, where it is
+ * enforced, and into `hostSession.ts`, where the saved game expires.
+ */
+export const ROOM_RESUME_MS = 30 * 60 * 1000;
 
 /** How long to wait for the database connection before giving up on it. */
 const CONNECT_TIMEOUT_MS = 8000;
@@ -248,6 +269,37 @@ export type RoomFailure = "denied" | "unreachable" | null;
 
 let lastFailure: RoomFailure = null;
 
+/**
+ * How long any one write to the room may take before it is given up on.
+ *
+ * Realtime Database queues a write made with no connection and resolves it
+ * whenever one turns up, which for a caller that waits is indistinguishable
+ * from a hang. A host on a venue's Wi-Fi is exactly that caller, and a host
+ * stuck on the review screen with a dead button is worse than a host whose
+ * room did not reach the network — so every call below is timeboxed and
+ * reports what happened.
+ */
+const WRITE_TIMEOUT_MS = 6000;
+
+const TIMED_OUT = Symbol("timed out");
+
+const withTimeout = async <T,>(
+  work: Promise<T>,
+  timeoutMs = WRITE_TIMEOUT_MS,
+): Promise<T | typeof TIMED_OUT> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<typeof TIMED_OUT>((resolve) => {
+        timer = setTimeout(() => resolve(TIMED_OUT), timeoutMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
 /** Firebase reports this as a code, a message, or both, depending on the call. */
 const isPermissionDenied = (error: unknown): boolean => {
   const { code, message } = (error ?? {}) as { code?: unknown; message?: unknown };
@@ -354,11 +406,17 @@ const openRoom = async (
   };
 
   if (options.asHost) {
-    // The room belongs to this window. When the window goes — closed, crashed,
-    // or off the network — the room goes with it rather than sitting there
-    // holding a PIN no one is hosting.
-    api.onDisconnect(room).remove();
-
+    // The room deliberately outlives this window.
+    //
+    // It used to be torn down on disconnect, which was right for a host who
+    // was finished and wrong for every other way a window goes away: a
+    // reload, the back button, a closed tab, a laptop lid. Those took the
+    // whole game with them and left the host no way back in. The room now
+    // stays put — stale, because nothing is refreshing its heartbeat, so no
+    // phone will be told it is live — until its host reclaims it or the resume
+    // window runs out and the next PIN allocation clears it away.
+    //
+    // A host who really is done says so, and `releaseRemoteRoom` removes it.
     attachment.prune = setInterval(() => {
       void pruneBus(pin);
     }, 30000);
@@ -444,21 +502,68 @@ type RoomMeta = {
   updatedAt: number;
 };
 
-const readMeta = async (pin: string): Promise<RoomMeta | null> => {
+/**
+ * The room's meta, if it is no older than `maxAge`.
+ *
+ * Two ages matter and they are not the same. `ROOM_TTL_MS` is "is anyone
+ * hosting this right now", which is what a joining phone asks. `ROOM_RESUME_MS`
+ * is "could this still be somebody's game", which is what PIN allocation has
+ * to ask, because handing out a PIN whose abandoned room is still sitting there
+ * would leave the new host unable to claim it and the old one unable to return.
+ */
+const readMeta = async (
+  pin: string,
+  maxAge = ROOM_TTL_MS,
+): Promise<RoomMeta | null> => {
   const { db, api } = await sdk();
   const snap = await api.get(api.ref(db, `rooms/${pin}/meta`));
   const meta = snap.val() as RoomMeta | null;
   if (!meta || typeof meta.updatedAt !== "number") return null;
 
   // A host that stopped checking in is gone even if its room node lingers.
-  return Date.now() - meta.updatedAt < ROOM_TTL_MS ? meta : null;
+  return Date.now() - meta.updatedAt < maxAge ? meta : null;
 };
 
-/** Whether a live room already answers to this PIN. */
+/**
+ * Clear out a room nobody came back for, so its PIN can be used again.
+ *
+ * The rules let any signed-in device do this once the resume window has run
+ * out, which is deliberate: the host that left is by definition not here to
+ * tidy up after itself, and every other device that ever looks at this PIN is.
+ */
+const reapRoom = async (pin: string): Promise<void> => {
+  try {
+    const { db, api } = await sdk();
+    await Promise.all([
+      api.remove(api.ref(db, `rooms/${pin}`)),
+      api.remove(api.ref(db, `roomSecrets/${pin}`)),
+      api.remove(api.ref(db, `roomClaims/${pin}`)),
+      api.remove(api.ref(db, `hostState/${pin}`)),
+    ]);
+  } catch {
+    // Someone else's to sweep up, or not sweepable yet. Either is fine.
+  }
+};
+
+/**
+ * Whether this PIN belongs to another game — one being hosted now, or one
+ * still within its host's window to come back to.
+ *
+ * A room past that window is cleared here rather than merely skipped: leaving
+ * it would burn the PIN for good, since nothing else walks the database.
+ */
 export const remotePinTaken = async (pin: string): Promise<boolean> => {
   if (!remoteEnabled()) return false;
   try {
-    return (await readMeta(pin)) !== null;
+    const meta = await withTimeout(readMeta(pin, ROOM_RESUME_MS));
+    // Unreachable: better to risk a duplicate PIN than to hold a host up.
+    if (meta === TIMED_OUT) return false;
+    if (meta) return true;
+
+    const { db, api } = await sdk();
+    const existing = await withTimeout(api.get(api.ref(db, `rooms/${pin}/meta`)));
+    if (existing !== TIMED_OUT && existing.exists()) await reapRoom(pin);
+    return false;
   } catch {
     // Unreachable database: better to risk a duplicate PIN than to block a
     // host from starting a game at all.
@@ -466,29 +571,169 @@ export const remotePinTaken = async (pin: string): Promise<boolean> => {
   }
 };
 
+/** What became of a write only the room's host is allowed to make. */
+export type HostWriteResult = "ok" | "denied" | "error" | "off";
+
 /** Claim or refresh this host's room. Called on attach and on every heartbeat. */
 export const registerRemoteRoom = async (
   pin: string,
   hostId: string,
   gameName: string,
   open: boolean,
-): Promise<void> => {
-  if (!remoteEnabled() || attachment?.pin !== pin || !attachment.asHost) return;
+): Promise<HostWriteResult> => {
+  if (!remoteEnabled() || attachment?.pin !== pin || !attachment.asHost) {
+    return "off";
+  }
 
   try {
     const { api, uid } = await sdk();
     const ref = attachment.metaRef;
-    if (!ref) return;
+    if (!ref) return "off";
 
-    await api.set(ref, {
-      hostId,
-      hostUid: uid,
-      gameName,
-      open,
-      updatedAt: api.serverTimestamp(),
-    });
+    const done = await withTimeout(
+      api.set(ref, {
+        hostId,
+        hostUid: uid,
+        gameName,
+        open,
+        updatedAt: api.serverTimestamp(),
+      }),
+    );
+    return done === TIMED_OUT ? "error" : "ok";
+  } catch (error) {
+    // "denied" here is not a network problem and not a rules problem: it is
+    // another device holding this room, having reclaimed it with the host
+    // password. The window that was displaced has to be told, or the room
+    // ends up with two hosts and one of them silently shouting into a wall.
+    return isPermissionDenied(error) ? "denied" : "error";
+  }
+};
+
+/* ------------------------------------------------------------------ *
+ * Getting a game back
+ * ------------------------------------------------------------------ */
+
+/**
+ * Record what this room's host password hashes to.
+ *
+ * Only the hash goes in, it goes somewhere no client may read, and the rules
+ * compare against it without handing it out — so the only way to produce a
+ * matching write is to know the password. Has to be called *after* the room's
+ * meta exists, because the rules will only take a secret from the room's host.
+ */
+export const publishRoomSecret = async (
+  pin: string,
+  hash: string,
+): Promise<HostWriteResult> => {
+  if (!remoteEnabled()) return "off";
+  try {
+    const { db, api } = await sdk();
+    const done = await withTimeout(
+      api.set(api.ref(db, `roomSecrets/${pin}`), { hash }),
+    );
+    return done === TIMED_OUT ? "error" : "ok";
+  } catch (error) {
+    return isPermissionDenied(error) ? "denied" : "error";
+  }
+};
+
+/**
+ * Why a device could not take a room back.
+ *
+ * "denied" is the password: the write only lands if the proof matches what the
+ * room stored, so a refusal is the rules saying the two do not agree. "missing"
+ * is the room: either it was never there, or nobody came back for it in time.
+ */
+export type ClaimResult = "ok" | "denied" | "missing" | "unreachable";
+
+/**
+ * Prove this device knows the room's host password, and become able to write
+ * to the room as its host.
+ *
+ * The proof is written where nothing can read it and only a correct value is
+ * accepted, so the write succeeding *is* the check — there is no comparison
+ * done here that a determined client could skip.
+ */
+export const claimRemoteRoom = async (
+  pin: string,
+  proof: string,
+): Promise<ClaimResult> => {
+  if (!remoteEnabled()) return "unreachable";
+
+  try {
+    const { db, api, uid } = await sdk();
+
+    // A room past its resume window is not somebody's game any more, and
+    // saying "wrong password" about a game that no longer exists sends a host
+    // hunting for a typo they did not make.
+    const meta = await withTimeout(readMeta(pin, ROOM_RESUME_MS));
+    if (meta === TIMED_OUT) return "unreachable";
+    if (!meta) return "missing";
+
+    const done = await withTimeout(
+      api.set(api.ref(db, `roomClaims/${pin}/${uid}`), proof),
+    );
+    return done === TIMED_OUT ? "unreachable" : "ok";
+  } catch (error) {
+    return isPermissionDenied(error) ? "denied" : "unreachable";
+  }
+};
+
+/** The running game, as the room holds it for its host. */
+export type RemoteHostState = { hostId: string; at: number; payload: string };
+
+/**
+ * Publish the running game where the host can pick it back up from any device.
+ *
+ * Readable only by this room's host or by a device that has claimed it: the
+ * payload is the whole game, correct answers included, so a player being able
+ * to read it would be a player being able to read ahead.
+ */
+export const writeRemoteHostState = async (
+  pin: string,
+  hostId: string,
+  payload: string,
+): Promise<HostWriteResult> => {
+  if (!remoteEnabled()) return "off";
+
+  try {
+    const { db, api, uid } = await sdk();
+    const done = await withTimeout(
+      api.set(api.ref(db, `hostState/${pin}`), {
+        hostId,
+        uid,
+        at: api.serverTimestamp(),
+        payload,
+      }),
+    );
+    return done === TIMED_OUT ? "error" : "ok";
+  } catch (error) {
+    return isPermissionDenied(error) ? "denied" : "error";
+  }
+};
+
+/** The saved game for this room, for a device that may read it. */
+export const readRemoteHostState = async (
+  pin: string,
+): Promise<RemoteHostState | null> => {
+  if (!remoteEnabled()) return null;
+
+  try {
+    const { db, api } = await sdk();
+    const snap = await withTimeout(api.get(api.ref(db, `hostState/${pin}`)));
+    if (snap === TIMED_OUT) return null;
+
+    const value = snap.val() as RemoteHostState | null;
+    if (!value || typeof value.payload !== "string") return null;
+
+    return {
+      hostId: typeof value.hostId === "string" ? value.hostId : "",
+      at: typeof value.at === "number" ? value.at : 0,
+      payload: value.payload,
+    };
   } catch {
-    // The local room still works; the next heartbeat tries again.
+    // Refused or unreachable. The host's own machine may still have a copy.
+    return null;
   }
 };
 
@@ -523,13 +768,25 @@ export const currentIdToken = async (): Promise<string | null> => {
   }
 };
 
-/** Tear the room down when the host closes the game. */
+/**
+ * Tear the room down when the host closes the game.
+ *
+ * This is now the only thing that ends a room early — a window going away no
+ * longer does — so it takes the way back in with it: the saved game, the
+ * password's hash and any claim on it. A game that is over should not be
+ * reclaimable, and last night's answers should not be sitting in the database.
+ */
 export const releaseRemoteRoom = async (pin: string): Promise<void> => {
   if (!remoteEnabled()) return;
   try {
     const { db, api } = await sdk();
-    await api.remove(api.ref(db, `rooms/${pin}`));
+    await Promise.all([
+      api.remove(api.ref(db, `rooms/${pin}`)),
+      api.remove(api.ref(db, `hostState/${pin}`)),
+      api.remove(api.ref(db, `roomClaims/${pin}`)),
+      api.remove(api.ref(db, `roomSecrets/${pin}`)),
+    ]);
   } catch {
-    // The onDisconnect handler removes it when this window goes away.
+    // It goes stale on its own and the next PIN allocation clears it out.
   }
 };

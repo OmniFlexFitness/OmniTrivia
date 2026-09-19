@@ -8,6 +8,7 @@ import ImportScreen from './components/ImportScreen';
 import ImportSelectScreen from './components/ImportSelectScreen';
 import ReviewScreen from './components/ReviewScreen';
 import JoinScreen from './components/JoinScreen';
+import HostResumeScreen from './components/HostResumeScreen';
 import LobbyScreen from './components/LobbyScreen';
 import GameScreen from './components/GameScreen';
 import PlayerScreen from './components/PlayerScreen';
@@ -34,6 +35,8 @@ const AppContent: React.FC = () => {
       return <ReviewScreen />;
     case GamePhase.JOIN:
       return <JoinScreen />;
+    case GamePhase.HOST_RESUME:
+      return <HostResumeScreen />;
     case GamePhase.LOBBY:
       return <LobbyScreen />;
     default:

@@ -364,7 +364,7 @@ const commit = (state: GameState, landedIndex: number): GameState => {
   return { ...state, roundsConfig: renumberRounds(roundsConfig) };
 };
 
-const baseState = {
+const baseState: GameState = {
   phase: GamePhase.CATEGORY_SELECT,
   mode: GameMode.STANDARD,
   players: [],
@@ -376,6 +376,9 @@ const baseState = {
   clientPlayerId: null,
   joining: false,
   joinError: null,
+  hostPassword: "probe-password",
+  resuming: false,
+  resumeError: null,
   totalRounds: 5,
   questionsPerRound: 5,
   roundsConfig: buildRoundsFromContent(library, { maxQuestions: 5 }),
@@ -401,7 +404,7 @@ const baseState = {
   contentWarning: null,
   initialPin: null,
   roomWarning: null,
-} as GameState;
+};
 
 let game = baseState;
 const playedOrder: string[] = [];

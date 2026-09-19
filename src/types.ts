@@ -7,6 +7,8 @@ export enum GamePhase {
   IMPORT_SELECT = "IMPORT_SELECT",
   REVIEW = "REVIEW", // New phase for reviewing questions
   JOIN = "JOIN",
+  /** The host is coming back to a game they were already running. */
+  HOST_RESUME = "HOST_RESUME",
   LOBBY = "LOBBY",
   CATEGORY_SELECT = "CATEGORY_SELECT",
   PLAYING = "PLAYING", // The round is live; every match runs at its own pace
@@ -57,6 +59,14 @@ export interface Player {
   roundScore: number;
   isBot: boolean;
   isHost?: boolean; // Added isHost
+  /**
+   * `playerProof` of the rejoin code this player chose when they joined.
+   *
+   * Host-side only, and deliberately absent from `PublicPlayer`: it is what
+   * lets this seat be handed back to whoever can produce the code, so putting
+   * it on the snapshot every device renders would hand it to everybody.
+   */
+  rejoinProof?: string;
   lastAnswerCorrect?: boolean;
   streak: number;
   // Knocked out of the bracket. Eliminated players stay on the leaderboard and
@@ -226,6 +236,16 @@ export interface GameState {
   gamePin: string | null;
   /** What this game is called. Set by the host, shown on every screen. */
   gameName: string;
+  /**
+   * The password that gets this game back.
+   *
+   * Set when the game is opened and held only for as long as this window is
+   * showing it, so the host can write it down. Nothing persists it in the
+   * clear: what is stored, here and in the room, is `hostProof` of it.
+   * Empty in a window that resumed a game rather than opening it — a
+   * returning host typed the password, they do not need telling what it was.
+   */
+  hostPassword: string;
 
   /* --- set only in a tab that joined someone else's room --- */
   // The PIN this tab is playing in. Null unless we are a guest player.
@@ -233,6 +253,11 @@ export interface GameState {
   clientPlayerId: string | null;
   joining: boolean;
   joinError: string | null;
+
+  /* --- set only while a host is taking a game back --- */
+  /** A reclaim is in flight: the PIN and password have gone off to the room. */
+  resuming: boolean;
+  resumeError: string | null;
 
   // Game Configuration
   totalRounds: number;
@@ -541,6 +566,12 @@ export type BroadcastMessage =
       avatar: string;
       avatarColor?: string;
       avatarAccessory?: string;
+      /**
+       * `playerProof` of this player's rejoin code. On a first join it is what
+       * the host stores against the seat; on a later one it is what gets them
+       * back into it from a device that has nothing else to show.
+       */
+      rejoinProof?: string;
     }
   | {
       type: "player-join-result";
@@ -550,6 +581,14 @@ export type BroadcastMessage =
       hostId: string;
       gameName: string;
       pin: string;
+      /**
+       * The seat the host actually sat them in. A player coming back with
+       * their code is put back into the seat they already had, which is not
+       * the player id the returning device generated for itself.
+       */
+      playerId?: string;
+      /** True when this was a seat handed back rather than a new one opened. */
+      rejoined?: boolean;
     }
   | { type: "player-answer"; pin: string; playerId: string; answer: Answer }
   // "I have read the answer, give me the next question." A player never has to
@@ -570,6 +609,13 @@ export type BroadcastMessage =
       categoryId: string;
     }
   | { type: "player-leave"; pin: string; playerId: string }
+  /**
+   * A host has taken this room back — possibly on a device that has never seen
+   * it, and so with no idea which phone holds which seat. Every player tab
+   * answers by asking for its seat again, which is what re-binds them and gets
+   * their answers accepted rather than quietly dropped.
+   */
+  | { type: "host-reclaimed"; pin: string; hostId: string }
   // `hostId` names the host this display is following, so a host that is not
   // being watched does not light up its BROADCAST LIVE pill. Null while the
   // display has not latched onto anyone yet.

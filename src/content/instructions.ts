@@ -47,6 +47,16 @@ export const GLOSSARY: GlossaryEntry[] = [
       "Single elimination. The higher round score in a matchup advances, the other player is out. A bye advances whoever is left over when the numbers are odd.",
   },
   {
+    term: "Rejoin code",
+    definition:
+      "Four digits a player picks when they join. Their name and that code get them back into the same seat — score, streak and place in the bracket — from any phone, at any point in the game. A phone that only reloads comes back on its own and never needs it.",
+  },
+  {
+    term: "Host password",
+    definition:
+      "What the host sets when they open the game. With the PIN it takes the running game back on any device if the host's window closes, reloads or dies. The room waits half an hour for them.",
+  },
+  {
     term: "Category pool",
     definition:
       "The host's own list of categories. The end-of-round vote draws its options from it, and the host can add to it, edit it or prune it at any time.",
@@ -75,6 +85,7 @@ export type GuideKey =
   | "importSelect"
   | "review"
   | "join"
+  | "hostResume"
   | "lobby"
   | "categorySelect"
   | "playing"
@@ -92,6 +103,7 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
     points: [
       "HOST GAME runs the night from this machine: you load the questions, spin the wheel and drive the big screen.",
       "JOIN GAME takes a seat in somebody else's game with their four-digit PIN.",
+      "RESUME HOSTING is for a host whose window went away mid-game — the PIN and the host password put you back at the controls.",
       "Everything in a game is scored head-to-head. Win your matchup and you are in the next round; lose it and you are out.",
     ],
   },
@@ -104,6 +116,7 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
       "Questions per round: how many questions each match works through. Five keeps a round to a few minutes.",
       "The game name is what the room sees on the big screen. The PIN is only the code players type to get in.",
       "GENERATE & REVIEW writes the questions with Claude; IMPORT MY OWN takes a CSV or a Google Sheet.",
+      "The host password is your way back in. If this window closes, reloads or the laptop dies, that password and the PIN take the running game back on any device — so write it down before you open the lobby.",
     ],
   },
 
@@ -143,11 +156,24 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
 
   join: {
     title: "Taking a seat",
-    lead: "The PIN is on the big screen. Type it, pick a name and a face, and you are in the host's game.",
+    lead: "The PIN is on the big screen. Type it, pick a name and a face, choose a rejoin code, and you are in the host's game.",
     points: [
-      "You can only join while the lobby is open — once the first round is drawn, the bracket is set.",
-      "If your phone locks or reloads, you come back to the same seat with the same score.",
+      "Your rejoin code is four digits you pick yourself. Remember it: your name and that code get you back into this exact seat — same score, same place in the bracket — from any phone, even mid-game.",
+      "Already playing and got knocked out of the game? Come back to this same screen, type the same name and the same code, and you will land back in your seat rather than a new one.",
+      "You can only take a *new* seat while the lobby is open — once the first round is drawn, the bracket is set. Coming back to a seat you already had works at any point.",
+      "If your phone just locks or reloads, you come back automatically without typing anything.",
       "You will be paired against one other player each round. Beat them and you go through.",
+    ],
+  },
+
+  hostResume: {
+    title: "Taking a game back",
+    lead: "The room is still there and the scores are still real. Two things get you back at the controls: the game's PIN and the host password you set when you opened it.",
+    points: [
+      "This works from any device — the laptop that lost the game, another laptop, or a phone. The password is what proves the game is yours.",
+      "The game comes back as it was: every score, the bracket, the round in progress and the clock where it stopped. Players' phones reconnect on their own within a few seconds.",
+      "A game nobody comes back to is cleared about half an hour after its host disappears, and a game the host ended on purpose is gone for good.",
+      "No password to hand, or a game opened before you set one? Then the game cannot be taken back — start a new one, and the room will need the new PIN.",
     ],
   },
 
@@ -159,6 +185,7 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
       "Open the broadcast display and drag it onto the projector before you start — it is the only screen the room should be looking at.",
       "ADD BOT fills the room out so a bracket can be tested; the host is always seated as a player.",
       "START GAME closes the lobby and draws the first round's matchups at random.",
+      "The host password on this screen is what takes this game back if this window goes away. It is shown here and nowhere else — note it down now.",
     ],
   },
 

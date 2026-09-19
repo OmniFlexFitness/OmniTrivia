@@ -1,3 +1,4 @@
+import type { Player } from "../types";
 import type { MessageMeta } from "./remoteRoom";
 
 /**
@@ -44,4 +45,137 @@ export const seatHeldByAnother = (
   if (!meta) return false;
   const holder = seats.get(playerId);
   return Boolean(holder && holder !== meta.uid);
+};
+
+/* ------------------------------------------------------------------ *
+ * Who is asking for a seat
+ * ------------------------------------------------------------------ */
+
+/**
+ * Whether two people typed the same name.
+ *
+ * A player coming back on a different phone types their name again from
+ * memory, and "dave" is the same person as "Dave " as far as a trivia night
+ * is concerned.
+ */
+export const sameName = (a: string, b: string): boolean =>
+  a.trim().toLowerCase() === b.trim().toLowerCase();
+
+/** What a device sends when it wants a seat — a new one or one it already had. */
+export interface JoinRequest {
+  /** The seat this device believes it holds, or a fresh id if it holds none. */
+  playerId: string;
+  name: string;
+  /** `playerProof` of the player's rejoin code, when they gave one. */
+  rejoinProof?: string;
+}
+
+export interface JoinDecision {
+  accepted: boolean;
+  /** The seat they end up in: their old one when they proved it is theirs. */
+  seatId: string;
+  /** True when a seat was handed back rather than a new one opened. */
+  rejoined: boolean;
+  /** Why not, in words a player reads on their own phone. */
+  reason?: string;
+}
+
+/**
+ * The seat a request has proved is its own, if it proved one.
+ *
+ * Name *and* code, both. A code alone would collide across a room of thirty
+ * people picking four digits; a name alone is written on the leaderboard for
+ * anyone to read. Together they are what a player has when their phone has
+ * nothing left — which is the case this exists for.
+ */
+export const claimSeatByCode = (
+  players: Player[],
+  request: JoinRequest,
+): Player | null => {
+  if (!request.rejoinProof) return null;
+
+  return (
+    players.find(
+      (player) =>
+        !player.isBot &&
+        player.rejoinProof === request.rejoinProof &&
+        sameName(player.name, request.name),
+    ) ?? null
+  );
+};
+
+/**
+ * Decide one join request.
+ *
+ * Three different people send the same message and only the first is a new
+ * player:
+ *
+ *  1. Somebody joining the lobby, who gets a seat if it is still open.
+ *  2. A phone that reloaded and still remembers its seat, which asks for the
+ *     same player id and is let back in whatever the phase — turning them
+ *     away would strand their score for the rest of the game.
+ *  3. A player whose device remembers nothing: flat, wiped, or borrowed from
+ *     a friend. All they have is their name and the code they chose, and that
+ *     is what this is for.
+ *
+ * Kept here, pure, because it is the decision that hands one person's score to
+ * whoever is asking for it.
+ */
+export const resolveJoinRequest = (params: {
+  players: Player[];
+  seats: SeatBindings;
+  /** Whether a *new* player could still be slotted into the bracket. */
+  lobbyOpen: boolean;
+  request: JoinRequest;
+  meta?: MessageMeta;
+}): JoinDecision => {
+  const { players, seats, lobbyOpen, request, meta } = params;
+
+  const proved = claimSeatByCode(players, request);
+  const remembered = players.find((player) => player.id === request.playerId);
+  const seat = proved ?? remembered;
+
+  // A seat another device is holding stays theirs — unless the code says
+  // otherwise, which is the whole point of having one: the device that can
+  // prove the seat outranks the device that merely has it.
+  if (!proved && seatHeldByAnother(seats, request.playerId, meta)) {
+    return {
+      accepted: false,
+      seatId: request.playerId,
+      rejoined: false,
+      reason:
+        "That seat is being played on another device. If it is yours, come back with the name and rejoin code you joined with.",
+    };
+  }
+
+  // Somebody is already answering to this name, and it is not the player this
+  // request turned out to be. Saying so beats a second "Dave" on the
+  // leaderboard, and beats letting a name be worn by whoever types it.
+  if (
+    !seat &&
+    players.some((player) => !player.isBot && sameName(player.name, request.name))
+  ) {
+    return {
+      accepted: false,
+      seatId: request.playerId,
+      rejoined: false,
+      reason: `Somebody is already playing as "${request.name.trim()}". If that is you, enter the rejoin code you chose when you joined.`,
+    };
+  }
+
+  if (!seat && !lobbyOpen) {
+    return {
+      accepted: false,
+      seatId: request.playerId,
+      rejoined: false,
+      reason:
+        "The game has already started. Ask the host to open a new game — or, if you were already playing, come back with your name and rejoin code.",
+    };
+  }
+
+  return {
+    accepted: true,
+    seatId: seat?.id ?? request.playerId,
+    rejoined: Boolean(seat),
+  };
 };
