@@ -7,3 +7,6 @@ TRUE_FALSE,Music,"Freddie Mercury was born Farrokh Bulsara, true or false?",True
 TYPE_ANSWER,Music,"Which Beatle was known as ""the quiet one""?",George Harrison,Harrison,George,,,George Harrison,Matching ignores case and extra spaces; list every spelling you will accept.
 SLIDER,History,In what year did Apollo 11 land on the Moon?,1960,1980,1,1968,1970,1969,"options are min, max, step, correctLow, correctHigh - any guess in range counts."
 PUZZLE,History,Put these conflicts in chronological order,World War I,World War II,Korean War,Vietnam War,,World War I|World War II|Korean War|Vietnam War,Put the options in the CORRECT order; the game shuffles them for players.
+,Science,True or False: Sound travels faster through water than through air.,,,,,,True,"Shorthand: no type and no options — a True/False answer is enough."
+,Science,What element has the symbol K?,,,,,,Potassium,"Shorthand: no options at all reads as a typed answer."
+,Food,Name as many ingredients in a classic margarita as you can.,,,,,,"Tequila, lime juice, triple sec, salt","Shorthand: a list answer accepts any one of its items, and reveals all of them."

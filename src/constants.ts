@@ -79,3 +79,26 @@ export const DEFAULT_CATEGORY_POOL: Category[] = [
   { id: 'mythology', name: 'Mythology', icon: '🏛️', color: 'bg-amber-500' },
   { id: 'internet', name: 'Internet Culture', icon: '📡', color: 'bg-pink-500' },
 ];
+
+/**
+ * The premade question bank — the set a host plays when they have not written
+ * anything themselves.
+ *
+ * It is an ordinary public Google Sheet in the format `QUESTION_FORMAT.md`
+ * describes, read through the same importer as any other sheet, so the only
+ * thing that makes it the default is that the app already knows the URL.
+ * Questions added to the sheet are live in the app the next time a host loads
+ * it — there is nothing to rebuild and nothing to redeploy.
+ *
+ * Swapping in a different bank is a one-line change here. Anything hosted this
+ * way has to be shared as "anyone with the link can view", or every host gets
+ * a 404 instead of a game.
+ */
+export const DEFAULT_QUESTION_BANK = {
+  name: 'the OmniTrivia question bank',
+  /** What the load button calls it. */
+  label: 'OmniTrivia Question Bank',
+  url: 'https://docs.google.com/spreadsheets/d/1tEnMpZmax8QIyIrQvKOb5vuXdBhXRhcMh7wP3_CDIXc/edit?gid=2001#gid=2001',
+  /** Roughly what is in it, for the screen that offers it. */
+  blurb: 'Hundreds of ready-made questions across general knowledge, geography, history, science, music, film and TV, food, sport and more.',
+} as const;

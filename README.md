@@ -179,11 +179,18 @@ npm run check-deps
 
 ### 3. Choosing Your Question Source
 
-You have two operating modes:
+You have three operating modes:
 
-- **Mode A: Zero API Key / Fully Offline (Recommended for live events)**
-  No configuration needed! Run directly using the included `questions.csv` or import your own CSV or Google Sheet via **HOST GAME → IMPORT MY OWN QUESTIONS**. No network calls or API costs are incurred.
-- **Mode B: AI Generation with Claude**
+- **Mode A: The question bank (recommended, and the default)**
+  No configuration at all. **HOST GAME → USE THE QUESTION BANK** pulls several
+  hundred premade questions from a public Google Sheet and drops you straight
+  on the WHAT TO PLAY screen. No API key, no file, no cost — it just needs
+  internet access, because the bank lives on `docs.google.com`.
+- **Mode B: Zero API key / fully offline (safest on a venue network)**
+  Run directly using the included `questions.csv`, or import your own CSV via
+  **HOST GAME → IMPORT MY OWN QUESTIONS**. No network calls or API costs are
+  incurred, and nothing needs to reach the internet at all.
+- **Mode C: AI generation with Claude**
   Create `.env` from `.env.example`:
   - macOS / Linux:
     ```bash
@@ -322,6 +329,7 @@ npm run preview
 | `npm run check-deps` | Verify Node and dependencies without starting a server |
 | `npm run generate-questions` | Write a question CSV with Claude from Node, keeping the key off the browser |
 | `npm run check-key` | Diagnose why AI generation is returning placeholders |
+| `npm run check-question-bank` | Fetch the live question bank and assert every row still plays |
 | `npm run check-round-pacing` | Play a round headlessly and assert nobody waits for anybody |
 | `npm run check-game-setup` | Assert shuffling, import trimming and the wheel's geometry all hold |
 | `npm run check-returns` | Take a lost game back headlessly, and check the wrong code cannot |
@@ -330,7 +338,49 @@ npm run preview
 
 ## Questions
 
-### Ready to play: `questions.csv`
+### The default: the question bank
+
+**HOST GAME → USE THE QUESTION BANK** is the shortest path from opening the app
+to running a night. It is several hundred questions across around thirty
+categories — general knowledge, geography, history, science, music, film and
+TV, food, sport, Florida, and a stack of narrower ones — and it costs nothing,
+needs no API key and needs nothing written.
+
+The bank is an ordinary public Google Sheet, read through the same importer as
+any other sheet:
+
+<https://docs.google.com/spreadsheets/d/1tEnMpZmax8QIyIrQvKOb5vuXdBhXRhcMh7wP3_CDIXc/edit?gid=2001#gid=2001>
+
+That has two consequences worth knowing:
+
+- **Editing the sheet changes the game.** Questions added or fixed there are
+  live the next time a host loads the bank. Nothing to rebuild, nothing to
+  redeploy.
+- **It needs the internet.** The bank is fetched from `docs.google.com` at load
+  time, so it is the one question source that cannot work offline. On a venue
+  network you cannot trust, export it to CSV beforehand and use **IMPORT MY OWN
+  QUESTIONS → Select File**, or fall back to `questions.csv`.
+
+Loading the bank lands on the same **WHAT TO PLAY** screen an imported file
+does — it is a library, not a game, so you still choose which categories to
+keep and how much of each to play, and you still review every question before
+the lobby opens.
+
+Pointing the app at a different bank is one constant, `DEFAULT_QUESTION_BANK`
+in `src/constants.ts`. Whatever you point it at has to be shared as "anyone
+with the link can view".
+
+Check that the live bank still loads and still plays:
+
+```bash
+npm run check-question-bank
+```
+
+That fetches the real sheet through the app's own services, reports how many
+rows became questions and of what type, and fails if any question ends up
+pointing at an answer it does not have. It needs the network and nothing else.
+
+### Ready to play offline: `questions.csv`
 
 `questions.csv` in this repo is a full night — 10 rounds of 5, one per
 category, mixing multiple choice, true/false, a slider, a drag-to-order puzzle
@@ -550,11 +600,12 @@ without the hash ever being readable, is in
    about the questions — it is what gets this game back if the window dies, so
    write it down. The two numbers are the shape of the game whichever way the
    questions arrive — they apply to an import too.
-2. **GENERATE & REVIEW**, or **IMPORT MY OWN QUESTIONS**. An import stops at
-   **WHAT TO PLAY** first: tick the categories you want, and the rounds and
-   questions-per-round ceilings trim the rest away, drawn at random. A file of
-   twenty categories and fifty questions each is a library — this is where it
-   becomes a three-round night.
+2. **USE THE QUESTION BANK** for the premade set, **GENERATE & REVIEW** to have
+   Claude write one, or **IMPORT MY OWN QUESTIONS** to bring a CSV or a sheet.
+   The bank and an import both stop at **WHAT TO PLAY** first: tick the
+   categories you want, and the rounds and questions-per-round ceilings trim
+   the rest away, drawn at random. Several hundred questions across thirty
+   categories is a library — this is where it becomes a three-round night.
 3. Read the review screen. The ↻ on a question writes a different one for that
    slot, the bin drops it, and **drop category** takes a whole category out of
    the game. Rounds are allowed to end up different lengths. The blocks are not
@@ -751,7 +802,7 @@ OmniTrivia is packaged as a multi-stage Docker image defined in `Dockerfile`:
 > [!WARNING]
 > **API Key Security in Public Deployments**:
 > Vite inlines all `VITE_*` environment variables directly into the compiled JavaScript bundle served to client browsers. If you pass an Anthropic API key during the build (`--build-arg VITE_ANTHROPIC_API_KEY=...`), **anyone viewing your public website can inspect network requests or bundle sources and extract your key**.
-> - **Best Practice for Public Sites**: Deploy **without** an API key (leave empty). Use **HOST GAME → IMPORT MY OWN QUESTIONS** with a CSV or public Google Sheet.
+> - **Best Practice for Public Sites**: Deploy **without** an API key (leave empty). Hosts can use **HOST GAME → USE THE QUESTION BANK** for the premade set, or **IMPORT MY OWN QUESTIONS** with a CSV or public Google Sheet. Neither needs a key.
 > - If you must deploy with generation enabled, create a dedicated key with a strict monthly spend limit in the Anthropic Console.
 
 ### 2. Prerequisites

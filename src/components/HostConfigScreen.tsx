@@ -4,7 +4,7 @@ import Button from './Button';
 import Instructions from './Instructions';
 import CategoryPoolManager from './CategoryPoolManager';
 import { MIN_HOST_PASSWORD_LENGTH, suggestHostPassword } from '../services/proof';
-import { Settings, ArrowRight, KeyRound, ListPlus, Loader2, RefreshCw, Upload, AlertTriangle } from 'lucide-react';
+import { Settings, ArrowRight, KeyRound, Library, ListPlus, Loader2, RefreshCw, Upload, AlertTriangle } from 'lucide-react';
 
 const HostConfigScreen: React.FC = () => {
   const {
@@ -12,6 +12,7 @@ const HostConfigScreen: React.FC = () => {
     loading,
     error,
     initImport,
+    loadQuestionBank,
     gameName,
     setGameName,
     hostPassword,
@@ -20,6 +21,9 @@ const HostConfigScreen: React.FC = () => {
   const [rounds, setRounds] = useState(3);
   const [questions, setQuestions] = useState(5);
   const [showPool, setShowPool] = useState(false);
+  // The bank is fetched over the network, so this screen owns a spinner of its
+  // own rather than borrowing the one that says GENERATING GAME CONTENT.
+  const [loadingBank, setLoadingBank] = useState(false);
 
   // Blank is fine — a password is suggested when the lobby opens, and the
   // lobby shows whatever it ended up being. Two characters is not fine, and
@@ -39,6 +43,17 @@ const HostConfigScreen: React.FC = () => {
   const handleImport = () => {
     if (passwordTooShort) return;
     initImport(rounds, questions);
+  };
+
+  // The premade set: no API key, no spreadsheet, no questions to write. It
+  // lands on the same WHAT TO PLAY screen an imported file does, because a
+  // bank of several hundred questions is a library and still has to be cut
+  // down to the night that was dialled in above.
+  const handleQuestionBank = async () => {
+    if (passwordTooShort || loadingBank) return;
+    setLoadingBank(true);
+    await loadQuestionBank(rounds, questions);
+    setLoadingBank(false);
   };
 
   if (loading) {
@@ -166,10 +181,38 @@ const HostConfigScreen: React.FC = () => {
           </div>
 
           <div className="pt-4 space-y-3">
-            <Button onClick={handleGenerate} fullWidth variant="neon" disabled={passwordTooShort} className="flex items-center justify-center gap-2">
+            <Button onClick={handleGenerate} fullWidth variant="neon" disabled={passwordTooShort || loadingBank} className="flex items-center justify-center gap-2">
               GENERATE & REVIEW <ArrowRight />
             </Button>
-            <Button onClick={handleImport} fullWidth variant="secondary" disabled={passwordTooShort} className="flex items-center justify-center gap-2 border-slate-600">
+            {/* The premade set, and the only one of these three that needs
+                neither an API key nor a file. It is the answer to "I just want
+                to run a trivia night", so it sits above the file picker and
+                says what it is rather than making the host go and look. */}
+            <div>
+              <Button
+                onClick={handleQuestionBank}
+                fullWidth
+                variant="secondary"
+                disabled={passwordTooShort || loadingBank}
+                className="flex items-center justify-center gap-2 border-neon-blue/60 text-neon-blue"
+              >
+                {loadingBank ? (
+                  <>
+                    <Loader2 size={18} className="animate-spin" /> LOADING THE QUESTION BANK…
+                  </>
+                ) : (
+                  <>
+                    <Library size={18} /> USE THE QUESTION BANK
+                  </>
+                )}
+              </Button>
+              <p className="text-xs text-slate-500 mt-2">
+                Hundreds of ready-made questions across thirty-odd categories.
+                No API key, nothing to write — you still pick what to play and
+                review it before anyone sees it.
+              </p>
+            </div>
+            <Button onClick={handleImport} fullWidth variant="secondary" disabled={passwordTooShort || loadingBank} className="flex items-center justify-center gap-2 border-slate-600">
               <Upload size={18} /> IMPORT MY OWN QUESTIONS
             </Button>
             {/* The pool is not part of this game's setup — it is the standing
