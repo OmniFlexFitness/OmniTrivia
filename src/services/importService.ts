@@ -1,5 +1,5 @@
 import { RoundConfig, Question, Category, QuestionType, CategoryContent } from '../types';
-import { CATEGORIES } from '../constants';
+import { CATEGORIES, DEFAULT_QUESTION_BANK } from '../constants';
 
 // Simple CSV parser that handles quoted fields
 const parseCSVLine = (line: string): string[] => {
@@ -21,6 +21,105 @@ const parseCSVLine = (line: string): string[] => {
     return result;
 };
 
+/**
+ * Case, surrounding whitespace and repeated spaces ignored.
+ *
+ * Deliberately the same comparison the scoring service makes, so an answer the
+ * importer treats as matching is an answer the game marks correct.
+ */
+const normalize = (value: string): string =>
+    value.toLowerCase().trim().replace(/\s+/g, ' ');
+
+/**
+ * The same, minus the two things that stop a hand-written answer key matching
+ * the option it points at: a parenthetical gloss ("Tampa (Ybor City)") and a
+ * leading article ("The Nile" against an option that just reads "Nile").
+ */
+const loosen = (value: string): string =>
+    normalize(value.replace(/\([^)]*\)/g, ' ')).replace(/^(the|a|an)\s+/, '');
+
+/**
+ * Which option the `correctAnswer` cell means.
+ *
+ * Exact match first. Failing that, an answer key written more fully than the
+ * option it points at is resolved — "The Nile" for "Nile", "Tampa (Ybor City)"
+ * for "Tampa", "Old Town Road by Lil Nas X" for "Old Town Road" — but only
+ * when exactly one option can possibly be meant.
+ *
+ * Returning -1 matters as much as the matching does. This used to fall back to
+ * the first option, so a mismatch in the answer column did not fail the import:
+ * it quietly made option 1 correct, and the first anyone knew about it was a
+ * room being told the Amazon is the longest river.
+ */
+const resolveCorrectIndex = (options: string[], correctAnswer: string): number => {
+    const exact = options.findIndex(
+        (option) => normalize(option) === normalize(correctAnswer),
+    );
+    if (exact !== -1) return exact;
+
+    const answer = loosen(correctAnswer);
+    if (!answer) return -1;
+
+    const loose = options.map(loosen);
+    const only = (hits: number[]): number => (hits.length === 1 ? hits[0] : -1);
+
+    const equal = only(
+        loose.reduce<number[]>(
+            (hits, option, i) => (option === answer ? [...hits, i] : hits),
+            [],
+        ),
+    );
+    if (equal !== -1) return equal;
+
+    return only(
+        loose.reduce<number[]>(
+            (hits, option, i) =>
+                option && (option.includes(answer) || answer.includes(option))
+                    ? [...hits, i]
+                    : hits,
+            [],
+        ),
+    );
+};
+
+/**
+ * A bare answer cell turned into the spellings a typed answer will accept.
+ *
+ * The answer as written comes first, because that is what the reveal puts on
+ * the big screen. What follows is how a player is actually going to type it:
+ * one item out of a list ("name as many as you can" is a round nobody answers
+ * in full), the answer without its parenthetical gloss, and the gloss alone.
+ */
+export const acceptedSpellings = (correctAnswer: string): string[] => {
+    const canonical = correctAnswer.trim();
+    if (!canonical) return [];
+
+    const spellings = [canonical];
+    const add = (value: string): void => {
+        const trimmed = value.trim();
+        if (
+            trimmed.length > 1 &&
+            !spellings.some((existing) => normalize(existing) === normalize(trimmed))
+        ) {
+            spellings.push(trimmed);
+        }
+    };
+
+    // A list answer accepts any one of its items. Marking a player wrong for
+    // naming three theme parks out of ten is worse than marking them right,
+    // and the host has the full list on the reveal either way. Skipped when the
+    // commas are thousands separators rather than list separators.
+    if (/[,;]/.test(canonical) && !/\d[,.]\d/.test(canonical)) {
+        canonical.split(/[,;]/).forEach(add);
+    }
+
+    add(canonical.replace(/\([^)]*\)/g, ' ').replace(/\s+/g, ' '));
+    const gloss = canonical.match(/\(([^)]*)\)/);
+    if (gloss) add(gloss[1]);
+
+    return spellings;
+};
+
 export const parseImportData = (csvData: string): { [categoryId: string]: CategoryContent } => {
     const lines = csvData.trim().split('\n');
     if (lines.length < 2) {
@@ -31,8 +130,8 @@ export const parseImportData = (csvData: string): { [categoryId: string]: Catego
     const rows = lines.slice(1).map(line => parseCSVLine(line));
 
     const colMap: { [key: string]: number } = {};
-    const requiredCols = ['category', 'question', 'option1', 'correctanswer'];
-    
+    const requiredCols = ['category', 'question', 'correctanswer'];
+
     header.forEach((h, i) => {
         colMap[h.trim().replace(/\s/g, '')] = i;
     });
@@ -68,9 +167,16 @@ export const parseImportData = (csvData: string): { [categoryId: string]: Catego
                 .filter(opt => opt && opt.trim() !== '');
             
             const correctAnswerStr = row[colMap['correctanswer']];
-            const explanation = colMap['explanation'] !== undefined ? row[colMap['explanation']] : 'No explanation provided.';
+            // A blank explanation stays blank. The reveal already hides an
+            // empty one, and filler text on a projector reads worse than a
+            // clean answer card — which matters when a whole question bank was
+            // written without explanations.
+            const explanation =
+                colMap['explanation'] !== undefined
+                    ? (row[colMap['explanation']] ?? '').trim()
+                    : '';
 
-            if (!categoryName || !questionText || options.length < 1 || !correctAnswerStr) {
+            if (!categoryName || !questionText || !correctAnswerStr) {
                 console.warn(`Skipping incomplete row ${rowIndex + 2}`);
                 return;
             }
@@ -78,10 +184,25 @@ export const parseImportData = (csvData: string): { [categoryId: string]: Catego
             let correctIndex = 0;
             let finalOptions = options;
 
+            // What the row is, when the file does not say. A blank type column
+            // is the ordinary case for a spreadsheet somebody wrote by hand.
             if (!typeStr) {
                 const lowerCaseOptions = options.map(o => o.toLowerCase());
+                const answerIsBoolean = ['true', 'false'].includes(
+                    correctAnswerStr.toLowerCase(),
+                );
+
                 if (options.length === 2 && lowerCaseOptions.includes('true') && lowerCaseOptions.includes('false')) {
                     questionType = QuestionType.TRUE_FALSE;
+                } else if (options.length === 0 && answerIsBoolean) {
+                    // "True or False: ..." with the option columns left empty,
+                    // because on that row the two options are the question.
+                    questionType = QuestionType.TRUE_FALSE;
+                } else if (options.length === 0) {
+                    // No options and a written-out answer is a short answer,
+                    // not a broken row. A quarter of the bundled question bank
+                    // is this shape, and it used to be dropped on the floor.
+                    questionType = QuestionType.TYPE_ANSWER;
                 }
             }
 
@@ -91,7 +212,10 @@ export const parseImportData = (csvData: string): { [categoryId: string]: Catego
                     correctIndex = correctAnswerStr.toLowerCase() === 'true' ? 0 : 1;
                     break;
                 case QuestionType.TYPE_ANSWER:
-                    finalOptions = options;
+                    // A file that lists the accepted spellings itself is taken
+                    // at its word; one that gives only an answer column has
+                    // them derived from it.
+                    finalOptions = options.length > 0 ? options : acceptedSpellings(correctAnswerStr);
                     correctIndex = 0;
                     break;
                 case QuestionType.SLIDER:
@@ -104,12 +228,19 @@ export const parseImportData = (csvData: string): { [categoryId: string]: Catego
                     break;
                 case QuestionType.MULTIPLE_CHOICE:
                 default:
-                    correctIndex = options.findIndex(o => o.toLowerCase() === correctAnswerStr.toLowerCase());
+                    correctIndex = resolveCorrectIndex(options, correctAnswerStr);
                     if (correctIndex === -1) {
-                        console.warn(`Correct answer "${correctAnswerStr}" not found in options for row ${rowIndex + 2}. Defaulting to first option.`);
-                        correctIndex = 0;
+                        console.warn(
+                            `Correct answer "${correctAnswerStr}" matches no option on row ${rowIndex + 2}. Dropping the question rather than marking a guess correct.`,
+                        );
+                        return;
                     }
                     break;
+            }
+
+            if (finalOptions.length === 0) {
+                console.warn(`Skipping row ${rowIndex + 2}: nothing for a player to answer.`);
+                return;
             }
 
             const question: Question = {
@@ -173,6 +304,23 @@ export const fetchFromGoogleSheet = async (url: string): Promise<string> => {
         throw new Error(`Failed to fetch from Google Sheet. Status: ${response.status}. Make sure the sheet is public ('Anyone with the link can view').`);
     }
     return response.text();
+};
+
+/**
+ * The premade question bank, fetched.
+ *
+ * It is the same Google Sheet path a host can paste in by hand — the only
+ * thing this adds is not having to. Which is the whole point: a host who has
+ * not written a question and has no Anthropic key still has a night to run.
+ */
+export const fetchDefaultQuestionBank = async (): Promise<string> => {
+    try {
+        return await fetchFromGoogleSheet(DEFAULT_QUESTION_BANK.url);
+    } catch (error: any) {
+        throw new Error(
+            `Could not load ${DEFAULT_QUESTION_BANK.name}. ${error?.message ?? ''} You can still import your own file.`.trim(),
+        );
+    }
 };
 
 const escapeCsvField = (field: string | undefined): string => {

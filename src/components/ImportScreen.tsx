@@ -1,16 +1,38 @@
 import React, { useState, useRef } from 'react';
 import { useGame } from '../context/GameContext';
 import { fetchFromGoogleSheet } from '../services/importService';
+import { DEFAULT_QUESTION_BANK } from '../constants';
 import Button from './Button';
 import Instructions from './Instructions';
-import { ArrowLeft, Upload, Link, Loader2, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Upload, Link, Library, Loader2, AlertTriangle, ExternalLink } from 'lucide-react';
 
 const ImportScreen: React.FC = () => {
-  const { importGame, goBackToConfig, error } = useGame();
+  const {
+    importGame,
+    goBackToConfig,
+    loadQuestionBank,
+    totalRounds,
+    questionsPerRound,
+    error,
+  } = useGame();
   const [loading, setLoading] = useState(false);
+  const [loadingBank, setLoadingBank] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [sheetUrl, setSheetUrl] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const busy = loading || loadingBank;
+
+  // The premade bank. The rounds and questions-per-round this screen was
+  // opened with are carried back through, so taking the bank is the same shape
+  // of night as bringing a file.
+  const handleQuestionBank = async () => {
+    if (busy) return;
+    setLoadingBank(true);
+    setLocalError(null);
+    await loadQuestionBank(totalRounds, questionsPerRound);
+    setLoadingBank(false);
+  };
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     // Held rather than read off the event later: the reader's callbacks run
@@ -70,7 +92,9 @@ const ImportScreen: React.FC = () => {
         </button>
         <div className="text-center mb-6">
           <h2 className="text-3xl font-bold text-white">IMPORT TRIVIA</h2>
-          <p className="text-slate-400 mt-2">Upload a CSV file or link a public Google Sheet.</p>
+          <p className="text-slate-400 mt-2">
+            Take the ready-made bank, upload a CSV file, or link a public Google Sheet.
+          </p>
         </div>
 
         <Instructions guide="import" className="mb-6" />
@@ -83,6 +107,39 @@ const ImportScreen: React.FC = () => {
         )}
 
         <div className="space-y-6">
+          {/* The premade bank, first, because it is the option that asks
+              nothing of the host. Everything under it needs a file or a sheet
+              that somebody had to write. */}
+          <div className="bg-slate-900/50 p-6 rounded-xl border border-neon-blue/50 shadow-[0_0_20px_rgba(0,212,255,0.08)]">
+            <div className="flex items-center gap-3 mb-2">
+              <Library size={24} className="text-neon-blue" />
+              <h3 className="text-lg font-bold text-white">
+                Use {DEFAULT_QUESTION_BANK.label}
+              </h3>
+              <span className="text-[10px] font-mono uppercase tracking-widest text-neon-blue border border-neon-blue/50 rounded px-2 py-0.5">
+                default
+              </span>
+            </div>
+            <p className="text-sm text-slate-400 mb-4">
+              {DEFAULT_QUESTION_BANK.blurb} You still choose which categories to
+              play and review every question before the lobby opens.
+            </p>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button onClick={handleQuestionBank} variant="secondary" disabled={busy} className="border-neon-blue/60 text-neon-blue flex items-center gap-2">
+                {loadingBank ? <Loader2 size={18} className="animate-spin" /> : <Library size={18} />}
+                {loadingBank ? 'LOADING…' : 'LOAD THE QUESTION BANK'}
+              </Button>
+              <a
+                href={DEFAULT_QUESTION_BANK.url}
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs font-mono uppercase tracking-widest text-slate-500 hover:text-neon-blue flex items-center gap-1.5"
+              >
+                view the sheet <ExternalLink size={13} />
+              </a>
+            </div>
+          </div>
+
           {/* File Upload */}
           <div className="bg-slate-900/50 p-6 rounded-xl border-2 border-dashed border-slate-600 hover:border-neon-blue transition-colors text-center">
             <input
@@ -91,12 +148,12 @@ const ImportScreen: React.FC = () => {
               onChange={handleFileChange}
               accept=".csv,.tsv,.txt"
               className="hidden"
-              disabled={loading}
+              disabled={busy}
             />
             <Upload size={40} className="mx-auto text-slate-500 mb-4" />
             <h3 className="text-lg font-bold text-white">Upload a File</h3>
             <p className="text-sm text-slate-400 mb-4">CSV, TSV, or TXT files are supported.</p>
-            <Button onClick={triggerFileSelect} variant="secondary" disabled={loading}>
+            <Button onClick={triggerFileSelect} variant="secondary" disabled={busy}>
               {loading ? <Loader2 className="animate-spin" /> : 'Select File'}
             </Button>
           </div>
@@ -117,18 +174,26 @@ const ImportScreen: React.FC = () => {
                 onChange={(e) => setSheetUrl(e.target.value)}
                 placeholder="https://docs.google.com/spreadsheets/d/..."
                 className="flex-1 bg-slate-800 border border-slate-600 rounded-lg p-3 text-white focus:border-neon-pink outline-none"
-                disabled={loading}
+                disabled={busy}
               />
-              <Button onClick={handleSheetImport} variant="neon" disabled={loading}>
+              <Button onClick={handleSheetImport} variant="neon" disabled={busy}>
                 {loading ? <Loader2 className="animate-spin" /> : 'Import'}
               </Button>
             </div>
           </div>
         </div>
-        <div className="text-xs text-slate-500 mt-6 p-4 bg-slate-900/30 rounded-lg">
-            <strong>Required Columns:</strong> category, question, option1, option2, option3, option4, correctAnswer.
-            <br />
-            <strong>Optional Column:</strong> explanation.
+        <div className="text-xs text-slate-500 mt-6 p-4 bg-slate-900/30 rounded-lg space-y-1">
+            <p>
+              <strong>Required columns:</strong> category, question, correctAnswer.
+            </p>
+            <p>
+              <strong>Optional columns:</strong> type, option1–option5, explanation.
+            </p>
+            <p>
+              Leave the option columns empty and the row is read as a typed
+              answer — or as a true/false question when correctAnswer says True
+              or False.
+            </p>
         </div>
       </div>
     </div>

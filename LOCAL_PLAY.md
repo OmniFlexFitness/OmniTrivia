@@ -72,8 +72,15 @@ game while that banner is up — the questions are not real.
 
 ### Running with no API key at all
 
-You do not need a key. **IMPORT MY OWN QUESTIONS** on the setup screen takes a
-CSV file or a public Google Sheet.
+You do not need a key. Two buttons on the setup screen take you round it:
+**USE THE QUESTION BANK** loads the premade set, and **IMPORT MY OWN
+QUESTIONS** takes a CSV file or a public Google Sheet.
+
+**USE THE QUESTION BANK** is the one to reach for if you have not written
+anything: several hundred questions across around thirty categories, loaded in
+a tap. It is fetched from `docs.google.com`, so it needs working internet — the
+same caveat as any Google Sheet below. `npm run check-question-bank` confirms
+it still loads before you rely on it at a venue.
 
 Importing a **CSV file** makes no network calls whatsoever — verified by
 playing a full game with no key set and zero outbound requests. That is the
@@ -96,7 +103,8 @@ a working file covering all five question types.
 
 1. **HOST GAME** → name the game, then pick rounds and questions per round.
    The name is what the room sees; the PIN is only the code players type.
-2. **GENERATE & REVIEW** (or **IMPORT MY OWN QUESTIONS**). An import stops at
+2. **GENERATE & REVIEW** (or **USE THE QUESTION BANK**, or **IMPORT MY OWN
+   QUESTIONS**). The bank and an import both stop at
    **WHAT TO PLAY** first, where you tick the categories to keep and the rounds
    and questions-per-round numbers trim the rest away. Then read the review
    screen: ↻ writes a different question for that slot, the bin drops it, and

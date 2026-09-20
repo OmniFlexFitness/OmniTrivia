@@ -128,3 +128,7 @@ the ten built-ins. It still plays normally.
 
 `QUESTION_FORMAT.md` is the full column reference, and `questions.csv` is a
 complete working example — 10 rounds of 5 across all five types.
+
+Nothing to write today? **HOST GAME → USE THE QUESTION BANK** loads several
+hundred premade questions with no file and no key. This prompt is for when you
+want a set that is yours.

@@ -29,7 +29,10 @@ import {
   CATEGORIES,
 } from "../constants";
 import { generateQuestions } from "../services/claudeService";
-import { parseImportData } from "../services/importService";
+import {
+  fetchDefaultQuestionBank,
+  parseImportData,
+} from "../services/importService";
 import {
   buildRoundsFromContent,
   longestRound,
@@ -139,6 +142,15 @@ interface GameContextType extends GameState {
    * ignored them was the reason a 40-question file became a 40-question round.
    */
   initImport: (rounds: number, questions: number) => void;
+  /**
+   * Fetch the premade question bank and go straight to choosing what to play.
+   *
+   * Same destination as `initImport`, minus the file picker: a host who has
+   * not written a question and has no API key gets a night out of one tap.
+   * Resolves either way — a bank that cannot be reached leaves the host on the
+   * importer with the reason, not on a dead screen.
+   */
+  loadQuestionBank: (rounds: number, questions: number) => Promise<void>;
   importGame: (csvData: string) => void;
   /**
    * Turn the parsed import into a game: which categories to keep, how many of
@@ -1330,6 +1342,41 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
   };
 
   /**
+   * The premade bank, loaded.
+   *
+   * The sliders travel with it for the same reason they travel into the file
+   * importer: a bank of several hundred questions across thirty categories is
+   * a library, and a host who asked for three rounds of five meant three
+   * rounds of five.
+   *
+   * A failure lands on the importer rather than nowhere. The bank lives on
+   * somebody else's Google Sheet, so a venue's Wi-Fi is enough to take it
+   * away, and the answer to that is the file picker, not a dead end.
+   */
+  const loadQuestionBank = async (rounds: number, questions: number) => {
+    setState((prev) => ({
+      ...prev,
+      isHost: true,
+      error: null,
+      totalRounds: rounds,
+      questionsPerRound: questions,
+      importPreview: null,
+    }));
+
+    try {
+      const csvData = await fetchDefaultQuestionBank();
+      importGame(csvData);
+    } catch (error: any) {
+      setState((prev) => ({
+        ...prev,
+        loading: false,
+        error: error?.message || "Could not load the question bank.",
+        phase: GamePhase.IMPORT,
+      }));
+    }
+  };
+
+  /**
    * Read a file and show the host what is in it.
    *
    * This deliberately stops short of building a game. A question file is
@@ -2448,6 +2495,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         clearJoinError,
         updateConfig,
         initImport,
+        loadQuestionBank,
         importGame,
         applyImportSelection,
         cancelImport,

@@ -28,6 +28,8 @@
         "check-room-join": "node scripts/check-room-join.mjs",
         "check-round-pacing": "node scripts/check-round-pacing.mjs",
         "check-game-setup": "node scripts/check-game-setup.mjs",
+        "precheck-question-bank": "node scripts/check-deps.mjs",
+        "check-question-bank": "node scripts/check-question-bank.mjs",
         "precheck-returns": "node scripts/check-deps.mjs",
         "check-returns": "node scripts/check-returns.mjs",
         "check-live": "node scripts/check-live.mjs",

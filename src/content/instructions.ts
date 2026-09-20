@@ -115,16 +115,18 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
       "Rounds: how many times the wheel is spun. Each round also halves the field, so five rounds is enough for a room of about thirty.",
       "Questions per round: how many questions each match works through. Five keeps a round to a few minutes.",
       "The game name is what the room sees on the big screen. The PIN is only the code players type to get in.",
-      "GENERATE & REVIEW writes the questions with Claude; IMPORT MY OWN takes a CSV or a Google Sheet.",
+      "GENERATE & REVIEW writes the questions with Claude; USE THE QUESTION BANK takes the premade set, which needs no API key and nothing written; IMPORT MY OWN takes a CSV or a Google Sheet.",
       "The host password is your way back in. If this window closes, reloads or the laptop dies, that password and the PIN take the running game back on any device — so write it down before you open the lobby.",
     ],
   },
 
   import: {
-    title: "Importing your own questions",
-    lead: "One category per round: the importer groups rows by their category column and makes each group a round.",
+    title: "Where the questions come from",
+    lead: "One category per round: the importer groups rows by their category column and makes each group a round, whichever of these three you take.",
     points: [
-      "Required columns: category, question, option1–option4, correctAnswer. An explanation column is optional and shows on the reveal.",
+      "LOAD THE QUESTION BANK is the premade set — hundreds of questions, thirty-odd categories, no API key and nothing to write. Everything below is for bringing your own.",
+      "Required columns: category, question, correctAnswer. Optional: type, option1–option5, explanation.",
+      "Leave the option columns empty and the row is read as a typed answer, or as true/false when correctAnswer says True or False. A row whose correctAnswer matches none of its options is dropped rather than guessed at.",
       "A Google Sheet has to be shared as 'anyone with the link can view' before it can be read.",
       "Bring the whole file. You choose how much of it to play on the next screen, so a library of twenty categories is fine for a three-round night.",
       "You review everything before a single player sees it.",

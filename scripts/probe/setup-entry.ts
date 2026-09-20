@@ -300,6 +300,101 @@ check(
 );
 
 /* ------------------------------------------------------------------ *
+ * 3c. The shorthand a hand-written sheet actually uses
+ *
+ * The bundled question bank is a spreadsheet somebody typed by hand, and it
+ * does not look like `questions.example.csv`. Whole blocks of it leave the
+ * option columns empty — "True or False: ..." rows where the options *are* the
+ * question, and short-answer rows where there is nothing to choose from — and
+ * its answer column is written for a human reading it aloud, so it says
+ * "The Nile" where the option says "Nile".
+ *
+ * Every one of those used to end badly and silently: the option-less rows were
+ * dropped on the floor, and a mismatched answer key fell back to the first
+ * option, which does not fail an import — it just makes option 1 correct in
+ * front of a room.
+ * ------------------------------------------------------------------ */
+
+const shorthandCsv = [
+  "category,question,option1,option2,option3,option4,correctAnswer,explanation",
+  "Geography,What is the longest river in the world?,Amazon,Nile,Mississippi,Yangtze,The Nile,",
+  "Geography,Which Florida city is the Cigar Capital of the World?,Jacksonville,Tampa,Miami,Key West,Tampa (Ybor City),",
+  "Geography,True or False: Florida is the flattest state in the United States.,,,,,True,Britton Hill tops out at 345 feet.",
+  "Science,What element has the symbol K?,,,,,Potassium,",
+  "Science,Name as many noble gases as you can.,,,,,\"Helium, Neon, Argon, Krypton\",",
+  "Science,Which planet is closest to the sun?,Mars,Venus,Earth,Jupiter,Pluto,",
+].join("\n");
+
+const shorthand = parseImportData(shorthandCsv);
+const shorthandQuestions = Object.values(shorthand).flatMap((c) => c.questions);
+const byText = (fragment: string): Question | undefined =>
+  shorthandQuestions.find((q) => q.text.includes(fragment));
+
+const longestRiver = byText("longest river");
+check(
+  "an answer key written more fully than its option still marks that option",
+  longestRiver?.options[longestRiver.correctIndex] === "Nile",
+  `marked "${longestRiver?.options[longestRiver?.correctIndex ?? 0]}"`,
+);
+
+const cigar = byText("Cigar Capital");
+check(
+  "a parenthetical gloss in the answer key resolves to the plain option",
+  cigar?.options[cigar.correctIndex] === "Tampa",
+  `marked "${cigar?.options[cigar?.correctIndex ?? 0]}"`,
+);
+
+const flattest = byText("flattest state");
+check(
+  "a True/False row with no options is read as true or false, not dropped",
+  flattest?.type === QuestionType.TRUE_FALSE &&
+    flattest.options.join("/") === "True/False" &&
+    flattest.correctIndex === 0,
+);
+
+const symbolK = byText("symbol K");
+check(
+  "a row with no options is read as a typed answer, not dropped",
+  symbolK?.type === QuestionType.TYPE_ANSWER &&
+    symbolK.options[0] === "Potassium",
+);
+
+const nobleGases = byText("noble gases");
+check(
+  "a list answer accepts any one of its items and still reveals the whole list",
+  nobleGases?.type === QuestionType.TYPE_ANSWER &&
+    nobleGases.options[0] === "Helium, Neon, Argon, Krypton" &&
+    ["Helium", "Neon", "Argon", "Krypton"].every((gas) =>
+      nobleGases.options.includes(gas),
+    ),
+  nobleGases?.options.join(" | "),
+);
+
+check(
+  "an answer that matches no option drops the question rather than guessing",
+  byText("closest to the sun") === undefined,
+);
+
+/* The whole point of the leniency is that nothing silently marks the wrong
+ * answer. Whatever survives the parser has to be answerable. */
+check(
+  "nothing survives the parser pointing at an answer that is not there",
+  shorthandQuestions.every(
+    (q) =>
+      q.options.length > 0 &&
+      q.correctIndex >= 0 &&
+      q.correctIndex < q.options.length,
+  ),
+);
+
+/* A blank explanation cell stays blank: the reveal hides an empty one, and
+ * filler text on a projector reads worse than a clean answer card. */
+check(
+  "a blank explanation cell is left blank rather than filled in",
+  byText("longest river")?.explanation === "",
+);
+
+/* ------------------------------------------------------------------ *
  * 4. The wheel lands where it points
  * ------------------------------------------------------------------ */
 
