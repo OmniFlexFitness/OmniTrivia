@@ -10,27 +10,42 @@ import { GLOSSARY, GUIDES, GuideKey, SCORING_RULES } from "../content/instructio
  * be answerable from the screen in front of them rather than from the host
  * shouting over a room.
  *
- * It opens by default and remembers being closed, per screen: the first time a
- * player meets the format they get the explanation, and a host on their tenth
- * night is not made to dismiss the same card ten times a game.
+ * It starts closed, and remembers being opened, per screen. Open was the
+ * original default, on the theory that a first-time player should meet the
+ * explanation without asking for it — but on a phone this card is taller than
+ * the screen it sits on, so the first thing everyone who scanned the QR code
+ * actually did was close it to reach the form underneath. Closed, the header
+ * still carries the title and the one line that says what the screen is for,
+ * which is the part worth reading at a glance; the rest is one tap away and
+ * stays open for that screen once someone has asked for it.
  */
 
-const dismissKey = (guide: GuideKey) => `omnitrivia:guide-closed:${guide}`;
+const stateKey = (guide: GuideKey) => `omnitrivia:guide-closed:${guide}`;
 
-const wasDismissed = (guide: GuideKey): boolean => {
+/**
+ * Whether this browser has an opinion about this guide, and what it is.
+ *
+ * `null` means it has never been touched here, which is what the default is
+ * for. "1" is the value the earlier build wrote when the card was dismissed —
+ * closed is now the default anyway, so it reads as "still closed" and nothing
+ * has to be migrated.
+ */
+const wasOpened = (guide: GuideKey): boolean | null => {
   try {
-    return window.localStorage.getItem(dismissKey(guide)) === "1";
+    const value = window.localStorage.getItem(stateKey(guide));
+    if (value === "0") return true;
+    if (value === "1") return false;
+    return null;
   } catch {
-    return false;
+    return null;
   }
 };
 
-const remember = (guide: GuideKey, closed: boolean): void => {
+const remember = (guide: GuideKey, open: boolean): void => {
   try {
-    if (closed) window.localStorage.setItem(dismissKey(guide), "1");
-    else window.localStorage.removeItem(dismissKey(guide));
+    window.localStorage.setItem(stateKey(guide), open ? "0" : "1");
   } catch {
-    // Private mode. The card simply opens again next time.
+    // Private mode. The card simply starts closed again next time.
   }
 };
 
@@ -40,12 +55,12 @@ const Instructions: React.FC<{
   full?: boolean;
   className?: string;
 }> = ({ guide, full = false, className = "" }) => {
-  const [open, setOpen] = useState(() => !wasDismissed(guide));
+  const [open, setOpen] = useState(() => wasOpened(guide) ?? false);
   const content = GUIDES[guide];
 
   const toggle = () => {
     setOpen((value) => {
-      remember(guide, value);
+      remember(guide, !value);
       return !value;
     });
   };
