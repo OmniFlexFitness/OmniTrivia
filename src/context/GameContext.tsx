@@ -380,11 +380,40 @@ const botAnswerFor = (question: Question, shouldBeCorrect: boolean): Answer => {
   }
 };
 
+/**
+ * The game PIN carried on this page's own URL, if there is one.
+ *
+ * The lobby's QR code encodes the app's URL with `?pin=` already filled in
+ * (see `joinUrl`), so a link that carries one is somebody who has already
+ * chosen their game by pointing a camera at it. Anything that is not four
+ * digits was not written by us and is ignored rather than prefilled into the
+ * form.
+ */
+const readInitialPin = (): string | null => {
+  try {
+    const pin = new URLSearchParams(window.location.search).get("pin");
+    return pin && /^\d{4}$/.test(pin) ? pin : null;
+  } catch {
+    return null;
+  }
+};
+
 export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
+  // Read once, before the first state, because it decides which screen this
+  // page opens on as well as what is in the form when it gets there. A lazy
+  // initialiser rather than a plain call: this provider re-renders on every
+  // tick of the round clock, and the URL it would be re-reading cannot change
+  // without the page being loaded again anyway.
+  const [initialPin] = useState(readInitialPin);
+
   const [state, setState] = useState<GameState>({
-    phase: GamePhase.START,
+    // A scan has already said "this game, please". Landing such a page on the
+    // start screen asks the question a second time, and every player in the
+    // room has to answer it by finding JOIN GAME — so go straight to the seat
+    // they came for, with the PIN already in it.
+    phase: initialPin ? GamePhase.JOIN : GamePhase.START,
     mode: GameMode.STANDARD,
     players: [],
     currentPlayerId: null,
@@ -424,7 +453,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     loading: false,
     error: null,
     contentWarning: null,
-    initialPin: new URLSearchParams(window.location.search).get("pin"),
+    initialPin,
     roomWarning: null,
   });
 
