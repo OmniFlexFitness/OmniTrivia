@@ -2,7 +2,7 @@ import React from 'react';
 import { useGame } from '../context/GameContext';
 import { GamePhase, LaneStatus } from '../types';
 import { answerBy, laneForPlayer, seatFor } from '../services/lanes';
-import { buildReveal, publicPoll } from '../services/snapshot';
+import { publicPoll } from '../services/snapshot';
 import Wheel from './Wheel';
 import QuestionCard from './QuestionCard';
 import Leaderboard from './Leaderboard';
@@ -17,9 +17,9 @@ import { ArrowRight, Loader2 } from 'lucide-react';
  * joined to someone else's room.
  *
  * Like every other playing surface it follows this player's own seat rather
- * than the room: their question, their clock, their reveal — and their own
- * button off the reveal, because a player who has read the answer should not
- * be sitting on it.
+ * than the room: their question, their clock, their "locked in" beat — and
+ * their own button off it, because a player who is ready should not be kept
+ * sitting. How the answers went is only shown once their match is over.
  */
 const GameScreen: React.FC = () => {
   const {
@@ -75,7 +75,9 @@ const GameScreen: React.FC = () => {
   );
 
   const round = () => {
-    if (!seat || !question) {
+    // A finished seat parks past the last question, so it has no question to
+    // show — which is why it is checked for by status, not by `question`.
+    if (!seat || (!question && seat.status !== LaneStatus.DONE)) {
       return (
         <div className="text-center text-slate-500 font-mono animate-pulse">
           WAITING ON THE REST OF THE FIELD…
@@ -84,28 +86,19 @@ const GameScreen: React.FC = () => {
     }
 
     if (seat.status === LaneStatus.REVEAL) {
-      const reveal = buildReveal(question);
+      // A beat between questions, not a verdict: how it went is for the end of
+      // the match.
       const record = currentPlayerId
         ? answerBy(lane!, currentPlayerId, seat.questionIndex)
         : undefined;
 
       return (
         <div className="text-center">
-          <p className="text-slate-400 text-sm mb-1">Correct answer:</p>
-          <p className="text-green-400 font-bold text-2xl">{reveal.label}</p>
-          {reveal.explanation && (
-            <p className="text-sm text-slate-400 max-w-md mx-auto mt-2">
-              {reveal.explanation}
-            </p>
-          )}
-          <p
-            className={`mt-3 font-bold ${record?.isCorrect ? 'text-green-400' : 'text-red-400'}`}
-          >
-            {record?.isCorrect
-              ? `You got it — +${record.points}`
-              : record
-                ? 'Not this time'
-                : 'No answer'}
+          <p className="cyber-question text-3xl text-white">
+            {record ? 'Locked in' : "Time's up"}
+          </p>
+          <p className="cyber-hud text-[10px] text-slate-500 mt-2">
+            Results at the end of the match
           </p>
           <Button
             onClick={advanceMyQuestion}
@@ -122,9 +115,30 @@ const GameScreen: React.FC = () => {
     }
 
     if (seat.status === LaneStatus.DONE) {
+      const matchOver = lane!.seats.every((other) => other.status === LaneStatus.DONE);
+      if (!matchOver || !currentPlayerId) {
+        return (
+          <div className="text-center text-slate-400 font-mono">
+            YOU ARE THROUGH THE ROUND — RESULTS WHEN YOUR MATCH IS OVER
+          </div>
+        );
+      }
+
+      const records = questionsQueue.map((_, index) =>
+        answerBy(lane!, currentPlayerId, index),
+      );
+      const right = records.filter((record) => record?.isCorrect).length;
+      const points = records.reduce((total, record) => total + (record?.points ?? 0), 0);
+
       return (
-        <div className="text-center text-slate-400 font-mono">
-          YOU ARE THROUGH THE ROUND
+        <div className="text-center space-y-2">
+          <p className="cyber-hud text-[11px] text-slate-500">Match complete</p>
+          <p className="cyber-question text-3xl text-white">
+            {right}/{questionsQueue.length} correct · {points} pts
+          </p>
+          <p className="text-slate-400 text-sm">
+            The answers go up when every match has finished.
+          </p>
         </div>
       );
     }
@@ -136,6 +150,8 @@ const GameScreen: React.FC = () => {
         </div>
       );
     }
+
+    if (!question) return null;
 
     return (
       <QuestionCard

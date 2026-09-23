@@ -40,10 +40,11 @@ export const BOT_NAMES = [
 ];
 
 export const TIMER_DURATION = 15; // seconds per question
-// How long the answer stays on the broadcast before it moves to the next
-// question. Long enough to read the explanation, short enough to keep a room
-// of people moving.
-export const REVEAL_DURATION = 6; // seconds
+// How long a finished question holds before moving on — on a player's phone
+// ("locked in", with a button to skip it) and on the big screen ("everyone is
+// locked in"). No answer is shown in either place; answers wait for the end of
+// the match, so this is only a beat to mark the handover, not reading time.
+export const REVEAL_DURATION = 3; // seconds
 
 // Bots stand in for the players a real backend would carry. They answer at a
 // believable spread of times so the "answered / still answering" counter on

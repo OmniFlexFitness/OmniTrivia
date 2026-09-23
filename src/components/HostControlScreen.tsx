@@ -26,6 +26,7 @@ import Button from "./Button";
 import AvatarDisplay from "./AvatarDisplay";
 import BracketView from "./BracketView";
 import QuestionCard from "./QuestionCard";
+import { QuestionPanel } from "./CyberQuestion";
 import Wheel from "./Wheel";
 import Instructions from "./Instructions";
 import CategoryLikeButton from "./CategoryLikeButton";
@@ -395,7 +396,7 @@ const LaneCard: React.FC<{ lane: MatchupLane }> = ({ lane }) => {
             onClick={() => revealLaneNow(lane.id)}
             className="flex items-center justify-center gap-1 py-1.5 text-xs"
           >
-            <SkipForward size={14} /> Reveal
+            <SkipForward size={14} /> Close Q
           </Button>
         </div>
       )}
@@ -522,7 +523,7 @@ const LaneBoard: React.FC = () => {
           onClick={revealAllLanesNow}
           className="py-1.5 px-3 text-xs"
         >
-          Reveal every table
+          Close every table's question
         </Button>
 
         {/* Away from the three buttons that only nudge the round along: this
@@ -543,9 +544,11 @@ const LaneBoard: React.FC = () => {
  * What the projector is holding up.
  *
  * The room's screen deliberately trails the field: it stays on whichever
- * question the slowest player is still working on, and only puts the answer up
- * once everyone is through it. This panel is where the host watches that
- * happen, and steps in if they would rather move the room along themselves.
+ * question the slowest player is still working on, and marks it "locked in"
+ * once everyone is through it. It never shows an answer mid-round; the answer
+ * key goes up once the round is over. This panel is where the host watches
+ * that happen, and steps in if they would rather move the room along
+ * themselves.
  */
 const RoomScreenPanel: React.FC = () => {
   const game = useGame();
@@ -593,7 +596,7 @@ const RoomScreenPanel: React.FC = () => {
       {revealing ? (
         <>
           <div className="text-xs font-mono uppercase tracking-widest text-green-400">
-            Answer is up on the big screen
+            Big screen shows everyone locked in
             {autoAdvance ? ` · moves on in ${broadcastRevealSecondsLeft}s` : ""}
           </div>
           <Button
@@ -607,8 +610,8 @@ const RoomScreenPanel: React.FC = () => {
         </>
       ) : (
         <div className="text-xs font-mono uppercase tracking-widest text-slate-500">
-          Waiting on the slowest player — the answer goes up when everyone is
-          through it.
+          Waiting on the slowest player. No answers go up until the round is
+          over — the answer key follows the last match.
         </div>
       )}
 
@@ -959,13 +962,16 @@ const HostPlayerPane: React.FC = () => {
         {status()}
       </div>
 
+      {/* The same beat a player's phone gets: locked in, no verdict. The
+          board beside this is the host's to read; this panel is the host
+          playing, and plays by the players' rules. */}
       {seat?.status === LaneStatus.REVEAL && question && (
-        <div className="bg-slate-900 border border-green-700 rounded-xl p-3 text-center space-y-2">
-          <div className="text-[10px] font-mono uppercase tracking-widest text-slate-500">
-            Answer
+        <div className="bg-slate-900 border border-[#00f0ff]/50 rounded-xl p-3 text-center space-y-2">
+          <div className="cyber-question text-lg text-white">
+            {record ? "Locked in" : "Time's up"}
           </div>
-          <div className="text-lg font-bold text-green-400">
-            {buildReveal(question).label}
+          <div className="cyber-hud text-[9px] text-slate-500">
+            Results at the end of the match
           </div>
           <Button
             variant="neon"
@@ -992,17 +998,14 @@ const HostPlayerPane: React.FC = () => {
                 framing it — a player's phone does this, and the host's own seat
                 was the one place that did not, so the host answered four
                 lettered buttons with nothing to answer. */}
-            <div className="bg-white text-slate-900 rounded-xl px-4 py-3 text-center">
-              <h4 className="text-base md:text-lg font-black leading-snug">
-                {question.text}
-              </h4>
-            </div>
+            <QuestionPanel text={question.text} />
 
             <QuestionCard
               key={`${question.id}-${seat.questionIndex}`}
               question={question}
               timeLeft={seat.timeLeft}
               duration={seat.questionDuration}
+              paused={seat.timerPaused}
               compact
             />
           </div>

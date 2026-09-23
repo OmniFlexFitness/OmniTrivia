@@ -4,6 +4,16 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>OmniTrivia</title>
+    <!-- Orbitron for the HUD labels (question numbers, VS, the clock) and
+         Chakra Petch for the questions and answers themselves: squared-off and
+         technical, but open enough to read from the back of a room. Both fall
+         back to the system sans, so a blocked font costs looks, not legibility. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Orbitron:wght@600;800;900&display=swap"
+      rel="stylesheet"
+    />
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
       tailwind.config = {
@@ -21,6 +31,10 @@
                 bg: "#0f172a",
                 card: "#1e293b",
               },
+            },
+            fontFamily: {
+              hud: ["Orbitron", "Segoe UI", "system-ui", "sans-serif"],
+              cyber: ['"Chakra Petch"', "Segoe UI", "system-ui", "sans-serif"],
             },
             animation: {
               "spin-slow": "spin 3s linear infinite",
@@ -119,6 +133,177 @@
         text-shadow:
           0 0 8px rgba(0, 255, 255, 0.7),
           0 0 12px rgba(0, 255, 255, 0.5);
+      }
+
+      /* ------------------------------------------------------------------
+       * Neon-noir: how a question and its answers are drawn, on the phones
+       * and on the big screen.
+       *
+       * Readability is the rule the look bends around. Text is near-white on
+       * near-black at full weight, glow sits on borders and accents rather
+       * than on body copy, and the scanlines are faint enough to disappear
+       * under a sentence.
+       * ------------------------------------------------------------------ */
+      .cyber-panel {
+        position: relative;
+        background:
+          linear-gradient(180deg, rgba(14, 12, 32, 0.96), rgba(6, 6, 16, 0.98));
+        border: 1px solid rgba(0, 240, 255, 0.55);
+        box-shadow:
+          inset 0 0 0 1px rgba(0, 240, 255, 0.08),
+          inset 0 0 40px rgba(188, 19, 254, 0.12),
+          0 0 28px rgba(0, 240, 255, 0.18);
+        clip-path: polygon(
+          18px 0, 100% 0, 100% calc(100% - 18px),
+          calc(100% - 18px) 100%, 0 100%, 0 18px
+        );
+      }
+      .cyber-panel::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        background: repeating-linear-gradient(
+          0deg,
+          rgba(255, 255, 255, 0.025) 0,
+          rgba(255, 255, 255, 0.025) 1px,
+          transparent 1px,
+          transparent 3px
+        );
+      }
+      /* The two cut corners, traced in neon so the clip reads as intended. */
+      .cyber-panel::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        background:
+          linear-gradient(135deg, transparent 0 12.5px, #00f0ff 12.5px 15px, transparent 15px)
+            top left / 30px 30px no-repeat,
+          linear-gradient(315deg, transparent 0 12.5px, #ff2bd6 12.5px 15px, transparent 15px)
+            bottom right / 30px 30px no-repeat;
+        opacity: 0.9;
+      }
+      .cyber-question {
+        font-family: "Chakra Petch", "Segoe UI", system-ui, sans-serif;
+        font-weight: 700;
+        color: #f8fafc;
+        letter-spacing: 0.005em;
+        text-shadow: 0 0 18px rgba(0, 240, 255, 0.22);
+      }
+      .cyber-hud {
+        font-family: Orbitron, "Segoe UI", system-ui, sans-serif;
+        text-transform: uppercase;
+        letter-spacing: 0.22em;
+      }
+
+      /* One answer. `--accent` / `--accent-rgb` are set per option, so each
+         choice keeps its own colour everywhere it appears. */
+      .cyber-option {
+        --accent: #00f0ff;
+        --accent-rgb: 0, 240, 255;
+        position: relative;
+        display: flex;
+        align-items: center;
+        width: 100%;
+        text-align: left;
+        color: #f8fafc;
+        font-family: "Chakra Petch", "Segoe UI", system-ui, sans-serif;
+        font-weight: 700;
+        background:
+          linear-gradient(90deg, rgba(var(--accent-rgb), 0.14), rgba(8, 8, 20, 0.94) 38%);
+        border: 1px solid rgba(var(--accent-rgb), 0.55);
+        border-left: 5px solid var(--accent);
+        box-shadow: inset 0 0 18px rgba(var(--accent-rgb), 0.08);
+        clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 0 100%);
+        transition:
+          transform 120ms ease,
+          box-shadow 160ms ease,
+          background 160ms ease,
+          opacity 200ms ease,
+          filter 200ms ease;
+      }
+      button.cyber-option:not(:disabled):hover {
+        transform: translateX(3px);
+        box-shadow:
+          inset 0 0 24px rgba(var(--accent-rgb), 0.18),
+          0 0 18px rgba(var(--accent-rgb), 0.35);
+      }
+      button.cyber-option:not(:disabled):active {
+        transform: scale(0.98);
+      }
+      .cyber-option-key {
+        font-family: Orbitron, "Segoe UI", system-ui, sans-serif;
+        font-weight: 900;
+        color: var(--accent);
+        border: 2px solid var(--accent);
+        background: rgba(var(--accent-rgb), 0.1);
+        text-shadow: 0 0 8px rgba(var(--accent-rgb), 0.8);
+        box-shadow: 0 0 10px rgba(var(--accent-rgb), 0.35);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+      }
+      /* Locked in: the pick lights up, everything else steps back. No colour
+         here ever means right or wrong — that is for the end of the match. */
+      .cyber-option.is-picked {
+        background:
+          linear-gradient(90deg, rgba(var(--accent-rgb), 0.38), rgba(var(--accent-rgb), 0.12));
+        border-color: var(--accent);
+        box-shadow:
+          inset 0 0 26px rgba(var(--accent-rgb), 0.3),
+          0 0 24px rgba(var(--accent-rgb), 0.45);
+      }
+      .cyber-option.is-muted {
+        opacity: 0.32;
+        filter: grayscale(0.7);
+      }
+
+      .cyber-timer {
+        position: relative;
+        overflow: hidden;
+        background: rgba(8, 8, 20, 0.9);
+        border: 1px solid rgba(0, 240, 255, 0.35);
+      }
+      .cyber-timer-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #bc13fe, #00f0ff);
+        box-shadow: 0 0 12px rgba(0, 240, 255, 0.8);
+        transition: width 1s linear;
+      }
+      .cyber-timer-fill.is-urgent {
+        background: linear-gradient(90deg, #ff2bd6, #ff3b3b);
+        box-shadow: 0 0 14px rgba(255, 59, 59, 0.9);
+      }
+
+      /* A field a player types into, or a tile they drag. */
+      .cyber-input {
+        font-family: "Chakra Petch", "Segoe UI", system-ui, sans-serif;
+        font-weight: 700;
+        color: #f8fafc;
+        background: rgba(8, 8, 20, 0.94);
+        border: 1px solid rgba(0, 240, 255, 0.55);
+        box-shadow: inset 0 0 18px rgba(0, 240, 255, 0.08);
+        outline: none;
+      }
+      .cyber-input:focus {
+        border-color: #00f0ff;
+        box-shadow:
+          inset 0 0 18px rgba(0, 240, 255, 0.15),
+          0 0 18px rgba(0, 240, 255, 0.35);
+      }
+
+      @keyframes cyber-flicker {
+        0%, 19%, 21%, 62%, 64%, 100% { opacity: 1; }
+        20%, 63% { opacity: 0.55; }
+      }
+      .cyber-flicker {
+        animation: cyber-flicker 2.8s infinite;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .cyber-flicker { animation: none; }
+        .cyber-option, .cyber-timer-fill { transition: none; }
       }
     </style>
   </head>

@@ -4,6 +4,8 @@ import { Category } from "../types";
 /**
  * The wheel itself: slices, pointer, hub. Nothing that decides anything.
  *
+ * Slices carry an icon and a colour, never a name (see `Slices`).
+ *
  * Three screens turn a wheel and only one of them owns it. The host's wheel is
  * flicked and its resting angle picks the round's category; the projector's
  * and every player's phone are watching that happen and are told the outcome
@@ -30,20 +32,11 @@ import { Category } from "../types";
 const VIEWBOX = 200;
 const CENTER = VIEWBOX / 2;
 const RADIUS = CENTER;
-// Where the name and the icon sit along a slice's bisector. The name takes the
-// outer position because a slice is widest there, which is what lets a long
-// category name stay inside its own slice on a crowded wheel; the icon is
-// compact enough to sit inboard of it.
-const NAME_RADIUS = RADIUS * 0.8;
-const ICON_RADIUS = RADIUS * 0.58;
-// Below this the name stops being readable, so it gets truncated instead.
-const MIN_NAME_SIZE = 4.5;
-const MAX_NAME_SIZE = 12;
-// Rough width of one uppercase character of a bold sans face, in ems.
-const CHAR_WIDTH_EM = 0.6;
-// Fraction of a slice's width the name is allowed to occupy, leaving a gutter
-// so neighbouring slices never read as one run of text.
-const NAME_FILL = 0.85;
+// Where the icon sits along a slice's bisector: out towards the rim, where a
+// slice is widest, but clear of the hub.
+const ICON_RADIUS = RADIUS * 0.66;
+const MIN_ICON_SIZE = 10;
+const MAX_ICON_SIZE = 34;
 
 // Degrees are measured clockwise from 12 o'clock, which is where the pointer
 // sits. That makes slice N span [N * sliceAngle, (N + 1) * sliceAngle].
@@ -121,14 +114,6 @@ const resolveSliceColor = (colorClass: string, index: number): string => {
   return FALLBACK_SLICE_COLORS[index % FALLBACK_SLICE_COLORS.length];
 };
 
-// Category names come from imported CSVs and can be any length, so they are cut
-// to whatever still fits the slice at the smallest readable size.
-const formatSliceName = (name: string, maxChars: number): string => {
-  const upper = (name || "").toUpperCase();
-  const limit = Math.max(4, Math.min(20, maxChars));
-  return upper.length > limit ? `${upper.slice(0, limit - 1)}…` : upper;
-};
-
 // Chord of the wheel at `radius`, across one slice - the room a label has.
 const chordAt = (radius: number, sliceAngle: number) =>
   2 * radius * Math.sin((Math.min(sliceAngle, 120) * Math.PI) / 360);
@@ -137,38 +122,65 @@ const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value));
 
 /**
+ * One fill per slice, with no two neighbours the same.
+ *
+ * Colour is half of what tells one slice from the next now the names are
+ * gone, and two categories can share a hue. Deterministic, so every screen
+ * drawing the same list paints the same wheel.
+ */
+const sliceFills = (categories: Category[]): string[] => {
+  const fills = categories.map((cat, index) => resolveSliceColor(cat.color, index));
+  if (fills.length < 2) return fills;
+
+  for (let i = 0; i < fills.length; i++) {
+    const prev = fills[(i - 1 + fills.length) % fills.length];
+    const next = i === fills.length - 1 ? fills[0] : null;
+    if (fills[i] !== prev && fills[i] !== next) continue;
+    fills[i] =
+      FALLBACK_SLICE_COLORS.find(
+        (color) => color !== prev && color !== fills[(i + 1) % fills.length],
+      ) ?? fills[i];
+  }
+  return fills;
+};
+
+/**
  * The slices, drawn once per category list.
+ *
+ * Icons and colours only — never the category's name. The wheel is the
+ * suspense: a name on every slice lets the room read where the pointer is
+ * heading before it gets there, and on a crowded wheel it was also the part
+ * nobody could read. The name is announced once the wheel has stopped, by the
+ * screen around it.
  *
  * Memoised because a wheel in flight is re-rendered on every animation frame
  * and none of this changes while it turns — only the angle of the box around
  * it does. Pass a stable array and a spinning wheel costs one style write a
- * frame instead of rebuilding forty SVG nodes.
+ * frame instead of rebuilding its SVG nodes.
  */
 const Slices = React.memo<{ categories: Category[] }>(({ categories }) => {
   const sliceCount = categories.length;
   const sliceAngle = 360 / sliceCount;
-  const nameWidth = chordAt(NAME_RADIUS, sliceAngle) * NAME_FILL;
-  const iconSize = clamp(chordAt(ICON_RADIUS, sliceAngle) * 0.4, 9, 20);
-  const maxNameChars = Math.floor(nameWidth / (CHAR_WIDTH_EM * MIN_NAME_SIZE));
+  const fills = sliceFills(categories);
+  const iconSize = clamp(
+    chordAt(ICON_RADIUS, sliceAngle) * 0.62,
+    MIN_ICON_SIZE,
+    MAX_ICON_SIZE,
+  );
 
   return (
     <svg
       viewBox={`0 0 ${VIEWBOX} ${VIEWBOX}`}
       className="w-full h-full"
       role="img"
-      aria-label={`Category wheel: ${categories.map((cat) => cat.name).join(", ")}`}
+      // Counted, not named: a screen reader reading the slices out would be
+      // the one way left to learn the categories before the spin.
+      aria-label={`Category wheel with ${sliceCount} categor${sliceCount === 1 ? "y" : "ies"}`}
     >
       {categories.map((cat, index) => {
         const startAngle = index * sliceAngle;
         const bisector = startAngle + sliceAngle / 2;
-        const fill = resolveSliceColor(cat.color, index);
-        const name = formatSliceName(cat.name, maxNameChars);
-        // Shrink the name until it fits the slice it belongs to.
-        const nameSize = clamp(
-          nameWidth / (CHAR_WIDTH_EM * Math.max(name.length, 1)),
-          MIN_NAME_SIZE,
-          MAX_NAME_SIZE,
-        );
+        const fill = fills[index];
         return (
           // Keyed by position as well as id: a game with more rounds
           // than categories reuses a category, and duplicate React keys
@@ -185,10 +197,10 @@ const Slices = React.memo<{ categories: Category[] }>(({ categories }) => {
                 strokeLinejoin="round"
               />
             )}
-            {/* Rotating the label frame by the bisector puts the icon and
-                name on the slice's centre line — and because the wheel
-                lands on that same bisector, the winning label comes to
-                rest upright under the pointer. */}
+            {/* Rotating the icon's frame by the bisector puts it on the
+                slice's centre line — and because the wheel lands on that same
+                bisector, the winning icon comes to rest upright under the
+                pointer. */}
             <g transform={`rotate(${bisector} ${CENTER} ${CENTER})`}>
               <text
                 x={CENTER}
@@ -196,21 +208,9 @@ const Slices = React.memo<{ categories: Category[] }>(({ categories }) => {
                 textAnchor="middle"
                 dominantBaseline="central"
                 fontSize={iconSize}
+                style={{ filter: "drop-shadow(0 0 2px rgba(15, 23, 42, 0.9))" }}
               >
                 {cat.icon}
-              </text>
-              <text
-                x={CENTER}
-                y={CENTER - NAME_RADIUS}
-                textAnchor="middle"
-                fontSize={nameSize}
-                fontWeight={700}
-                fill="#ffffff"
-                stroke="rgba(15, 23, 42, 0.85)"
-                strokeWidth={nameSize * 0.22}
-                style={{ paintOrder: "stroke" }}
-              >
-                {name}
               </text>
             </g>
           </g>

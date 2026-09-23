@@ -1,5 +1,6 @@
 import { RoundConfig, Question, Category, QuestionType, CategoryContent } from '../types';
 import { CATEGORIES, DEFAULT_QUESTION_BANK } from '../constants';
+import { unplayableReason } from './questionQuality';
 
 // Simple CSV parser that handles quoted fields
 const parseCSVLine = (line: string): string[] => {
@@ -120,7 +121,104 @@ export const acceptedSpellings = (correctAnswer: string): string[] => {
     return spellings;
 };
 
-export const parseImportData = (csvData: string): { [categoryId: string]: CategoryContent } => {
+/** A row an import read and then refused to play, and why. */
+export interface SkippedRow {
+    /** 1-based, counting the header, so it matches the row number in a sheet. */
+    row: number;
+    question: string;
+    reason: string;
+}
+
+export interface ImportReport {
+    contents: { [categoryId: string]: CategoryContent };
+    /**
+     * Rows that parsed but were eliminated as unplayable — placeholder answers,
+     * or nothing to choose between. Reported so the host is told how much of
+     * their file was left out, rather than finding out from a short round.
+     */
+    skipped: SkippedRow[];
+}
+
+/**
+ * An icon and a colour for a category the app has never heard of.
+ *
+ * The wheel shows a category as its icon and its colour and nothing else — the
+ * name is only announced once it stops — so every imported category needs
+ * both, and they need to differ. Every one of them used to arrive as a grey ❓,
+ * which on a names-free wheel is three identical slices.
+ *
+ * The icon comes from what the name is about where that is obvious, and from
+ * a stable hash of the name where it is not; the colour always from the hash.
+ * Stable matters: the host, the projector and every phone draw the same slice.
+ */
+const CATEGORY_ICON_RULES: [RegExp, string][] = [
+    [/women in sport/, '🏆'],
+    [/rom-?com|romance|love/, '💘'],
+    [/sitcom/, '🛋️'],
+    [/reality/, '🌹'],
+    [/video game|gaming/, '🎮'],
+    [/movie|film|cinema/, '🎬'],
+    [/binge|\btv\b|television|series|show/, '📺'],
+    [/broadway|musical|theat/, '🎭'],
+    [/girl group|voice|diva|hitmaker|singer|vocal/, '🎤'],
+    [/music|song|band|album/, '🎵'],
+    [/book club|reading/, '📖'],
+    [/book|literat|novel|author|poet/, '📚'],
+    [/royal|celebrit|icon|famous/, '👑'],
+    [/fashion|beauty|style|makeup/, '💄'],
+    [/fitness|gym|workout|strength|lift/, '🏋️'],
+    [/nutrition|diet|supplement/, '🥗'],
+    [/health|body|anatom|medic/, '🫀'],
+    [/holiday|tradition|christmas|festiv/, '🎄'],
+    [/internet|meme|social media|online/, '📡'],
+    [/tech|computer|software|gadget/, '💻'],
+    [/brand|everyday|product|logo/, '🏷️'],
+    [/current event|news|politic/, '📰'],
+    [/florida|local|hometown/, '🌴'],
+    [/nature|animal|wildlife|zoo/, '🦁'],
+    [/drink|cocktail|beer|wine/, '🍹'],
+    [/food|cook|cuisine|kitchen/, '🍔'],
+    [/general knowledge|trivia|misc|random/, '🧠'],
+    [/geograph|travel|world|countr|capital/, '🌍'],
+    [/histor/, '📜'],
+    [/space|astronom|planet/, '🚀'],
+    [/science|chem|physic|biolog/, '🔬'],
+    [/sport|athlet/, '🏅'],
+    [/\bpop\b/, '✨'],
+    [/\bart\b|paint|design/, '🎨'],
+];
+
+const FALLBACK_CATEGORY_ICONS = ['🎲', '🧩', '💡', '🔮', '🛰️', '⚡', '🌀', '🪐', '🎯', '🧪'];
+
+const CATEGORY_COLORS = [
+    'bg-cyan-500', 'bg-fuchsia-500', 'bg-violet-500', 'bg-emerald-500',
+    'bg-amber-500', 'bg-rose-500', 'bg-sky-500', 'bg-lime-500',
+    'bg-orange-500', 'bg-indigo-500', 'bg-pink-500', 'bg-teal-500',
+];
+
+const nameHash = (value: string): number => {
+    let hash = 2166136261;
+    for (let i = 0; i < value.length; i++) {
+        hash ^= value.charCodeAt(i);
+        hash = Math.imul(hash, 16777619);
+    }
+    return hash >>> 0;
+};
+
+export const styleForCategory = (name: string): { icon: string; color: string } => {
+    const key = name.toLowerCase().trim();
+    const hash = nameHash(key);
+    const rule = CATEGORY_ICON_RULES.find(([pattern]) => pattern.test(key));
+    return {
+        icon: rule ? rule[1] : FALLBACK_CATEGORY_ICONS[hash % FALLBACK_CATEGORY_ICONS.length],
+        color: CATEGORY_COLORS[hash % CATEGORY_COLORS.length],
+    };
+};
+
+export const parseImportData = (csvData: string): { [categoryId: string]: CategoryContent } =>
+    parseImportDataWithReport(csvData).contents;
+
+export const parseImportDataWithReport = (csvData: string): ImportReport => {
     const lines = csvData.trim().split('\n');
     if (lines.length < 2) {
         throw new Error("Import data must have a header and at least one question row.");
@@ -143,6 +241,7 @@ export const parseImportData = (csvData: string): { [categoryId: string]: Catego
     }
 
     const roundsConfig: { [categoryId: string]: CategoryContent } = {};
+    const skipped: SkippedRow[] = [];
 
     rows.forEach((row, rowIndex) => {
         try {
@@ -253,11 +352,18 @@ export const parseImportData = (csvData: string): { [categoryId: string]: Catego
                 type: questionType,
             };
 
+            // Placeholder answers ("Placeholder 1", "Option A") and questions
+            // with nothing to choose between never reach a game.
+            const unplayable = unplayableReason(question);
+            if (unplayable) {
+                skipped.push({ row: rowIndex + 2, question: questionText, reason: unplayable });
+                return;
+            }
+
             const categoryInfo = CATEGORIES.find(c => c.name.toLowerCase() === categoryName.toLowerCase()) || {
                 id: categoryName.toLowerCase().replace(/\s/g, ''),
                 name: categoryName,
-                icon: '❓',
-                color: 'bg-slate-500'
+                ...styleForCategory(categoryName),
             };
 
             if (!roundsConfig[categoryInfo.id]) {
@@ -272,11 +378,38 @@ export const parseImportData = (csvData: string): { [categoryId: string]: Catego
         }
     });
 
-    if (Object.keys(roundsConfig).length === 0) {
-        throw new Error("No valid questions could be parsed from the data.");
+    if (skipped.length > 0) {
+        console.warn(
+            `Left out ${skipped.length} unplayable question(s): ` +
+                skipped
+                    .slice(0, 5)
+                    .map((entry) => `row ${entry.row} (${entry.reason})`)
+                    .join(', ') +
+                (skipped.length > 5 ? ', …' : ''),
+        );
     }
 
-    return roundsConfig;
+    if (Object.keys(roundsConfig).length === 0) {
+        throw new Error(
+            skipped.length > 0
+                ? `No playable questions in the data — all ${skipped.length} had placeholder answers or no options to choose from.`
+                : "No valid questions could be parsed from the data.",
+        );
+    }
+
+    return { contents: roundsConfig, skipped };
+};
+
+/** One sentence for the host about what an import left out, or null. */
+export const describeSkipped = (skipped: readonly SkippedRow[]): string | null => {
+    if (skipped.length === 0) return null;
+    const placeholders = skipped.filter((entry) => entry.reason.includes('placeholder')).length;
+    const rest = skipped.length - placeholders;
+    const parts = [
+        placeholders > 0 ? `${placeholders} with placeholder answers` : null,
+        rest > 0 ? `${rest} with no options to choose from` : null,
+    ].filter(Boolean);
+    return `${skipped.length} question${skipped.length === 1 ? ' was' : 's were'} left out automatically (${parts.join(', ')}).`;
 };
 
 export const fetchFromGoogleSheet = async (url: string): Promise<string> => {

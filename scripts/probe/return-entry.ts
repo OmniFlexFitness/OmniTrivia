@@ -323,9 +323,10 @@ check(
   !("roundsConfig" in published) && !("questionsQueue" in published),
 );
 check(
-  "and still holds the room's answer back while anyone is on the question",
-  published.reveal === null,
-  "the projector was handed the answer with a player still working on it",
+  "and still holds every answer back while the round is being played",
+  published.roundReview === null &&
+    published.lanes.every((lane) => lane.seats.every((seat) => seat.results === null)),
+  "the room was handed an answer, or a verdict, mid-round",
 );
 check(
   "and never carries a player's rejoin proof",

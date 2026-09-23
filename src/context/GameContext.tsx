@@ -30,9 +30,14 @@ import {
 } from "../constants";
 import { generateQuestions } from "../services/claudeService";
 import {
+  describeSkipped,
   fetchDefaultQuestionBank,
-  parseImportData,
+  parseImportDataWithReport,
 } from "../services/importService";
+import {
+  playableQuestions,
+  playableRounds,
+} from "../services/questionQuality";
 import {
   buildRoundsFromContent,
   longestRound,
@@ -1305,25 +1310,53 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
       // Shuffled on the way in: the model writes a set in the order it thought
       // of it, and a room that plays two games off the same generator should
       // not meet the same question in the same seat twice.
+      //
+      // Placeholders never make it this far into a game. A round whose
+      // generation failed is nothing *but* placeholders, so it is dropped
+      // whole rather than played as "Option A, Option B" in front of a room.
+      const generated = results.map((result, i) => ({
+        roundNumber: i + 1,
+        category: selectedCats[i],
+        questions: result.usedFallback ? [] : result.questions,
+      }));
       const newRoundsConfig: RoundConfig[] = randomizeRounds(
-        results.map((result, i) => ({
-          roundNumber: i + 1,
-          category: selectedCats[i],
-          questions: result.questions,
-        })),
+        playableRounds(generated),
       );
 
-      // Warn the host that they are about to run placeholders in front of a room.
       const failed = results.filter((r) => r.usedFallback);
+      if (newRoundsConfig.length === 0) {
+        throw new Error(
+          failed[0]?.error ??
+            "Every generated question was unplayable, so there is no game to start.",
+        );
+      }
+
+      const dropped = generated.reduce(
+        (total, round, i) =>
+          total +
+          (results[i].usedFallback
+            ? 0
+            : round.questions.length - playableQuestions(round.questions).length),
+        0,
+      );
       const contentWarning =
-        failed.length > 0
-          ? `${failed.length} of ${results.length} round(s) used placeholder questions instead of real ones. ${failed[0].error}`
-          : null;
+        [
+          failed.length > 0
+            ? `${failed.length} of ${results.length} round(s) could not be generated and were left out. ${failed[0].error}`
+            : null,
+          dropped > 0
+            ? `${dropped} generated question(s) had placeholder answers or no options and were left out.`
+            : null,
+        ]
+          .filter(Boolean)
+          .join(" ") || null;
 
       setState((prev) => ({
         ...prev,
         loading: false,
         roundsConfig: newRoundsConfig,
+        // A round that failed is gone, so the game is the rounds that are left.
+        totalRounds: newRoundsConfig.length,
         contentWarning,
         phase: GamePhase.REVIEW,
       }));
@@ -1416,7 +1449,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
    */
   const importGame = (csvData: string) => {
     try {
-      const parsed = parseImportData(csvData);
+      const { contents: parsed, skipped } = parseImportDataWithReport(csvData);
       const categoryContents: CategoryContent[] = Object.values(parsed).filter(
         (content) => content.questions.length > 0,
       );
@@ -1429,7 +1462,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         ...prev,
         loading: false,
         error: null,
-        contentWarning: null,
+        // Carried through to the review screen, so the host knows how much of
+        // the file was eliminated as unplayable.
+        contentWarning: describeSkipped(skipped),
         importPreview: categoryContents,
         phase: GamePhase.IMPORT_SELECT,
       }));
@@ -1487,7 +1522,6 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
       return {
         ...prev,
         error: null,
-        contentWarning: null,
         roundsConfig,
         totalRounds: roundsConfig.length,
         questionsPerRound: longestRound(roundsConfig),
@@ -2039,7 +2073,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
       const started: GameState = {
         ...prev,
         loading: false,
-        questionsQueue: roundConfig.questions,
+        // The last line of defence: a game resumed from a save written before
+        // placeholders were filtered out still never deals one.
+        questionsQueue: playableQuestions(roundConfig.questions),
         selectedCategory: roundConfig.category.id,
         wheelSpinning: false,
         categoryRevealed: true,

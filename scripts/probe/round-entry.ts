@@ -32,6 +32,11 @@ import {
   tickRound,
 } from "../../src/services/lanes";
 import { buildSnapshot } from "../../src/services/snapshot";
+import { parseImportDataWithReport } from "../../src/services/importService";
+import {
+  playableRounds,
+  unplayableReason,
+} from "../../src/services/questionQuality";
 import { buildNextRound, byeCounts, resolveRound } from "../../src/services/bracket";
 import {
   applyCategoryLike,
@@ -235,15 +240,26 @@ check(
 
 const midRound = buildSnapshot(state, "host-probe");
 check(
-  "the snapshot never sends an answer to a player who has not closed it",
+  "no seat is told how any answer went while its match is still being played",
   midRound.lanes
     .flatMap((lane) => lane.seats)
-    .filter((published) => published.status !== LaneStatus.REVEAL)
-    .every((published) => published.reveal === null),
+    .every((published) => published.results === null && published.roundPoints === null),
 );
 check(
-  "the room's own reveal is withheld while anyone is still on the question",
-  midRound.reveal === null,
+  "a live score is not published mid-match either — it would be a verdict",
+  state.players.find((p) => p.id === "p1")!.roundScore > 0 &&
+    midRound.players.find((p) => p.id === "p1")?.roundScore === 0 &&
+    midRound.players.find((p) => p.id === "p1")?.score === 0,
+  `host has ${state.players.find((p) => p.id === "p1")?.roundScore}, room sees ${midRound.players.find((p) => p.id === "p1")?.roundScore}`,
+);
+check(
+  "the room is not handed an answer key mid-round",
+  midRound.roundReview === null && !midRound.roomLockedIn,
+);
+check(
+  "nothing in the published round carries an answer",
+  !JSON.stringify(midRound).includes('"correctIndex"') &&
+    !JSON.stringify(midRound).includes('"reveal"'),
 );
 check(
   "the faster player's seat carries a later question than the slower one's",
@@ -310,6 +326,59 @@ while (!roundIsComplete(toEnd) && guard < 200) {
   guard += 1;
 }
 check("the round ends once the big screen has caught up", roundIsComplete(toEnd));
+
+/* ------------------------------------------------------------------ *
+ * 5a. The verdicts arrive at the end of the match, all at once
+ * ------------------------------------------------------------------ */
+
+// One table finishes; the other has not started.
+let oneDone = baseState();
+for (const id of ["p1", "p2"]) {
+  for (let q = 0; q < questions.length; q++) {
+    oneDone = recordLaneAnswer(oneDone, id, q === 1 ? 1 : 0); // Q2 wrong
+    oneDone = advancePlayerNow(oneDone, id);
+  }
+}
+const oneDoneSnapshot = buildSnapshot(oneDone, "host-probe");
+const finishedSeat = oneDoneSnapshot.lanes
+  .find((lane) => lane.id === "r1-m1")
+  ?.seats.find((published) => published.playerId === "p1");
+const liveSeat = oneDoneSnapshot.lanes
+  .find((lane) => lane.id === "r1-m2")
+  ?.seats.find((published) => published.playerId === "p3");
+
+check(
+  "a finished match publishes every verdict in it",
+  finishedSeat?.results?.length === questions.length &&
+    finishedSeat.results.map((r) => r.correct).join(",") === "true,false,true",
+  finishedSeat?.results?.map((r) => (r.correct ? "✓" : "✕")).join(" ") ?? "nothing",
+);
+check(
+  "and its points",
+  (finishedSeat?.roundPoints ?? 0) > 0 &&
+    finishedSeat?.roundPoints ===
+      oneDoneSnapshot.players.find((p) => p.id === "p1")?.roundScore,
+);
+check(
+  "while the match beside it, still playing, is told nothing",
+  liveSeat?.results === null,
+);
+check(
+  "and the answer key still waits for the whole round",
+  oneDoneSnapshot.roundReview === null,
+);
+
+const endSnapshot = buildSnapshot(
+  { ...toEnd, phase: GamePhase.ROUND_END },
+  "host-probe",
+);
+check(
+  "the answer key goes up once the round is over",
+  endSnapshot.roundReview?.length === questions.length &&
+    endSnapshot.roundReview.every(
+      (item) => item.reveal.label === "right" && item.correctCount === 4,
+    ),
+);
 
 /* ------------------------------------------------------------------ *
  * 6. Host controls reach every seat at a table, and no others
@@ -577,6 +646,87 @@ const votedRow = stored.find((row) => row.categoryId === poll!.options[0].id);
 check("likes are banked across games", scienceRow?.likes === 1, `${scienceRow?.likes}`);
 check("ballot appearances are banked", (votedRow?.ballots ?? 0) >= 1);
 check("votes are banked", (votedRow?.votes ?? 0) === 1);
+
+/* ------------------------------------------------------------------ *
+ * 9. Placeholders and option-less questions never reach a room
+ * ------------------------------------------------------------------ */
+
+const mc = (text: string, options: string[], correctIndex = 0): Question => ({
+  id: text,
+  category: "Probe",
+  text,
+  options,
+  correctIndex,
+  type: QuestionType.MULTIPLE_CHOICE,
+});
+
+check(
+  "the bank's 'Placeholder 1/2/3' wrong answers are eliminated",
+  unplayableReason(
+    mc("What is the boundary around a black hole?", [
+      "Event horizon",
+      "Placeholder 1",
+      "Placeholder 2",
+      "Placeholder 3",
+    ]),
+  ) === "placeholder options",
+);
+check(
+  "generation's own fallback question is eliminated",
+  unplayableReason(
+    mc("Placeholder question #1 about Science — question generation failed.", [
+      "Option A",
+      "Option B",
+      "Option C",
+      "Option D",
+    ]),
+  ) !== null,
+);
+check(
+  "a multiple choice with one option, or none, is eliminated",
+  unplayableReason(mc("Only one?", ["Yes"])) === "no options" &&
+    unplayableReason(mc("None?", [])) === "no options",
+);
+check(
+  "a real question survives, including single-letter and odd answers",
+  unplayableReason(
+    mc("Which letter appears in no US state name?", ["X", "Z", "Q", "J"], 2),
+  ) === null &&
+    unplayableReason(mc("Which punctuation mark ends a question?", ["?", "!", ".", ","])) === null,
+);
+check(
+  "a typed answer is judged on its accepted spellings, not on showing options",
+  unplayableReason({
+    ...mc("What element has the symbol K?", ["Potassium"]),
+    type: QuestionType.TYPE_ANSWER,
+  }) === null,
+);
+
+const imported = parseImportDataWithReport(
+  [
+    "category,question,option1,option2,option3,option4,correctAnswer,explanation",
+    "Science,Real one?,Alpha,Beta,Gamma,Delta,Beta,",
+    "Science,Fake one?,Alpha,Placeholder 1,Placeholder 2,Placeholder 3,Alpha,",
+    "History,All filler?,Placeholder 1,Placeholder 2,Placeholder 3,Placeholder 4,Placeholder 1,",
+  ].join("\n"),
+);
+check(
+  "an import keeps the real rows and reports the eliminated ones",
+  Object.values(imported.contents).flatMap((c) => c.questions).length === 1 &&
+    imported.skipped.length === 2 &&
+    !("history" in imported.contents),
+  `${imported.skipped.map((row) => `row ${row.row}: ${row.reason}`).join("; ")}`,
+);
+
+const pruned = playableRounds([
+  { roundNumber: 1, category: prefs.roundsConfig[0].category, questions: [mc("Fine?", ["a", "b"])] },
+  { roundNumber: 2, category: prefs.roundsConfig[0].category, questions: [mc("Filler?", ["Option A", "Option B"])] },
+  { roundNumber: 3, category: prefs.roundsConfig[0].category, questions: [mc("Also fine?", ["c", "d"])] },
+]);
+check(
+  "a round left with nothing playable is dropped, and the rest renumbered",
+  pruned.length === 2 && pruned.map((round) => round.roundNumber).join(",") === "1,2",
+);
 
 console.log(
   failures === 0

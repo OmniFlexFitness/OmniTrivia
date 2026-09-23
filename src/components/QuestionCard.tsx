@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Question, QuestionType } from '../types';
 import { useGame } from '../context/GameContext';
-import { isAnswerCorrect } from '../services/scoring';
 import Button from './Button';
 import { Reorder } from 'framer-motion';
-import { Check, GripVertical } from 'lucide-react';
+import { GripVertical, Lock } from 'lucide-react';
+import { CHOICE_KEYS, CyberTimer, QuestionPanel, accentStyle } from './CyberQuestion';
 
 const shuffleArray = <T,>(array: T[]): T[] => {
     return [...array].sort(() => Math.random() - 0.5);
@@ -13,10 +13,11 @@ const shuffleArray = <T,>(array: T[]): T[] => {
 /**
  * The answering card, rendered inside whichever matchup the player is in.
  *
- * `canGrade` is false on a guest's screen, where the question arrives with its
- * answer key stripped out. Without it the card would mark every typed answer
- * wrong and draw a slider's correct band from NaN — so instead of guessing, it
- * just shows the answer as locked in and leaves the verdict to the reveal.
+ * Submitting only ever *locks an answer in*. The card never says whether it
+ * was right — not on a guest's phone, where the question arrives with its
+ * answer key stripped out, and not on the host's own seat either, where the
+ * key is sitting in memory. Every player finds out how they did at the end of
+ * their match, all at once, so the card has no right-or-wrong state to draw.
  *
  * `compact` is for the panes that already show the question themselves — the
  * host's own player view beside their controls, and a guest's phone screen.
@@ -31,9 +32,9 @@ const QuestionCard: React.FC<{
   question: Question;
   timeLeft: number;
   duration: number;
-  canGrade?: boolean;
+  paused?: boolean;
   compact?: boolean;
-}> = ({ question, timeLeft, duration, canGrade = true, compact = false }) => {
+}> = ({ question, timeLeft, duration, paused = false, compact = false }) => {
   const { submitAnswer, currentPlayerId } = useGame();
   const [isSubmitted, setIsSubmitted] = useState(false);
 
@@ -48,41 +49,48 @@ const QuestionCard: React.FC<{
   const renderContent = () => {
     switch (question.type) {
         case QuestionType.TYPE_ANSWER:
-            return <TypeAnswerQuestion question={question} onSubmit={handleSubmit} isSubmitted={isSubmitted} canGrade={canGrade} />;
+            return <TypeAnswerQuestion onSubmit={handleSubmit} isSubmitted={isSubmitted} compact={compact} />;
         case QuestionType.SLIDER:
-            return <SliderQuestion question={question} onSubmit={handleSubmit} isSubmitted={isSubmitted} canGrade={canGrade} />;
+            return <SliderQuestion question={question} onSubmit={handleSubmit} isSubmitted={isSubmitted} />;
         case QuestionType.PUZZLE:
-            return <PuzzleQuestion question={question} onSubmit={handleSubmit} isSubmitted={isSubmitted} canGrade={canGrade} />;
+            return <PuzzleQuestion question={question} onSubmit={handleSubmit} isSubmitted={isSubmitted} />;
         case QuestionType.TRUE_FALSE:
         case QuestionType.MULTIPLE_CHOICE:
         default:
-            return <MultipleChoiceQuestion question={question} onSubmit={handleSubmit} isSubmitted={isSubmitted} canGrade={canGrade} compact={compact} />;
+            return <MultipleChoiceQuestion question={question} onSubmit={handleSubmit} isSubmitted={isSubmitted} compact={compact} />;
     }
   };
 
   return (
     <div className={`w-full flex flex-col justify-center ${compact ? '' : 'max-w-5xl mx-auto h-full'}`}>
-      <div className={`w-full bg-slate-800 rounded-full overflow-hidden border border-slate-700 shadow-inner ${compact ? 'h-2 mb-4' : 'h-6 mb-8'}`}>
-        <div 
-          className={`h-full transition-all duration-1000 ease-linear ${timeLeft < 5 ? 'bg-red-500 shadow-[0_0_10px_#ef4444]' : 'bg-neon-blue shadow-[0_0_10px_#00ffff]'}`}
-          style={{ width: `${Math.min(100, duration ? (timeLeft / duration) * 100 : 0)}%` }}
-        ></div>
-      </div>
+      <CyberTimer
+        timeLeft={timeLeft}
+        duration={duration}
+        paused={paused}
+        size={compact ? 'sm' : 'lg'}
+        className={compact ? 'mb-4' : 'mb-8'}
+      />
 
       {!compact && (
-        <div className="bg-white text-slate-900 p-10 rounded-3xl shadow-2xl mb-10 text-center transform transition-all border-4 border-slate-200">
-          <h2 className="text-3xl md:text-5xl font-black leading-tight tracking-tight">{question.text}</h2>
-          <div className="mt-6 inline-block px-6 py-2 bg-slate-900 rounded-full text-sm font-bold uppercase tracking-widest text-white">
-            {question.category}
-          </div>
-        </div>
+        <QuestionPanel
+          text={question.text}
+          category={question.category}
+          size="desk"
+          className="mb-10"
+        />
       )}
 
       {renderContent()}
-      
+
+      {isSubmitted && (
+        <div className="cyber-hud mt-4 flex items-center justify-center gap-2 text-xs text-[#00f0ff] cyber-flicker">
+          <Lock size={12} /> Locked in — results at the end of the match
+        </div>
+      )}
+
       {isSpectator && (
-        <div className="mt-8 text-center text-slate-500 font-mono animate-pulse">
-          PLAYERS ARE ANSWERING...
+        <div className="cyber-hud mt-8 text-center text-xs text-slate-500 animate-pulse">
+          Players are answering…
         </div>
       )}
     </div>
@@ -91,7 +99,7 @@ const QuestionCard: React.FC<{
 
 // Sub-components for each question type
 
-const MultipleChoiceQuestion: React.FC<{ question: Question, onSubmit: (answer: number) => void, isSubmitted: boolean, canGrade: boolean, compact?: boolean }> = ({ question, onSubmit, isSubmitted, canGrade, compact = false }) => {
+const MultipleChoiceQuestion: React.FC<{ question: Question, onSubmit: (answer: number) => void, isSubmitted: boolean, compact?: boolean }> = ({ question, onSubmit, isSubmitted, compact = false }) => {
     const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
     const isTrueFalse = question.type === QuestionType.TRUE_FALSE;
 
@@ -102,32 +110,40 @@ const MultipleChoiceQuestion: React.FC<{ question: Question, onSubmit: (answer: 
     };
 
     return (
-        <div className={`grid grid-cols-1 ${compact ? 'sm:grid-cols-2 gap-2' : 'md:grid-cols-2 gap-6'}`}>
-            {question.options.map((option, index) => (
-                <button
-                    key={index}
-                    onClick={() => handleSelect(index)}
-                    disabled={isSubmitted}
-                    className={`${compact ? 'p-3 rounded-xl border-2' : 'p-8 rounded-2xl border-4'} text-left transition-all transform hover:scale-[1.02] active:scale-95 flex items-center ${isTrueFalse ? 'justify-center' : ''} ${
-                        isSubmitted && !canGrade && index === selectedIndex ? 'bg-neon-blue/20 border-neon-blue' :
-                        isSubmitted && !canGrade ? 'bg-slate-800 opacity-50 border-slate-700' :
-                        isSubmitted && index === question.correctIndex ? 'bg-green-600 border-green-400' : 
-                        isSubmitted && index === selectedIndex ? 'bg-red-600 border-red-400' : 
-                        isSubmitted ? 'bg-slate-800 opacity-50' : 
-                        'bg-slate-800 hover:bg-slate-700 border-slate-600'
-                    }`}
-                >
-                    {!isTrueFalse && <div className={`rounded-full border-current flex items-center justify-center shrink-0 opacity-70 font-black ${compact ? 'w-7 h-7 border-2 mr-3 text-sm' : 'w-14 h-14 border-4 mr-6 text-2xl'}`}>{['A', 'B', 'C', 'D'][index]}</div>}
-                    <span className={`font-bold text-white ${compact ? 'text-base' : isTrueFalse ? 'text-4xl' : 'text-2xl'}`}>{option}</span>
-                </button>
-            ))}
+        <div className={`grid ${isTrueFalse ? 'grid-cols-2' : `grid-cols-1 ${compact ? 'sm:grid-cols-2' : 'md:grid-cols-2'}`} ${compact ? 'gap-2.5' : 'gap-5'}`}>
+            {question.options.map((option, index) => {
+                const picked = isSubmitted && index === selectedIndex;
+                const muted = isSubmitted && index !== selectedIndex;
+                return (
+                    <button
+                        key={index}
+                        onClick={() => handleSelect(index)}
+                        disabled={isSubmitted}
+                        style={accentStyle(index)}
+                        className={`cyber-option ${picked ? 'is-picked' : ''} ${muted ? 'is-muted' : ''} ${
+                            compact ? 'min-h-[3.5rem] px-3 py-3 gap-3' : 'min-h-[5.5rem] px-5 py-5 gap-5'
+                        } ${isTrueFalse ? 'justify-center' : ''}`}
+                    >
+                        {!isTrueFalse && (
+                            <span className={`cyber-option-key ${compact ? 'w-8 h-8 text-sm' : 'w-12 h-12 text-xl'}`}>
+                                {CHOICE_KEYS[index] ?? index + 1}
+                            </span>
+                        )}
+                        <span className={`flex-1 ${isTrueFalse ? 'text-center uppercase tracking-wider' : ''} ${
+                            compact ? (isTrueFalse ? 'text-xl' : 'text-base sm:text-lg') : (isTrueFalse ? 'text-4xl' : 'text-2xl')
+                        } leading-snug`}>
+                            {option}
+                        </span>
+                        {picked && <Lock size={compact ? 16 : 22} className="shrink-0 text-[var(--accent)]" />}
+                    </button>
+                );
+            })}
         </div>
     );
 };
 
-const TypeAnswerQuestion: React.FC<{ question: Question, onSubmit: (answer: string) => void, isSubmitted: boolean, canGrade: boolean }> = ({ question, onSubmit, isSubmitted, canGrade }) => {
+const TypeAnswerQuestion: React.FC<{ onSubmit: (answer: string) => void, isSubmitted: boolean, compact?: boolean }> = ({ onSubmit, isSubmitted, compact = false }) => {
     const [answer, setAnswer] = useState('');
-    const isCorrect = isSubmitted && canGrade && isAnswerCorrect(question, answer);
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -143,37 +159,23 @@ const TypeAnswerQuestion: React.FC<{ question: Question, onSubmit: (answer: stri
                 value={answer}
                 onChange={(e) => setAnswer(e.target.value)}
                 disabled={isSubmitted}
-                placeholder="Type your answer..."
-                className={`w-full max-w-lg text-center text-2xl p-4 rounded-lg border-2 outline-none transition-all ${
-                    isSubmitted && !canGrade ? 'bg-slate-900 border-neon-blue text-white' :
-                    isSubmitted && isCorrect ? 'bg-green-900/50 border-green-500 text-green-300' :
-                    isSubmitted && !isCorrect ? 'bg-red-900/50 border-red-500 text-red-300' :
-                    'bg-slate-800 border-slate-600 text-white focus:border-neon-blue'
-                }`}
+                placeholder="Type your answer…"
+                autoComplete="off"
+                className={`cyber-input w-full max-w-lg text-center p-4 ${compact ? 'text-xl' : 'text-2xl'} ${isSubmitted ? 'opacity-80' : ''}`}
             />
-            {!isSubmitted && <Button type="submit" variant="neon" disabled={!answer.trim()}>Submit</Button>}
+            {!isSubmitted && <Button type="submit" variant="neon" disabled={!answer.trim()}>LOCK IT IN</Button>}
         </form>
     );
 };
 
-const SliderQuestion: React.FC<{ question: Question, onSubmit: (answer: number) => void, isSubmitted: boolean, canGrade: boolean }> = ({ question, onSubmit, isSubmitted, canGrade }) => {
-    const [min, max, step, correctLow, correctHigh] = question.options.map(Number);
+const SliderQuestion: React.FC<{ question: Question, onSubmit: (answer: number) => void, isSubmitted: boolean }> = ({ question, onSubmit, isSubmitted }) => {
+    const [min, max, step] = question.options.map(Number);
     const [value, setValue] = useState(min);
-    
-    const handleSubmit = () => {
-        onSubmit(value);
-    };
-
-    const isCorrect = isAnswerCorrect(question, value);
-    const rangeWidth = max - min;
-    const correctRangeWidth = ((correctHigh - correctLow) / rangeWidth) * 100;
-    const correctRangeOffset = ((correctLow - min) / rangeWidth) * 100;
-    const valueOffset = ((value - min) / rangeWidth) * 100;
 
     return (
         <div className="flex flex-col items-center gap-6">
-            <div className="text-6xl font-black text-neon-blue text-neon-shadow">{value}</div>
-            <div className="w-full max-w-lg relative h-10 flex items-center">
+            <div className="cyber-hud text-6xl font-black text-[#00f0ff] text-neon-shadow tracking-normal">{value}</div>
+            <div className="w-full max-w-lg">
                 <input
                     type="range"
                     min={min}
@@ -182,58 +184,44 @@ const SliderQuestion: React.FC<{ question: Question, onSubmit: (answer: number) 
                     value={value}
                     onChange={(e) => setValue(Number(e.target.value))}
                     disabled={isSubmitted}
-                    className="w-full h-4 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-neon-purple disabled:accent-slate-600"
+                    className="w-full h-4 bg-slate-800 rounded-none appearance-none cursor-pointer accent-neon-blue disabled:accent-slate-600"
                 />
-                {isSubmitted && canGrade && (
-                    <>
-                        <div className="absolute top-1/2 -translate-y-1/2 h-4 rounded-full bg-green-500/50" style={{ left: `${correctRangeOffset}%`, width: `${correctRangeWidth}%` }}></div>
-                        <div className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-5 h-5 rounded-full border-2 ${isCorrect ? 'bg-green-400 border-white' : 'bg-red-500 border-white'}`} style={{ left: `${valueOffset}%` }}></div>
-                    </>
-                )}
+                <div className="cyber-hud flex justify-between mt-2 text-xs text-slate-500 tracking-normal">
+                    <span>{min}</span>
+                    <span>{max}</span>
+                </div>
             </div>
-            {!isSubmitted && <Button onClick={handleSubmit} variant="neon">Submit</Button>}
-            {isSubmitted && canGrade && (
-                <div className="text-xl font-bold">Correct Range: <span className="text-green-400">{correctLow} - {correctHigh}</span></div>
-            )}
+            {!isSubmitted && <Button onClick={() => onSubmit(value)} variant="neon">LOCK IT IN</Button>}
         </div>
     );
 };
 
-const PuzzleQuestion: React.FC<{ question: Question, onSubmit: (answer: string[]) => void, isSubmitted: boolean, canGrade: boolean }> = ({ question, onSubmit, isSubmitted, canGrade }) => {
+const PuzzleQuestion: React.FC<{ question: Question, onSubmit: (answer: string[]) => void, isSubmitted: boolean }> = ({ question, onSubmit, isSubmitted }) => {
     const [items, setItems] = useState<string[]>([]);
 
     useEffect(() => {
         setItems(shuffleArray(question.options));
     }, [question]);
 
-    const handleSubmit = () => {
-        onSubmit(items);
-    };
-
     return (
         <div className="flex flex-col items-center gap-4">
             <Reorder.Group axis="y" values={items} onReorder={setItems} className="w-full max-w-md space-y-2">
                 {items.map((item, index) => (
-                    <Reorder.Item 
-                        key={item} 
+                    <Reorder.Item
+                        key={item}
                         value={item}
-                        className={`flex items-center gap-4 p-3 rounded-lg border-2 ${isSubmitted ? '' : 'cursor-grab active:cursor-grabbing'} transition-colors ${
-                            isSubmitted && !canGrade ? 'bg-slate-900 border-neon-blue' :
-                            isSubmitted && item === question.options[index] ? 'bg-green-900/50 border-green-600' :
-                            isSubmitted ? 'bg-red-900/50 border-red-600' :
-                            'bg-slate-800 border-slate-700'
-                        }`}
-                        whileDrag={{ scale: 1.05, boxShadow: "0px 5px 15px rgba(0,0,0,0.3)" }}
+                        style={accentStyle(index)}
+                        dragListener={!isSubmitted}
+                        className={`cyber-option gap-4 px-3 py-3 ${isSubmitted ? 'is-picked' : 'cursor-grab active:cursor-grabbing'}`}
+                        whileDrag={{ scale: 1.04 }}
                     >
-                        <div className="w-8 h-8 rounded-full bg-slate-900 flex items-center justify-center font-mono font-bold text-neon-blue text-lg shrink-0">
-                            {index + 1}
-                        </div>
-                        <div className="flex-1 text-left text-lg font-semibold">{item}</div>
+                        <span className="cyber-option-key w-8 h-8 text-sm">{index + 1}</span>
+                        <span className="flex-1 text-left text-lg">{item}</span>
                         <GripVertical className={`text-slate-500 ${isSubmitted ? 'opacity-0' : ''}`} />
                     </Reorder.Item>
                 ))}
             </Reorder.Group>
-            {!isSubmitted && <Button onClick={handleSubmit} variant="neon">Submit Order</Button>}
+            {!isSubmitted && <Button onClick={() => onSubmit(items)} variant="neon">LOCK IN THIS ORDER</Button>}
         </div>
     );
 };
