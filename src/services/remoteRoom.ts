@@ -84,6 +84,21 @@ const CONNECT_TIMEOUT_MS = 8000;
 /** How long to wait for a room to be carried before playing without one. */
 const ATTACH_TIMEOUT_MS = 10000;
 
+/**
+ * How long a *player's* phone waits for the room before saying it cannot
+ * reach it.
+ *
+ * Longer than a host's, on purpose. The first join on a phone pays for
+ * everything at once — downloading the database SDK, signing in, opening the
+ * connection, reading the room — over whatever the venue's Wi-Fi or a crowded
+ * cell is doing. At 400ms of latency that takes 12–15 seconds, and a 10 second
+ * cut-off told a phone with a working connection that it had none, then
+ * finished connecting a few seconds later in the background. The phone has
+ * nothing else to do while it waits, and a spinner that resolves beats an
+ * error that was wrong.
+ */
+export const PLAYER_ATTACH_TIMEOUT_MS = 30000;
+
 /** Messages older than this are cleaned up by the host that owns the room. */
 const BUS_TTL_MS = 60000;
 
@@ -203,6 +218,22 @@ export const whenConnected = async (
   });
 };
 
+/**
+ * Start signing in and connecting now, before anybody has asked for a room.
+ *
+ * The join form takes a player a good ten seconds to fill in — a name, a code,
+ * an avatar — and that is ten seconds the SDK download, the sign-in and the
+ * connection can use. Started on JOIN instead, all of it lands on the one tap
+ * that is supposed to be instant. Safe to call as often as a screen likes; it
+ * only ever starts once, and a failure is left for the join to report.
+ */
+export const warmUpRoom = (): void => {
+  if (!remoteEnabled()) return;
+  void whenConnected(PLAYER_ATTACH_TIMEOUT_MS).catch(() => {
+    // Nothing to report yet — the join itself says what went wrong.
+  });
+};
+
 /* ------------------------------------------------------------------ *
  * The attached room
  * ------------------------------------------------------------------ */
@@ -310,18 +341,57 @@ const isPermissionDenied = (error: unknown): boolean => {
 /** The reason the last `attachRoom` returned false, or null if it succeeded. */
 export const lastRoomFailure = (): RoomFailure => lastFailure;
 
+/**
+ * The attach that is still on its way, if there is one.
+ *
+ * An attach that runs out of time has not failed — it is usually a few seconds
+ * from finishing. Keeping hold of it means asking again waits for *that*
+ * connection instead of tearing it down and starting a new one from nothing,
+ * which on a slow link is what made every retry fail the same way.
+ */
+let pending: {
+  pin: string;
+  asHost: boolean;
+  generation: number;
+  opening: Promise<boolean>;
+} | null = null;
+
+/**
+ * Bumped by every detach. An open that finishes after the room it was opening
+ * has been given up on sees a newer generation and tears its listeners back
+ * down, rather than quietly attaching this device to a room nobody wants.
+ */
+let generation = 0;
+
 export const attachRoom = async (
   pin: string,
   options: {
     asHost: boolean;
     handler: (message: BroadcastMessage, meta: MessageMeta) => void;
+    /** How long to wait before reporting the room unreachable. */
+    timeoutMs?: number;
   },
 ): Promise<boolean> => {
   if (!remoteEnabled()) return false;
   if (attachment?.pin === pin && attachment.asHost === options.asHost) return true;
 
+  const timeoutMs = options.timeoutMs ?? ATTACH_TIMEOUT_MS;
+  const timebox = (opening: Promise<boolean>) =>
+    Promise.race([
+      opening,
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), timeoutMs)),
+    ]);
+
+  // Already on its way to this very room: wait for it rather than restart it.
+  if (pending && pending.pin === pin && pending.asHost === options.asHost) {
+    const opened = await timebox(pending.opening);
+    if (!opened && !lastFailure) lastFailure = "unreachable";
+    return opened;
+  }
+
   await detachRoom();
   lastFailure = null;
+  const mine = generation;
 
   // Everything past here can fail or hang: sign-in is refused when Anonymous
   // auth was never enabled, the rules refuse every read until they are
@@ -332,17 +402,17 @@ export const attachRoom = async (
   try {
     // Catching here rather than around the race keeps a rejection that lands
     // after the timebox from going unhandled, and still records its reason.
-    const opening = openRoom(pin, options).catch((error) => {
-      lastFailure = isPermissionDenied(error) ? "denied" : "unreachable";
-      return false;
-    });
+    const opening = openRoom(pin, options, mine)
+      .catch((error) => {
+        lastFailure = isPermissionDenied(error) ? "denied" : "unreachable";
+        return false;
+      })
+      .finally(() => {
+        if (pending?.generation === mine && pending.pin === pin) pending = null;
+      });
+    pending = { pin, asHost: options.asHost, generation: mine, opening };
 
-    const opened = await Promise.race([
-      opening,
-      new Promise<boolean>((resolve) =>
-        setTimeout(() => resolve(false), ATTACH_TIMEOUT_MS),
-      ),
-    ]);
+    const opened = await timebox(opening);
 
     if (!opened && !lastFailure) lastFailure = "unreachable";
     return opened;
@@ -358,6 +428,7 @@ const openRoom = async (
     asHost: boolean;
     handler: (message: BroadcastMessage, meta: MessageMeta) => void;
   },
+  openedFor: number,
 ): Promise<boolean> => {
   const { db, api } = await sdk();
   const room = api.ref(db, `rooms/${pin}`);
@@ -397,6 +468,12 @@ const openRoom = async (
     );
   }
 
+  // Given up on while it was connecting: leave nothing behind.
+  if (openedFor !== generation) {
+    listeners.forEach((off) => off());
+    return false;
+  }
+
   attachment = {
     pin,
     asHost: options.asHost,
@@ -426,6 +503,10 @@ const openRoom = async (
 };
 
 export const detachRoom = async (): Promise<void> => {
+  // Whatever is still connecting belongs to the room being left.
+  generation += 1;
+  pending = null;
+
   const current = attachment;
   if (!current) return;
   attachment = null;

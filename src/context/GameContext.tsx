@@ -109,6 +109,8 @@ import {
   releaseRoom,
   attachRoomChannel,
   detachRoomChannel,
+  PLAYER_ATTACH_TIMEOUT_MS,
+  warmUpRoomChannel,
   canReachOtherDevices,
   deviceIdentity,
   roomChannelReady,
@@ -265,7 +267,15 @@ const BROADCAST_TIMEOUT_MS = 6000;
  * answers over someone's phone network, so the wait is not the same wait.
  */
 const JOIN_TIMEOUT_MS = 1500;
-const REMOTE_JOIN_TIMEOUT_MS = 6000;
+const REMOTE_JOIN_TIMEOUT_MS = 10000;
+/**
+ * Once a host has answered, how long the seat itself may take to come back.
+ *
+ * Separate from the wait above, because by then the room is known to exist:
+ * running out of time here is a slow link, and must not be reported as "no
+ * game is running with that PIN" to a player looking at that very game.
+ */
+const REMOTE_SEAT_TIMEOUT_MS = 20000;
 /** Used when the host never names the game. */
 const DEFAULT_GAME_NAME = "OmniTrivia Night";
 
@@ -1684,7 +1694,12 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
 
     // The question has to go out on the same channel the host is listening
     // to, so this room is carried before anything is asked of it.
-    const attached = await attachRoomChannel(code, false);
+    // A player gets the long wait: see PLAYER_ATTACH_TIMEOUT_MS.
+    const attached = await attachRoomChannel(
+      code,
+      false,
+      PLAYER_ATTACH_TIMEOUT_MS,
+    );
 
     const remote = canReachOtherDevices();
 
@@ -1694,26 +1709,31 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     // belong to a player who is already in the game.
     const overtaken = () => Boolean(params.silent && stateRef.current.clientPin);
 
-    const giveUp = (joinError: string | null) => {
+    const giveUp = (joinError: string | null, keepConnecting = false) => {
       if (overtaken()) return;
-      void detachRoomChannel();
+      // A connection that is merely slow is left to finish, so tapping JOIN
+      // again picks it up where it is instead of starting over from nothing.
+      if (!keepConnecting) void detachRoomChannel();
       setState((prev) => ({ ...prev, joining: false, joinError }));
     };
 
     // A phone with no working connection and a PIN nobody is hosting fail the
     // same way from the inside, and they are not the same problem.
     if (remote && (!attached || !(await roomChannelReady()))) {
+      const denied = roomFailureReason() === "denied";
       giveUp(
         params.silent
           ? null
-          : roomFailureReason() === "denied"
+          : denied
             ? "The game server is refusing every device, because this game's database rules have not been published yet. Nothing is wrong with this phone or the PIN — the host has to publish them."
-            : "Could not reach the game server. Check this device's internet connection, then try the PIN again.",
+            : "Could not reach the game server yet — the connection here is slow or down. Tap JOIN again: it carries on from where it got to.",
+        !denied && !params.silent,
       );
       return;
     }
 
     let settled = false;
+    let seatTimerArmed = false;
     const finish = (update: Partial<GameState>) => {
       if (settled) return;
       settled = true;
@@ -1734,6 +1754,20 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
             joinError: `"${message.gameName}" has already started. Ask the host to open a new game.`,
           });
           return;
+        }
+        // The room exists and its host is listening. From here a slow answer
+        // is a slow link, and gets the longer wait with a message that says so.
+        if (remote && !seatTimerArmed) {
+          seatTimerArmed = true;
+          window.clearTimeout(timeout);
+          timeout = window.setTimeout(() => {
+            if (overtaken()) return;
+            finish({
+              joinError: params.silent
+                ? null
+                : `Found "${message.gameName}", but the host's answer is taking too long over this connection. Tap JOIN again.`,
+            });
+          }, REMOTE_SEAT_TIMEOUT_MS);
         }
         postMessage({
           type: "player-join",
@@ -1798,7 +1832,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
 
     // Nobody hosting this PIN means there is no room to join. Saying so beats
     // opening an empty one that looks like the host's game but is not.
-    const timeout = window.setTimeout(
+    let timeout = window.setTimeout(
       () => {
         if (overtaken()) return;
         if (params.silent) clearSeat();
@@ -1834,6 +1868,15 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
       rejoinCode,
     });
   };
+
+  /**
+   * Get the connection going while the player is still filling in the join
+   * form, so the JOIN tap finds it already open rather than paying for the SDK
+   * download, the sign-in and the connection all at once.
+   */
+  useEffect(() => {
+    if (state.phase === GamePhase.JOIN && !state.isHost) warmUpRoomChannel();
+  }, [state.phase, state.isHost]);
 
   /**
    * A device that already holds a seat in the room its link names takes that
