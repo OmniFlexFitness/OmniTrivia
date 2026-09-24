@@ -337,7 +337,23 @@
       .cyber-flicker {
         animation: cyber-flicker 2.8s infinite;
       }
+      /* The home screen's logo badge: a ring whose glow breathes slowly
+         between magenta and purple, so the mark inside stays at full strength
+         instead of fading with it. */
+      @keyframes logo-halo {
+        0%, 100% {
+          box-shadow: 0 0 22px rgba(255, 0, 255, 0.55), 0 0 60px rgba(157, 77, 255, 0.25);
+        }
+        50% {
+          box-shadow: 0 0 34px rgba(255, 0, 255, 0.85), 0 0 90px rgba(0, 229, 255, 0.30);
+        }
+      }
+      .logo-halo {
+        animation: logo-halo 2.8s ease-in-out infinite;
+        box-shadow: 0 0 26px rgba(255, 0, 255, 0.65), 0 0 70px rgba(157, 77, 255, 0.25);
+      }
       @media (prefers-reduced-motion: reduce) {
+        .logo-halo { animation: none; }
         .cyber-flicker { animation: none; }
         .cyber-option, .cyber-timer-fill { transition: none; }
       }

@@ -6,6 +6,7 @@ import CategoryPoolManager from './CategoryPoolManager';
 import InsightsPanel from './InsightsPanel';
 import { readHostSession } from '../services/hostSession';
 import { BarChart3, Gamepad2, KeyRound, ListPlus, Server } from 'lucide-react';
+import omniflexLogo from '../assets/omniflex-logo.webp';
 
 const StartScreen: React.FC = () => {
   const { initHost, initJoin, initHostResume } = useGame();
@@ -31,8 +32,19 @@ const StartScreen: React.FC = () => {
       {showInsights && <InsightsPanel onClose={() => setShowInsights(false)} />}
 
       <div className="relative z-10 w-full max-w-md flex flex-col items-center py-10">
-        <div className="p-6 bg-slate-900 rounded-full border-4 border-neon-pink mb-8 shadow-[0_0_30px_#ff00ff] animate-pulse-fast">
-          <Gamepad2 size={64} className="text-neon-blue" />
+        {/* The OmniFlex mark, in the badge the controller icon used to sit in.
+            Imported rather than linked so the build fingerprints it, and the
+            page's relative base path finds it wherever the site is served.
+            The ring breathes; the logo itself never dims. */}
+        <div className="logo-halo p-5 bg-slate-900 rounded-full border-4 border-neon-pink mb-8">
+          <img
+            src={omniflexLogo}
+            alt="OmniFlex"
+            width={88}
+            height={88}
+            className="w-[88px] h-[88px] select-none drop-shadow-[0_0_12px_rgba(190,90,255,0.75)]"
+            draggable={false}
+          />
         </div>
 
         <h1 className="text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-neon-blue to-neon-pink tracking-tighter mb-2 text-center">
