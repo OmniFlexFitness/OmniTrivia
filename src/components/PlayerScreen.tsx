@@ -986,7 +986,7 @@ const PlayerScreen: React.FC = () => {
     !!seat.question;
 
   return (
-    <div className="min-h-screen bg-slate-900 text-white p-4 flex flex-col">
+    <div className="min-h-screen tron-backdrop text-white p-4 flex flex-col">
       <header className="flex items-center justify-between mb-4">
         <div>
           <div className="text-lg font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-neon-blue to-neon-pink">

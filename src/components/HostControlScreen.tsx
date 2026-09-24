@@ -214,19 +214,14 @@ const SeatRow: React.FC<{
           </span>
         );
       case LaneStatus.REVEAL:
+        // Answered or not — never right or wrong. The host is often a player
+        // too, and this card is on the screen in front of them: a verdict here
+        // is their opponent's result, mid-match, which nobody gets until the
+        // match is over. Same rule the answer key below follows.
         return (
-          <span
-            className={`flex items-center gap-1 text-[10px] font-mono uppercase tracking-widest ${
-              record?.isCorrect ? "text-green-400" : "text-red-400"
-            }`}
-          >
+          <span className="flex items-center gap-1 text-[10px] font-mono uppercase tracking-widest text-slate-400">
             <CheckCircle2 size={11} />
-            {record?.isCorrect
-              ? `+${record.points}`
-              : record
-                ? "missed"
-                : "timed out"}{" "}
-            · {seat.revealSecondsLeft}s
+            {record ? "locked in" : "timed out"} · {seat.revealSecondsLeft}s
           </span>
         );
       default:
@@ -908,12 +903,12 @@ const HostPlayerPane: React.FC = () => {
         ? "You took yourself out of this round — back in from the next one."
         : "You are in from the next round.";
     if (seat.status === LaneStatus.DONE) return "You are through the round.";
+    // Locked in, not marked: the host finds out how they did when their match
+    // is over, like every other player.
     if (seat.status === LaneStatus.REVEAL)
       return record
-        ? record.isCorrect
-          ? `Correct — +${record.points}`
-          : "Missed that one"
-        : "You let that one time out";
+        ? "Locked in — results at the end of your match."
+        : "Time's up on that one.";
     if (phase !== GamePhase.PLAYING) return "Waiting for the next round.";
     return record ? "Locked in — scoring it." : "Your turn.";
   };
@@ -1056,7 +1051,7 @@ const HostControlScreen: React.FC = () => {
   );
 
   return (
-    <div className="min-h-screen bg-slate-900 text-white p-4 md:p-6">
+    <div className="min-h-screen tron-backdrop text-white p-4 md:p-6">
       {showPool && <CategoryPoolManager onClose={() => setShowPool(false)} />}
       {showInsights && <InsightsPanel onClose={() => setShowInsights(false)} />}
 

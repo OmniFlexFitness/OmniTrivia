@@ -30,18 +30,16 @@ interface FighterProps {
 
 const Fighter: React.FC<FighterProps> = ({ player, label, accent, from, reduced }) => (
   <motion.div
-    initial={reduced ? { opacity: 0 } : { opacity: 0, x: from === "left" ? -160 : 160, skewX: from === "left" ? -12 : 12 }}
-    animate={{ opacity: 1, x: 0, skewX: 0 }}
+    initial={reduced ? { opacity: 0 } : { opacity: 0, x: from === "left" ? -160 : 160, scale: 0.92 }}
+    animate={{ opacity: 1, x: 0, scale: 1 }}
     transition={{ type: "spring", stiffness: 170, damping: 18, delay: from === "left" ? 0.05 : 0.2 }}
-    className="relative flex items-center gap-4 sm:flex-col sm:gap-3 w-full sm:w-44 px-4 py-4 sm:py-6"
+    className="relative flex items-center gap-4 sm:flex-col sm:gap-3 w-full sm:w-44 px-4 py-4 sm:py-6 rounded-[22px]"
     style={{
-      background: `linear-gradient(${from === "left" ? "90deg" : "270deg"}, ${accent}33, rgba(6,6,16,0.9) 75%)`,
-      border: `1px solid ${accent}99`,
-      boxShadow: `0 0 26px ${accent}44, inset 0 0 22px ${accent}22`,
-      clipPath:
-        from === "left"
-          ? "polygon(0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 0 100%)"
-          : "polygon(0 0, 100% 0, 100% 100%, 16px 100%, 0 calc(100% - 16px))",
+      // A rounded card outlined in a line of light, in this side's colour —
+      // the same edge every panel in the game is drawn with.
+      border: `2px solid ${accent}`,
+      background: `radial-gradient(120% 120% at ${from === "left" ? "0% 0%" : "100% 0%"}, ${accent}38, rgba(7,8,22,0.95) 65%)`,
+      boxShadow: `0 0 22px ${accent}66, 0 0 48px ${accent}26, inset 0 0 26px ${accent}22`,
     }}
   >
     <div
@@ -104,13 +102,14 @@ const VersusIntro: React.FC<VersusIntroProps> = ({ me, opponent, roundNumber, to
   const reduced = useReducedMotion() ?? false;
 
   return (
-    <div className="relative isolate flex flex-col items-center gap-5 py-4 overflow-hidden">
-      {/* The arena: a cyan half and a magenta half, split on a diagonal. */}
+    <div className="relative isolate flex flex-col items-center gap-5 py-4 px-1">
+      {/* The arena: a cyan glow on your side and a magenta one on theirs,
+          meeting softly in the middle under the VS. */}
       <div
         aria-hidden
-        className="absolute inset-0 -z-10 opacity-40"
+        className="absolute inset-0 -z-10 rounded-[28px]"
         style={{
-          background: `linear-gradient(115deg, ${CYAN}22 0 49.6%, transparent 49.6% 50.4%, ${MAGENTA}22 50.4% 100%)`,
+          background: `radial-gradient(60% 70% at 15% 45%, ${CYAN}24, transparent 70%), radial-gradient(60% 70% at 85% 55%, ${MAGENTA}24, transparent 70%), radial-gradient(30% 40% at 50% 50%, #9d4dff22, transparent 70%)`,
         }}
       />
 

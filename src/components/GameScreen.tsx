@@ -164,7 +164,7 @@ const GameScreen: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 text-white p-4 md:p-8 flex flex-col">
+    <div className="min-h-screen tron-backdrop text-white p-4 md:p-8 flex flex-col">
       {/* Header */}
       <div className="flex justify-between items-center mb-6">
         <div className="text-xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-neon-blue to-neon-pink">

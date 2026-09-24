@@ -1117,7 +1117,7 @@ const BroadcastScreen: React.FC = () => {
   }, [snapshot, outOfDate]);
 
   return (
-    <div className="min-h-screen h-screen bg-slate-900 text-white p-6 flex flex-col overflow-hidden">
+    <div className="min-h-screen h-screen tron-backdrop text-white p-6 flex flex-col overflow-hidden">
       <header className="flex items-center justify-between mb-5 shrink-0">
         <div className="text-2xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-neon-blue to-neon-pink">
           OMNI<span className="text-white">TRIVIA</span>

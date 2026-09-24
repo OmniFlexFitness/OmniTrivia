@@ -184,7 +184,7 @@ const SliderQuestion: React.FC<{ question: Question, onSubmit: (answer: number) 
                     value={value}
                     onChange={(e) => setValue(Number(e.target.value))}
                     disabled={isSubmitted}
-                    className="w-full h-4 bg-slate-800 rounded-none appearance-none cursor-pointer accent-neon-blue disabled:accent-slate-600"
+                    className="w-full h-4 bg-slate-800 rounded-full appearance-none cursor-pointer accent-neon-blue disabled:accent-slate-600"
                 />
                 <div className="cyber-hud flex justify-between mt-2 text-xs text-slate-500 tracking-normal">
                     <span>{min}</span>
