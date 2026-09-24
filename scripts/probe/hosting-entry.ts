@@ -17,8 +17,17 @@ import {
 import {
   hmacSha256Hex,
   hostProof,
+  playerProof,
   remoteSignature,
+  suggestRejoinCode,
 } from "../../src/services/proof";
+import { verifiedRejoinCode } from "../../src/services/seats";
+import {
+  DEFAULT_BROADCAST_SUBTITLE,
+  DEFAULT_BROADCAST_TITLE,
+  formatBroadcastDate,
+  renderBroadcastText,
+} from "../../src/services/broadcastText";
 import {
   LOCAL_UID,
   bindRemote,
@@ -394,6 +403,49 @@ check(
   );
 }
 
+
+/* ------------------------------------------------------------------ *
+ * 5. Rejoin codes the host can read back, and the big screen's words
+ * ------------------------------------------------------------------ */
+
+{
+  const dealt = Array.from({ length: 400 }, () => suggestRejoinCode());
+  check(
+    "a dealt rejoin code is always four digits",
+    dealt.every((code) => /^\d{4}$/.test(code)),
+  );
+  check(
+    "and they are not all the same four digits",
+    new Set(dealt).size > 300,
+    `${new Set(dealt).size} different codes in 400`,
+  );
+
+  const pin = "5030";
+  check(
+    "the host keeps a code that matches its proof",
+    verifiedRejoinCode(pin, "4821", playerProof(pin, "4821")) === "4821",
+  );
+  check(
+    "and not one that does not — it would read the wrong code back",
+    verifiedRejoinCode(pin, "4821", playerProof(pin, "1111")) === undefined &&
+      verifiedRejoinCode(pin, "4821", undefined) === undefined,
+  );
+
+  const day = new Date(2026, 8, 24);
+  const today = formatBroadcastDate(day);
+  check(
+    "the big screen says Trivia, and Elevate with today's date, by default",
+    renderBroadcastText(undefined, DEFAULT_BROADCAST_TITLE, day) === "Trivia" &&
+      renderBroadcastText("", DEFAULT_BROADCAST_SUBTITLE, day) === `Elevate · ${today}` &&
+      /2026/.test(today),
+    `"${renderBroadcastText("", DEFAULT_BROADCAST_SUBTITLE, day)}"`,
+  );
+  check(
+    "and says whatever the host sets instead, date filled in",
+    renderBroadcastText("Kava Night {date}", DEFAULT_BROADCAST_SUBTITLE, day) ===
+      `Kava Night ${today}`,
+  );
+}
 
 if (failures > 0) {
   console.log(`\n${failures} check(s) failed.`);

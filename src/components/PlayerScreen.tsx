@@ -16,6 +16,7 @@ import {
 } from "../types";
 import { useGame } from "../context/GameContext";
 import { seatsOf } from "../services/snapshot";
+import { readSeat } from "../services/seat";
 import { SideTag } from "./BracketView";
 import { matchupById, sideOf } from "../services/bracket";
 import {
@@ -619,6 +620,11 @@ const PlayerScreen: React.FC = () => {
     setCategoryLike,
     voteForCategory,
   } = useGame();
+  // The code this phone joined with, kept in view so nobody has to remember
+  // it — it only ever lives in this browser and on the host's desk. Read on
+  // every render rather than once: the seat is saved a moment after the join
+  // lands, and this screen is already up by then.
+  const rejoinCode = readSeat(clientPin)?.code ?? null;
   const [snapshot, setSnapshot] = useState<BroadcastSnapshot | null>(() => {
     const stored = readStoredSnapshot();
     return stored?.gamePin === clientPin ? stored : null;
@@ -896,6 +902,20 @@ const PlayerScreen: React.FC = () => {
               {snapshot.players.length} in the room. The host starts when
               everyone has joined.
             </p>
+            {rejoinCode && (
+              <div className="mt-6 inline-flex flex-col items-center gap-1 rounded-xl border border-neon-yellow/50 bg-neon-yellow/5 px-6 py-3">
+                <span className="text-[11px] font-mono uppercase tracking-widest text-slate-400">
+                  Your rejoin code
+                </span>
+                <span className="font-mono text-3xl font-black tracking-[0.3em] text-neon-yellow">
+                  {rejoinCode}
+                </span>
+                <span className="text-[11px] text-slate-500 max-w-[16rem]">
+                  With your name, this gets you back into your seat from any
+                  phone. The host has it too.
+                </span>
+              </div>
+            )}
           </div>
         );
 
@@ -1018,6 +1038,7 @@ const PlayerScreen: React.FC = () => {
           </div>
           <div className="text-xs font-mono uppercase tracking-widest text-slate-500">
             {snapshot?.gameName || gameName} · PIN {clientPin}
+            {rejoinCode && <span className="text-neon-yellow/80"> · code {rejoinCode}</span>}
           </div>
         </div>
 

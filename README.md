@@ -26,7 +26,7 @@ exactly as they are defined here, and so does the code.
 | **Loser's bracket** | Optional double elimination, switched on at setup or in the lobby. A first loss drops a player into the loser's bracket instead of out; a loss there ends their night. Both sides play in every round, on the same category, and the last player on each side meets in a one-match **grand final**. |
 | **Remote** | A tablet or phone running the round for the host — spin, start, pause, +10s, close, end the round, next round — once it has the PIN and the host password. The host's window still runs the game; the remote drives it. |
 | **Category pool** | The host's own standing list of categories. The end-of-round vote draws its options from it. It is separate from the questions a game happens to be loaded with. |
-| **Rejoin code** | Four digits a player picks when they join. Their name and that code get them back into the same seat — score, streak and place in the bracket — from any phone, at any point in the game. |
+| **Rejoin code** | Four digits dealt to a player when they join — random, and theirs to change before they confirm. Their name and that code get them back into the same seat — score, streak and place in the bracket — from any phone, at any point in the game. |
 | **Host password** | What the host sets when they open the game. With the PIN it takes the running game back on any device if the host's window closes, reloads or dies. |
 
 ### How a game runs
@@ -536,6 +536,15 @@ the header of the control screen, then drag it onto the second display and put
 it full screen. The button turns green and reads **BROADCAST LIVE** once the
 two windows are talking.
 
+### The big screen's words
+
+While the room is joining, the broadcast leads with a headline and a line
+under it: **"Trivia"** and **"Elevate · September 24, 2026"** by default —
+`{date}` in either becomes that day's date on the screen showing it. Change
+both under **BIG SCREEN TEXT** in the lobby or on the control screen, and
+**PUT IT UP**; **DEFAULT** puts the two back. The last text used is remembered
+in the host's browser for the next game.
+
 ### Hosting from more than one device
 
 With [multiplayer configured](MULTIPLAYER.md), neither the broadcast nor the
@@ -634,8 +643,14 @@ a password at all: a new device has a new identity and nothing else to show.
 
 ### A player: name + rejoin code
 
-Every player picks a four-digit **rejoin code** when they join, on the same
-screen as their name and avatar. A phone that just reloads or locks comes back
+Every player gets a four-digit **rejoin code** when they join, on the same
+screen as their name and avatar. It is dealt at random rather than asked for —
+a room asked to invent four digits types 1234 — and they can reroll it or type
+their own before they confirm. It stays on their phone's screen afterwards,
+and the **host can look it up**: an eye toggle beside the players in the
+lobby, beside the scores on the control screen, and beside the scores on the
+remote. So a player who forgets it asks the host rather than losing their
+seat. A phone that just reloads or locks comes back
 by itself and never needs it. A phone that is flat, wiped, or a friend's has
 nothing to come back with — and that is what the code is for: the same name and
 the same code put them back in **their own seat**, with their score, their
@@ -657,7 +672,7 @@ hashed (`src/services/proof.ts`), and only the hash is written down:
 | --- | --- | --- |
 | Host password | `/roomSecrets/{pin}` and the host's own browser | **nobody**, host included — the rules compare against it without handing it out |
 | The running game | `/hostState/{pin}` and the host's own browser | the host, or a device that has proved the password |
-| Rejoin code | against that player's seat, in the host's game | the host only — never on the snapshot every device renders |
+| Rejoin code | its proof *and* the code itself, against that player's seat, in the host's game | the host only (and a remote, which has proved the host password) — never on the snapshot every device renders |
 
 The full data model, and the rule that lets a returning device prove itself
 without the hash ever being readable, is in

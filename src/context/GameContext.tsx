@@ -94,7 +94,19 @@ import {
   playerProof,
   suggestHostPassword,
 } from "../services/proof";
-import { maySpeakFor, resolveJoinRequest } from "../services/seats";
+import {
+  maySpeakFor,
+  resolveJoinRequest,
+  verifiedRejoinCode,
+} from "../services/seats";
+import {
+  DEFAULT_BROADCAST_SUBTITLE,
+  DEFAULT_BROADCAST_TITLE,
+  MAX_BROADCAST_SUBTITLE_LENGTH,
+  MAX_BROADCAST_TITLE_LENGTH,
+  readBroadcastTextPreference,
+  saveBroadcastTextPreference,
+} from "../services/broadcastText";
 import {
   bindRemote,
   judgeRemoteHello,
@@ -156,6 +168,11 @@ interface GameContextType extends GameState {
   resumeHosting: (pin: string, password: string) => Promise<void>;
   clearResumeError: () => void;
   toggleHostAnswering: () => void;
+  /**
+   * Change the big screen's headline and the line under it. Either can be
+   * left out to keep what it is; an empty string puts the default back.
+   */
+  setBroadcastText: (text: { title?: string; subtitle?: string }) => void;
   /**
    * Run the game double elimination — a first loss drops a player into the
    * loser's bracket rather than out. Only takes before the first round is
@@ -461,6 +478,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     isHost: false,
     gamePin: null,
     gameName: "",
+    // Whatever this host put on the big screen last time, or the defaults.
+    broadcastTitle: readBroadcastTextPreference().title,
+    broadcastSubtitle: readBroadcastTextPreference().subtitle,
     // Offered rather than demanded: a host who never thinks about this still
     // ends up with a game they can get back, and can overwrite it with
     // something they will remember if they would rather.
@@ -936,6 +956,15 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
 
         if (accepted && meta) seatUids.current.set(seatId, meta.uid);
 
+        // The code itself is kept only when it is the code the proof was
+        // made from — anything else is somebody's typo or somebody's mischief,
+        // and reading the wrong one back to a player is worse than none.
+        const rejoinCode = verifiedRejoinCode(
+          current.gamePin,
+          message.rejoinCode,
+          message.rejoinProof,
+        );
+
         if (accepted) {
           setState((prev) => {
             const existing = prev.players.find((p) => p.id === seatId);
@@ -959,6 +988,13 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
                         // Set on a first join and kept on every later one, so
                         // a reload cannot quietly drop a player's way back in.
                         rejoinProof: message.rejoinProof ?? p.rejoinProof,
+                        // A code that came with a different proof from the
+                        // one kept belongs to that proof, not this one.
+                        rejoinCode:
+                          rejoinCode ??
+                          (message.rejoinProof && message.rejoinProof !== p.rejoinProof
+                            ? undefined
+                            : p.rejoinCode),
                       }
                     : p,
                 ),
@@ -972,6 +1008,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
               avatarColor: message.avatarColor,
               avatarAccessory: message.avatarAccessory,
               rejoinProof: message.rejoinProof,
+              rejoinCode,
               score: 0,
               roundScore: 0,
               isBot: false,
@@ -1665,6 +1702,21 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
       return roundIsComplete(next) ? finishRound(next) : next;
     });
 
+  const setBroadcastText = (text: { title?: string; subtitle?: string }) =>
+    setState((prev) => {
+      const title =
+        text.title === undefined
+          ? prev.broadcastTitle
+          : text.title.slice(0, MAX_BROADCAST_TITLE_LENGTH) || DEFAULT_BROADCAST_TITLE;
+      const subtitle =
+        text.subtitle === undefined
+          ? prev.broadcastSubtitle
+          : text.subtitle.slice(0, MAX_BROADCAST_SUBTITLE_LENGTH) ||
+            DEFAULT_BROADCAST_SUBTITLE;
+      saveBroadcastTextPreference({ title, subtitle });
+      return { ...prev, broadcastTitle: title, broadcastSubtitle: subtitle };
+    });
+
   const setLosersBracket = (enabled: boolean) =>
     setState((prev) =>
       prev.bracket.length > 0 && prev.phase !== GamePhase.LOBBY
@@ -1815,6 +1867,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
           avatarColor: params.avatarColor,
           avatarAccessory: params.avatarAccessory,
           rejoinProof,
+          rejoinCode: rejoinCode || undefined,
         });
         return;
       }
@@ -1987,6 +2040,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         avatarColor: seat?.avatarColor,
         avatarAccessory: seat?.avatarAccessory,
         rejoinProof: seat?.proof,
+        rejoinCode: seat?.code,
       });
     });
   }, [state.clientPin, state.clientPlayerId]);
@@ -2865,6 +2919,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         resumeHosting,
         clearResumeError,
         toggleHostAnswering,
+        setBroadcastText,
         setLosersBracket,
         clearJoinError,
         updateConfig,

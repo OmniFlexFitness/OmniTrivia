@@ -74,7 +74,7 @@ const ROOM_TTL_MS = 20000;
  * whole page down. So the version travels with every snapshot and is checked
  * before anything is rendered from it.
  */
-export const SNAPSHOT_VERSION = 5;
+export const SNAPSHOT_VERSION = 6;
 
 /** How a snapshot's version compares to what this build can render. */
 export type SnapshotFit = "ok" | "sender-is-newer" | "sender-is-older";

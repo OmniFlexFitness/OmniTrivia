@@ -1,5 +1,6 @@
 import type { Player } from "../types";
 import type { MessageMeta } from "./remoteRoom";
+import { playerProof } from "./proof";
 
 /**
  * Which device holds which seat, and whether a message may speak for one.
@@ -179,3 +180,18 @@ export const resolveJoinRequest = (params: {
     rejoined: Boolean(seat),
   };
 };
+
+/**
+ * The rejoin code a join request carried, if it is the code its proof was made
+ * from.
+ *
+ * The host keeps the code so it can read it back to a player who forgot it.
+ * Anything that does not hash to the proof beside it is a typo or mischief,
+ * and reading the wrong code back to a player is worse than reading none.
+ */
+export const verifiedRejoinCode = (
+  pin: string,
+  code: string | undefined,
+  proof: string | undefined,
+): string | undefined =>
+  code && proof && playerProof(pin, code) === proof ? code : undefined;

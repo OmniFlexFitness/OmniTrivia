@@ -28,6 +28,11 @@ import { seatsOf } from "../services/snapshot";
 import AvatarDisplay from "./AvatarDisplay";
 import BracketView, { MatchupCard, SideTag } from "./BracketView";
 import { sideOf } from "../services/bracket";
+import {
+  DEFAULT_BROADCAST_SUBTITLE,
+  DEFAULT_BROADCAST_TITLE,
+  renderBroadcastText,
+} from "../services/broadcastText";
 import JoinCode from "./JoinCode";
 import CategoryVotePanel from "./CategoryVotePanel";
 import SpectatorWheel from "./SpectatorWheel";
@@ -502,17 +507,17 @@ const StandbyStage: React.FC<{
   onPin?: (pin: string) => void;
 }> = ({ snapshot, pin = null, link = "local", onPin }) => (
   <div className="flex-1 flex flex-col items-center justify-center text-center gap-6">
-    <div className="text-6xl md:text-8xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-neon-blue to-neon-pink">
-      OMNI<span className="text-white">TRIVIA</span>
+    {/* The host's words, not the app's: "Trivia" and "Elevate · today's
+        date" until they change them from the desk. */}
+    <div className="text-6xl md:text-8xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-neon-blue to-neon-pink pb-2">
+      {renderBroadcastText(snapshot?.broadcastTitle, DEFAULT_BROADCAST_TITLE)}
     </div>
 
     {snapshot?.gamePin ? (
       <>
-        {snapshot.gameName && (
-          <div className="text-4xl md:text-5xl font-black text-white">
-            {snapshot.gameName}
-          </div>
-        )}
+        <div className="text-4xl md:text-5xl font-black text-white">
+          {renderBroadcastText(snapshot.broadcastSubtitle, DEFAULT_BROADCAST_SUBTITLE)}
+        </div>
         <div className="text-2xl text-slate-400 font-mono uppercase tracking-widest">
           Scan to join, or type the PIN
         </div>

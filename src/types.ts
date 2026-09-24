@@ -67,6 +67,12 @@ export interface Player {
    * it on the snapshot every device renders would hand it to everybody.
    */
   rejoinProof?: string;
+  /**
+   * The rejoin code itself, so the host can read it back to a player who has
+   * forgotten it. Host-side only, like the proof: it is kept on the seat,
+   * saved with the host's copy of the game, and never put on the snapshot.
+   */
+  rejoinCode?: string;
   lastAnswerCorrect?: boolean;
   streak: number;
   // Knocked out of the bracket. Eliminated players stay on the leaderboard and
@@ -253,6 +259,13 @@ export interface GameState {
   isHost: boolean;
   /** The join code, and only that — the room is identified by `gameName`. */
   gamePin: string | null;
+  /**
+   * The headline on the big screen while the room is joining. Defaults to
+   * "Trivia"; the host can change it. `{date}` is replaced with today's date.
+   */
+  broadcastTitle: string;
+  /** The line under it. Defaults to "Elevate · {date}". */
+  broadcastSubtitle: string;
   /** What this game is called. Set by the host, shown on every screen. */
   gameName: string;
   /**
@@ -544,6 +557,9 @@ export interface BroadcastSnapshot {
   phase: GamePhase;
   gamePin: string | null;
   gameName: string;
+  /** The big screen's headline and the line under it, as the host set them. */
+  broadcastTitle: string;
+  broadcastSubtitle: string;
 
   roundNumber: number;
   totalRounds: number;
@@ -673,6 +689,12 @@ export type BroadcastMessage =
        * back into it from a device that has nothing else to show.
        */
       rejoinProof?: string;
+      /**
+       * The code itself, so the host can read it back to a player who forgot
+       * it. It adds nothing a watcher could use that the proof beside it does
+       * not already give them, and the host only keeps it when it matches.
+       */
+      rejoinCode?: string;
     }
   | {
       type: "player-join-result";

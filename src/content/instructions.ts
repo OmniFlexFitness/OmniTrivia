@@ -59,7 +59,7 @@ export const GLOSSARY: GlossaryEntry[] = [
   {
     term: "Rejoin code",
     definition:
-      "Four digits a player picks when they join. Their name and that code get them back into the same seat — score, streak and place in the bracket — from any phone, at any point in the game. A phone that only reloads comes back on its own and never needs it.",
+      "Four digits dealt to a player when they join — keep them or change them. Their name and that code get them back into the same seat — score, streak and place in the bracket — from any phone, at any point in the game. A phone that only reloads comes back on its own and never needs it.",
   },
   {
     term: "Host password",
@@ -169,9 +169,9 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
 
   join: {
     title: "Taking a seat",
-    lead: "The PIN is on the big screen. Type it, pick a name and a face, choose a rejoin code, and you are in the host's game.",
+    lead: "The PIN is on the big screen. Type it, pick a name and a face, and you are in the host's game.",
     points: [
-      "Your rejoin code is four digits you pick yourself. Remember it: your name and that code get you back into this exact seat — same score, same place in the bracket — from any phone, even mid-game.",
+      "Your rejoin code is filled in for you — keep it, reroll it, or type your own. Your name and that code get you back into this exact seat — same score, same place in the bracket — from any phone, even mid-game. It stays on your screen once you are in, and the host can look it up if you lose it.",
       "Already playing and got knocked out of the game? Come back to this same screen, type the same name and the same code, and you will land back in your seat rather than a new one.",
       "You can only take a *new* seat while the lobby is open — once the first round is drawn, the bracket is set. Coming back to a seat you already had works at any point.",
       "If your phone just locks or reloads, you come back automatically without typing anything.",

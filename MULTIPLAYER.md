@@ -308,8 +308,11 @@ vector), the replay case and the binding.
 - **Anyone who guesses a PIN can watch a room.** They see exactly what the
   projector shows and cannot affect it. Four digits is 9,000 rooms, and a night
   runs one.
-- **A player's proof crosses the room's message bus**, which every device in the
-  room can read. So a rejoin code raises the bar from "knows a player id off the
+- **A player's proof — and now the code itself — crosses the room's message
+  bus**, which every device in the room can read. Sending the code adds
+  nothing: the proof beside it is already what unlocks the seat. The host keeps
+  the code only when it hashes to that proof, so it can read it back to a
+  player who forgot it. So a rejoin code raises the bar from "knows a player id off the
   leaderboard" — which is everyone — to "was watching the database at the moment
   that player joined". The host password never crosses it at all.
 - **A four-digit code is guessable by brute force**, but only online, one write

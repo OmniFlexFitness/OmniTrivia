@@ -7,12 +7,16 @@ import JoinCode from './JoinCode';
 import Instructions from './Instructions';
 import LosersBracketToggle from './LosersBracketToggle';
 import HostScreensPanel from './HostScreensPanel';
+import BroadcastTextEditor from './BroadcastTextEditor';
 import { Users, Zap, Settings, UserPlus, PlayCircle, Monitor, KeyRound, Eye, EyeOff, Tablet } from 'lucide-react';
 
 const LobbyScreen: React.FC = () => {
   const { players, startGame, isHost, totalRounds, questionsPerRound, gamePin, gameName, hostPassword, addBot, hostJoinAsPlayer, currentPlayerId, openBroadcast, broadcastConnected, roomWarning, losersBracket, setLosersBracket, remotes } = useGame();
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [showScreens, setShowScreens] = useState(false);
+  // Codes are hidden until asked for, for the same reason the password is:
+  // this laptop is on a table people walk past.
+  const [showCodes, setShowCodes] = useState(false);
   // Held back by default: this screen is the host's, but a laptop on a desk in
   // a bar is read over shoulders, and the password is the game itself.
   const [showPassword, setShowPassword] = useState(false);
@@ -97,6 +101,17 @@ const LobbyScreen: React.FC = () => {
       <div className="w-full max-w-6xl flex-1 flex flex-col md:flex-row gap-6 overflow-hidden">
         {/* Players Grid */}
         <div className="flex-1 bg-slate-800/30 rounded-2xl border border-slate-700 p-4 overflow-y-auto custom-scrollbar">
+          {isHost && players.some((p) => p.rejoinCode) && (
+            <div className="flex justify-end mb-3">
+              <button
+                onClick={() => setShowCodes((shown) => !shown)}
+                className="flex items-center gap-1.5 text-xs font-mono uppercase tracking-widest text-slate-400 hover:text-neon-yellow transition-colors"
+              >
+                {showCodes ? <EyeOff size={14} /> : <Eye size={14} />}
+                {showCodes ? 'hide rejoin codes' : 'show rejoin codes'}
+              </button>
+            </div>
+          )}
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
             {players.map((player) => (
               <div 
@@ -117,6 +132,14 @@ const LobbyScreen: React.FC = () => {
                 </div>
                 {player.isHost && <span className="text-xs text-neon-yellow font-bold mt-1 font-mono">HOST</span>}
                 {player.isBot && <span className="text-xs text-slate-500 uppercase mt-1 font-mono">AI PLAYER</span>}
+                {isHost && showCodes && player.rejoinCode && (
+                  <span
+                    className="mt-1 font-mono text-sm tracking-[0.25em] text-neon-yellow"
+                    title="This player's rejoin code"
+                  >
+                    {player.rejoinCode}
+                  </span>
+                )}
               </div>
             ))}
             
@@ -145,6 +168,12 @@ const LobbyScreen: React.FC = () => {
                 <span>{questionsPerRound}</span>
               </div>
             </div>
+
+            {isHost && (
+              <div className="mt-4 pt-4 border-t border-slate-700">
+                <BroadcastTextEditor />
+              </div>
+            )}
 
             {/* Still the host's call until the draw is made: this is where
                 they can see how many people turned up, and so how many rounds

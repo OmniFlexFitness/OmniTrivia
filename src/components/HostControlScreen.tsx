@@ -35,6 +35,7 @@ import CategoryVotePanel from "./CategoryVotePanel";
 import CategoryPoolManager from "./CategoryPoolManager";
 import InsightsPanel from "./InsightsPanel";
 import HostScreensPanel from "./HostScreensPanel";
+import BroadcastTextEditor from "./BroadcastTextEditor";
 import {
   ArrowRight,
   BarChart3,
@@ -1038,6 +1039,9 @@ const HostControlScreen: React.FC = () => {
 
   const [showPool, setShowPool] = React.useState(false);
   const [showScreens, setShowScreens] = React.useState(false);
+  // Rejoin codes, for the player who forgot theirs. Hidden by default: the
+  // desk is a laptop on a table, and a code is half of a seat.
+  const [showCodes, setShowCodes] = React.useState(false);
   const [showInsights, setShowInsights] = React.useState(false);
 
   if (loading) {
@@ -1219,7 +1223,21 @@ const HostControlScreen: React.FC = () => {
             </>
           )}
 
-          <Panel title="Scores">
+          <Panel
+            title="Scores"
+            action={
+              players.some((player) => player.rejoinCode) ? (
+                <button
+                  onClick={() => setShowCodes((shown) => !shown)}
+                  className="flex items-center gap-1 text-[10px] font-mono uppercase tracking-widest text-slate-500 hover:text-neon-yellow"
+                  title="Show each player's rejoin code, for anyone who has lost theirs"
+                >
+                  {showCodes ? <EyeOff size={12} /> : <Eye size={12} />}
+                  rejoin codes
+                </button>
+              ) : undefined
+            }
+          >
             <div className="space-y-1.5 max-h-64 overflow-y-auto custom-scrollbar pr-1">
               {[...players]
                 .sort((a, b) => b.score - a.score)
@@ -1242,6 +1260,11 @@ const HostControlScreen: React.FC = () => {
                     <span className="flex-1 truncate font-bold">
                       {player.name}
                     </span>
+                    {showCodes && player.rejoinCode && (
+                      <span className="font-mono text-xs tracking-[0.2em] text-neon-yellow">
+                        {player.rejoinCode}
+                      </span>
+                    )}
                     {player.losersBracket && !player.eliminated && (
                       <span
                         className="px-1.5 rounded border border-orange-400/60 text-[9px] font-mono uppercase tracking-widest text-orange-300"
@@ -1259,6 +1282,10 @@ const HostControlScreen: React.FC = () => {
                   </div>
                 ))}
             </div>
+          </Panel>
+
+          <Panel title="Big screen text" action={<Tv size={14} className="text-slate-500" />}>
+            <BroadcastTextEditor compact />
           </Panel>
 
           {categoryLikes.length > 0 && (

@@ -158,6 +158,8 @@ const useRemoteLink = () => {
   const [now, setNow] = useState(Date.now());
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [answers, setAnswers] = useState<Map<string, Question>>(new Map());
+  /** Each player's rejoin code, for the one who has lost theirs. */
+  const [codes, setCodes] = useState<Map<string, string>>(new Map());
   const [canReadGame, setCanReadGame] = useState(false);
 
   const controllerId = useRef(newId("remote"));
@@ -331,9 +333,9 @@ const useRemoteLink = () => {
 
   /* --- the answer key, for reading out on the floor --- */
   const fetchedAt = useRef(0);
-  const refreshAnswers = useCallback(async () => {
+  const refreshAnswers = useCallback(async (minGapMs = 4000) => {
     if (!pin || !proof || !canReadGame) return;
-    if (Date.now() - fetchedAt.current < 4000) return;
+    if (Date.now() - fetchedAt.current < minGapMs) return;
     fetchedAt.current = Date.now();
 
     const state = canReachOtherDevices()
@@ -347,6 +349,12 @@ const useRemoteLink = () => {
     );
     state.questionsQueue.forEach((question) => map.set(question.id, question));
     setAnswers(map);
+
+    const codeMap = new Map<string, string>();
+    state.players.forEach((player) => {
+      if (player.rejoinCode) codeMap.set(player.id, player.rejoinCode);
+    });
+    setCodes(codeMap);
   }, [pin, proof, canReadGame]);
 
   // Only when the snapshot names a question this remote cannot answer: the
@@ -360,6 +368,17 @@ const useRemoteLink = () => {
     ].filter((id): id is string => Boolean(id));
     if (ids.some((id) => !answers.has(id))) void refreshAnswers();
   }, [snapshot, answers, refreshAnswers]);
+
+  // A player who joined since the last read has a code this remote has not
+  // seen. Checked less eagerly than the answers: somebody who joined without
+  // one would otherwise have the whole game re-read every few seconds.
+  useEffect(() => {
+    if (!snapshot) return;
+    const missing = snapshot.players.some(
+      (player) => !player.isBot && !player.isHost && !codes.has(player.id),
+    );
+    if (missing) void refreshAnswers(15000);
+  }, [snapshot, codes, refreshAnswers]);
 
   /* --- sending --- */
   const send = useCallback(
@@ -412,6 +431,7 @@ const useRemoteLink = () => {
     hostLive,
     feedback,
     answers,
+    codes,
     canReadGame,
     send,
     signIn,
@@ -719,7 +739,11 @@ const LaneRemote: React.FC<{
   );
 };
 
-const Standings: React.FC<{ players: PublicPlayer[] }> = ({ players }) => (
+const Standings: React.FC<{
+  players: PublicPlayer[];
+  codes: Map<string, string>;
+  showCodes: boolean;
+}> = ({ players, codes, showCodes }) => (
   <div className="space-y-1.5">
     {[...players]
       .sort((a, b) => b.score - a.score)
@@ -732,6 +756,11 @@ const Standings: React.FC<{ players: PublicPlayer[] }> = ({ players }) => (
         >
           <AvatarDisplay avatar={player.avatar} color={player.avatarColor} size="sm" />
           <span className="flex-1 truncate font-bold">{player.name}</span>
+          {showCodes && codes.get(player.id) && (
+            <span className="font-mono text-xs tracking-[0.2em] text-neon-yellow">
+              {codes.get(player.id)}
+            </span>
+          )}
           {player.losersBracket && !player.eliminated && (
             <span className="px-1.5 rounded border border-orange-400/60 text-[9px] font-mono uppercase text-orange-300">
               LB
@@ -1149,6 +1178,8 @@ const RemoteControlScreen: React.FC = () => {
     return () => clearTimeout(timer);
   }, [feedback]);
 
+  const [showCodes, setShowCodes] = useState(false);
+
   const hostPlayer = useMemo(
     () => snapshot?.players.find((player) => player.isHost),
     [snapshot],
@@ -1284,8 +1315,20 @@ const RemoteControlScreen: React.FC = () => {
         <div className="lg:col-span-2">{body()}</div>
         {snapshot && (
           <div className="space-y-4">
-            <Card title="Scores">
-              <Standings players={snapshot.players} />
+            <Card
+              title="Scores"
+              action={
+                link.codes.size > 0 ? (
+                  <button
+                    onClick={() => setShowCodes((shown) => !shown)}
+                    className="flex items-center gap-1 text-[10px] font-mono uppercase tracking-widest text-slate-400"
+                  >
+                    {showCodes ? <EyeOff size={12} /> : <Eye size={12} />} rejoin codes
+                  </button>
+                ) : undefined
+              }
+            >
+              <Standings players={snapshot.players} codes={link.codes} showCodes={showCodes} />
             </Card>
             {snapshot.bracket.length > 0 && (
               <Card title="Bracket">

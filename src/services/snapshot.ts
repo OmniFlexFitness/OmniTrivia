@@ -434,6 +434,8 @@ export const buildSnapshot = (
     phase: state.phase,
     gamePin: state.gamePin,
     gameName: state.gameName,
+    broadcastTitle: state.broadcastTitle,
+    broadcastSubtitle: state.broadcastSubtitle,
 
     roundNumber: state.currentRound,
     totalRounds: state.totalRounds,

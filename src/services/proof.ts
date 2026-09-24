@@ -220,6 +220,20 @@ export const MIN_HOST_PASSWORD_LENGTH = 4;
 /** How many digits a player's rejoin code is. Short: it is typed on a phone. */
 export const PLAYER_CODE_LENGTH = 4;
 
+/**
+ * A rejoin code nobody had to think of.
+ *
+ * Asking a room of people to invent four digits on the spot got a room full of
+ * 1234s, which is no protection at all and a pile of collisions besides. The
+ * join form now starts with one of these; a player can still type their own.
+ */
+export const suggestRejoinCode = (): string => {
+  const values = new Uint32Array(1);
+  if (globalThis.crypto?.getRandomValues) globalThis.crypto.getRandomValues(values);
+  else values[0] = Math.floor(Math.random() * 2 ** 32);
+  return String(values[0] % 10 ** PLAYER_CODE_LENGTH).padStart(PLAYER_CODE_LENGTH, "0");
+};
+
 /** A password a host can read off the screen and type again on a phone. */
 const PASSWORD_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
