@@ -12,6 +12,7 @@ import {
   releaseRemoteRoom,
   remoteEnabled,
   remotePinTaken,
+  warmUpRoom,
   whenConnected,
   writeRemoteHostState,
 } from "./remoteRoom";
@@ -180,7 +181,14 @@ const deliverRemote = (message: BroadcastMessage, meta: MessageMeta): void => {
 export const attachRoomChannel = (
   pin: string,
   asHost: boolean,
-): Promise<boolean> => attachRoom(pin, { asHost, handler: deliverRemote });
+  timeoutMs?: number,
+): Promise<boolean> =>
+  attachRoom(pin, { asHost, handler: deliverRemote, timeoutMs });
+
+/** Start connecting to the game server ahead of a join. See `warmUpRoom`. */
+export const warmUpRoomChannel = warmUpRoom;
+
+export { PLAYER_ATTACH_TIMEOUT_MS } from "./remoteRoom";
 
 export const detachRoomChannel = (): Promise<void> => detachRoom();
 
