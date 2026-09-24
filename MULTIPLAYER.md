@@ -263,7 +263,42 @@ cannot answer for them.
 `npm run check-returns` proves both paths without a browser; the rules table
 above is covered by `npm run check-room-rules`.
 
-## 9. Known limits
+## 9. More screens than the laptop
+
+The same room that carries a phone's answers carries two host-side screens,
+with no extra setup and **no change to the rules**:
+
+| View | URL | What it can do |
+| --- | --- | --- |
+| Broadcast | `?view=broadcast&pin=1234` | Read the snapshot, exactly as a phone can — so exactly what the projector shows. No controls. |
+| Remote | `?view=remote&pin=1234` | Send the host window commands — spin, start, pause, end the round — once it has proved the host password. |
+
+Both links, with QR codes, are under **CAST & REMOTE** in the lobby and on the
+control screen.
+
+The remote is the part with a security story, because the room's bus is
+readable by every device in the room:
+
+1. The tablet derives `hostProof` from the PIN and the password locally.
+2. It writes the proof to `/roomClaims/{pin}/{uid}` — the same check a
+   returning host makes, enforced by the rules, so a wrong password is refused
+   by the database even if the laptop is asleep. A right one also lets the
+   tablet read `/hostState`, which is where it gets the answers it shows
+   behind a tap.
+3. It sends a `remote-hello` carrying `HMAC-SHA256(proof, pin + its uid +
+   its remote id)` — never the proof, which anyone reading the bus could
+   replay into `/roomClaims`.
+4. The host window recomputes the signature against the uid the database
+   stamped on the message. A match binds that uid; every later command is
+   accepted only from it. The same hello sent from any other device is a
+   signature for the wrong uid.
+
+Commands name the value to set and the round they were pressed in, so a
+double tap or a tablet a beat behind cannot flip a setting back or skip a
+round. `npm run check-hosting` covers the signature (against the RFC 4231 test
+vector), the replay case and the binding.
+
+## 10. Known limits
 
 - **A phone that reloads rejoins its own seat** with nothing typed, because the
   seat is remembered in that browser (`src/services/seat.ts`).
@@ -273,16 +308,26 @@ above is covered by `npm run check-room-rules`.
 - **Anyone who guesses a PIN can watch a room.** They see exactly what the
   projector shows and cannot affect it. Four digits is 9,000 rooms, and a night
   runs one.
-- **A player's proof crosses the room's message bus**, which every device in the
-  room can read. So a rejoin code raises the bar from "knows a player id off the
+- **A player's proof — and now the code itself — crosses the room's message
+  bus**, which every device in the room can read. Sending the code adds
+  nothing: the proof beside it is already what unlocks the seat. The host keeps
+  the code only when it hashes to that proof, so it can read it back to a
+  player who forgot it. So a rejoin code raises the bar from "knows a player id off the
   leaderboard" — which is everyone — to "was watching the database at the moment
   that player joined". The host password never crosses it at all.
 - **A four-digit code is guessable by brute force**, but only online, one write
   at a time, against a room that is running tonight.
+- **A remote is as powerful as the host password**, because it is the host
+  password. Anyone who has it can take the whole game back anyway; there is no
+  separate "remote-only" password, and no way to revoke one remote short of
+  ending the game.
+- **The laptop has to stay awake.** A remote drives the host window, it does not
+  replace it. A minimised or sleeping window has its clock slowed or stopped by
+  the browser, and the remote says "host quiet" when that happens.
 
 ---
 
-## 10. Key takeaways
+## 11. Key takeaways
 
 - **Three console steps**: create the database, enable Anonymous sign-in,
   register a web app.
@@ -293,6 +338,8 @@ above is covered by `npm run check-room-rules`.
 - **Publishing the rules is a separate step from writing them**, and the app
   cannot tell you that you skipped it. `npm run check-live` can.
 - **The host still runs the game.** Firebase is the wire, not the referee.
+- **The broadcast and the controls can be on other devices** — a TV by PIN, a
+  tablet with the host password — through the same room, with no new rules.
 - **A lost game is recoverable.** The host comes back with the PIN and the host
   password; a player comes back with their name and their rejoin code. The room
   waits 30 minutes for the host before it clears itself away.

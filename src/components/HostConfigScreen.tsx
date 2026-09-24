@@ -5,6 +5,7 @@ import Instructions from './Instructions';
 import CategoryPoolManager from './CategoryPoolManager';
 import { MIN_HOST_PASSWORD_LENGTH, suggestHostPassword } from '../services/proof';
 import { Settings, ArrowRight, KeyRound, Library, ListPlus, Loader2, RefreshCw, Upload, AlertTriangle } from 'lucide-react';
+import LosersBracketToggle from './LosersBracketToggle';
 
 const HostConfigScreen: React.FC = () => {
   const {
@@ -17,6 +18,8 @@ const HostConfigScreen: React.FC = () => {
     setGameName,
     hostPassword,
     setHostPassword,
+    losersBracket,
+    setLosersBracket,
   } = useGame();
   const [rounds, setRounds] = useState(3);
   const [questions, setQuestions] = useState(5);
@@ -179,6 +182,14 @@ const HostConfigScreen: React.FC = () => {
               is kept.
             </p>
           </div>
+
+          {/* The shape of the bracket, not of the questions — but it decides
+              how many rounds the night needs, so it belongs beside the two
+              sliders that say how many there are. */}
+          <LosersBracketToggle
+            enabled={losersBracket}
+            onChange={setLosersBracket}
+          />
 
           <div className="pt-4 space-y-3">
             <Button onClick={handleGenerate} fullWidth variant="neon" disabled={passwordTooShort || loadingBank} className="flex items-center justify-center gap-2">

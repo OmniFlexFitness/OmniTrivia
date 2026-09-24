@@ -215,6 +215,7 @@ const toPublicPlayer = (player: Player, midMatch: boolean): PublicPlayer => ({
   isBot: player.isBot,
   isHost: player.isHost,
   eliminated: player.eliminated,
+  losersBracket: player.losersBracket,
 });
 
 /**
@@ -433,9 +434,13 @@ export const buildSnapshot = (
     phase: state.phase,
     gamePin: state.gamePin,
     gameName: state.gameName,
+    broadcastTitle: state.broadcastTitle,
+    broadcastSubtitle: state.broadcastSubtitle,
 
     roundNumber: state.currentRound,
     totalRounds: state.totalRounds,
+    losersBracket: state.losersBracket,
+    hostAnswering: state.hostAnsweringEnabled,
     category,
     wheelSpinning: state.wheelSpinning,
     wheelSlices,

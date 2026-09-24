@@ -16,6 +16,9 @@ import {
 } from "../types";
 import { useGame } from "../context/GameContext";
 import { seatsOf } from "../services/snapshot";
+import { readSeat } from "../services/seat";
+import { SideTag } from "./BracketView";
+import { matchupById, sideOf } from "../services/bracket";
 import {
   postMessage,
   readStoredSnapshot,
@@ -113,9 +116,23 @@ const MyMatchup: React.FC<{
 
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-2xl px-4 py-3">
-      <div className="text-[11px] font-mono uppercase tracking-widest text-slate-500 mb-2">
-        {label}
+      <div className="flex items-center justify-between gap-2 text-[11px] font-mono uppercase tracking-widest text-slate-500 mb-2">
+        <span>{label}</span>
+        {matchup && <SideTag side={sideOf(matchup)} />}
       </div>
+
+      {/* What is riding on it. In a game with a loser's bracket the same
+          matchup card means three different things, and a player should not
+          find out which from the results screen. */}
+      {matchup && snapshot.losersBracket && opponent && (
+        <div className="text-xs text-slate-400 mb-2">
+          {sideOf(matchup) === "final"
+            ? "Win this and you take the night."
+            : sideOf(matchup) === "losers"
+              ? "You have lost once — lose this and you're out."
+              : "Lose this and you drop to the loser's bracket, still in it."}
+        </div>
+      )}
 
       {!matchup ? (
         <div className="text-sm text-slate-400">
@@ -396,12 +413,20 @@ const MatchResult: React.FC<{
 
   // Matchups are settled on this round's points; a tie falls to total score,
   // which is decided on the desk when the round closes.
+  const matchup = matchupById(snapshot.bracket ?? [], lane.matchupId);
+  const side = matchup ? sideOf(matchup) : "winners";
+  // A first loss is not the end when there is a loser's bracket to fall into,
+  // and saying "you lose" without that would send a player home early.
+  const losing =
+    snapshot.losersBracket && side === "winners"
+      ? "You lose — down to the loser's bracket"
+      : "You lose the match";
   const verdict = !opponent
     ? { text: "Bye — you advance", tone: "text-[#39ff88]" }
     : mine > theirs
       ? { text: "You win the match", tone: "text-[#39ff88]" }
       : mine < theirs
-        ? { text: "You lose the match", tone: "text-[#ff3b5c]" }
+        ? { text: losing, tone: "text-[#ff3b5c]" }
         : { text: "Dead level — settled on total score", tone: "text-[#f5ff3b]" };
 
   return (
@@ -595,6 +620,11 @@ const PlayerScreen: React.FC = () => {
     setCategoryLike,
     voteForCategory,
   } = useGame();
+  // The code this phone joined with, kept in view so nobody has to remember
+  // it — it only ever lives in this browser and on the host's desk. Read on
+  // every render rather than once: the seat is saved a moment after the join
+  // lands, and this screen is already up by then.
+  const rejoinCode = readSeat(clientPin)?.code ?? null;
   const [snapshot, setSnapshot] = useState<BroadcastSnapshot | null>(() => {
     const stored = readStoredSnapshot();
     return stored?.gamePin === clientPin ? stored : null;
@@ -872,6 +902,20 @@ const PlayerScreen: React.FC = () => {
               {snapshot.players.length} in the room. The host starts when
               everyone has joined.
             </p>
+            {rejoinCode && (
+              <div className="mt-6 inline-flex flex-col items-center gap-1 rounded-xl border border-neon-yellow/50 bg-neon-yellow/5 px-6 py-3">
+                <span className="text-[11px] font-mono uppercase tracking-widest text-slate-400">
+                  Your rejoin code
+                </span>
+                <span className="font-mono text-3xl font-black tracking-[0.3em] text-neon-yellow">
+                  {rejoinCode}
+                </span>
+                <span className="text-[11px] text-slate-500 max-w-[16rem]">
+                  With your name, this gets you back into your seat from any
+                  phone. The host has it too.
+                </span>
+              </div>
+            )}
           </div>
         );
 
@@ -994,6 +1038,7 @@ const PlayerScreen: React.FC = () => {
           </div>
           <div className="text-xs font-mono uppercase tracking-widest text-slate-500">
             {snapshot?.gameName || gameName} · PIN {clientPin}
+            {rejoinCode && <span className="text-neon-yellow/80"> · code {rejoinCode}</span>}
           </div>
         </div>
 

@@ -54,8 +54,11 @@ const K = new Uint32Array([
 const rotr = (value: number, bits: number): number =>
   (value >>> bits) | (value << (32 - bits));
 
-const sha256Hex = (input: string): string => {
-  const data = new TextEncoder().encode(input);
+const sha256Hex = (input: string): string =>
+  sha256Bytes(new TextEncoder().encode(input));
+
+/** SHA-256 of raw bytes, as hex. `sha256Hex` is this over a string's UTF-8. */
+const sha256Bytes = (data: Uint8Array): string => {
   // Append 0x80, pad with zeros to 56 mod 64, then the length as 64 bits.
   const padded = data.length + 9 + ((64 - ((data.length + 9) % 64)) % 64);
   const block = new Uint8Array(padded);
@@ -123,6 +126,45 @@ const sha256Hex = (input: string): string => {
   return Array.from(h, (word) => word.toString(16).padStart(8, "0")).join("");
 };
 
+const hexToBytes = (hex: string): Uint8Array => {
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < bytes.length; i++) {
+    bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  }
+  return bytes;
+};
+
+const concat = (a: Uint8Array, b: Uint8Array): Uint8Array => {
+  const joined = new Uint8Array(a.length + b.length);
+  joined.set(a);
+  joined.set(b, a.length);
+  return joined;
+};
+
+/**
+ * HMAC-SHA256 (RFC 2104), as hex.
+ *
+ * A plain hash of `key + message` can be extended by anyone holding its
+ * output, which is the one thing a signature read off a shared bus must not
+ * allow. HMAC is the standard fix, and it is a dozen lines on top of the hash
+ * that is already here.
+ */
+export const hmacSha256Hex = (key: string, message: string): string => {
+  const BLOCK = 64;
+  let keyBytes: Uint8Array = new TextEncoder().encode(key);
+  if (keyBytes.length > BLOCK) keyBytes = hexToBytes(sha256Bytes(keyBytes));
+
+  const padded = new Uint8Array(BLOCK);
+  padded.set(keyBytes);
+  const inner = padded.map((byte) => byte ^ 0x36);
+  const outer = padded.map((byte) => byte ^ 0x5c);
+
+  const innerHash = sha256Bytes(
+    concat(inner, new TextEncoder().encode(message)),
+  );
+  return sha256Bytes(concat(outer, hexToBytes(innerHash)));
+};
+
 /**
  * Stretching the password. Guessing one against a live room is bounded by the
  * network rather than by this, so the rounds are not what protects the game —
@@ -153,11 +195,44 @@ export const hostProof = (pin: string, password: string): string =>
 export const playerProof = (pin: string, code: string): string =>
   derive("player", pin, code);
 
+/**
+ * What a host's remote signs to show it knows the host password.
+ *
+ * The remote talks to the host over the room's message bus, which every
+ * device in the room can read — so neither the password nor its proof can
+ * travel on it. A proof could be copied into `/roomClaims` by anybody who
+ * read it, and the password would simply be the password. This is a keyed
+ * signature instead: only something holding the proof can produce it, and it
+ * names the signed-in identity of the device that sent it, which the database
+ * pins to the real sender. Reading one off the bus and sending it again from
+ * any other device is a signature for the wrong identity.
+ */
+export const remoteSignature = (
+  proof: string,
+  pin: string,
+  uid: string,
+  controllerId: string,
+): string => hmacSha256Hex(proof, `omnitrivia:remote:${pin}:${uid}:${controllerId}`);
+
 /** Shortest host password worth calling one. Enforced where it is set. */
 export const MIN_HOST_PASSWORD_LENGTH = 4;
 
 /** How many digits a player's rejoin code is. Short: it is typed on a phone. */
 export const PLAYER_CODE_LENGTH = 4;
+
+/**
+ * A rejoin code nobody had to think of.
+ *
+ * Asking a room of people to invent four digits on the spot got a room full of
+ * 1234s, which is no protection at all and a pile of collisions besides. The
+ * join form now starts with one of these; a player can still type their own.
+ */
+export const suggestRejoinCode = (): string => {
+  const values = new Uint32Array(1);
+  if (globalThis.crypto?.getRandomValues) globalThis.crypto.getRandomValues(values);
+  else values[0] = Math.floor(Math.random() * 2 ** 32);
+  return String(values[0] % 10 ** PLAYER_CODE_LENGTH).padStart(PLAYER_CODE_LENGTH, "0");
+};
 
 /** A password a host can read off the screen and type again on a phone. */
 const PASSWORD_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";

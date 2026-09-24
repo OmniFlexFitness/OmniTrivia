@@ -36,6 +36,7 @@ const Wheel: React.FC = () => {
     currentRound,
     totalRounds,
     roundsConfig,
+    remoteSpinRequest,
   } = useGame();
 
   // Core state
@@ -213,6 +214,18 @@ const Wheel: React.FC = () => {
   const handleSpinClick = () => {
     triggerSpin(MIN_SPIN_VELOCITY * 4);
   };
+
+  // A spin asked for from the host's remote is this wheel's spin: it turns
+  // here, lands here, and the pointer on this desk decides the category, the
+  // same as a press of the button. Requests from before this wheel was on
+  // screen belong to a wheel that has gone and are not replayed.
+  const spinsSeen = useRef(remoteSpinRequest);
+  useEffect(() => {
+    if (remoteSpinRequest === spinsSeen.current) return;
+    spinsSeen.current = remoteSpinRequest;
+    if (isHost) handleSpinClick();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [remoteSpinRequest]);
 
   // Animate deceleration for sub-threshold spins
   const animateDeceleration = useCallback(() => {

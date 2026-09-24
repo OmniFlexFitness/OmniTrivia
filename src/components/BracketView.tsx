@@ -1,14 +1,44 @@
 import React from "react";
-import { BracketRound, Matchup, PublicPlayer } from "../types";
+import { BracketRound, BracketSide, Matchup, PublicPlayer } from "../types";
+import { SIDE_LABELS, sideOf } from "../services/bracket";
 import AvatarDisplay from "./AvatarDisplay";
-import { Crown, Swords } from "lucide-react";
+import { Crown, ShieldAlert, Swords, Trophy } from "lucide-react";
 
 /**
  * The head-to-head bracket, drawn one column per round.
  *
  * Shared by the host's control panel and the broadcast so the room and the
  * host are never looking at two different versions of who is still alive.
+ *
+ * A game with a loser's bracket plays both sides in the same round, so it is
+ * drawn as two rows of columns — the winners' side over the loser's side —
+ * with the grand final after them. A single-elimination game is one row, the
+ * way it always was.
  */
+
+/** The small chip that says which bracket a matchup belongs to. */
+export const SideTag: React.FC<{ side: BracketSide; size?: "sm" | "lg" }> = ({
+  side,
+  size = "sm",
+}) => {
+  if (side === "winners") return null;
+  const large = size === "lg";
+
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-full border font-mono uppercase tracking-widest ${
+        large ? "px-3 py-1 text-xs" : "px-2 py-0.5 text-[9px]"
+      } ${
+        side === "final"
+          ? "border-yellow-400/70 text-yellow-300 bg-yellow-400/10"
+          : "border-orange-400/60 text-orange-300 bg-orange-500/10"
+      }`}
+    >
+      {side === "final" ? <Trophy size={large ? 12 : 10} /> : <ShieldAlert size={large ? 12 : 10} />}
+      {SIDE_LABELS[side]}
+    </span>
+  );
+};
 
 interface BracketViewProps {
   bracket: BracketRound[];
@@ -92,7 +122,9 @@ export const MatchupCard: React.FC<{
   players: PublicPlayer[];
   isLive: boolean;
   size: "sm" | "lg";
-}> = ({ matchup, players, isLive, size }) => {
+  /** Label a loser's-bracket or grand-final matchup, where nothing else does. */
+  showSide?: boolean;
+}> = ({ matchup, players, isLive, size, showSide = false }) => {
   const byId = (id: string | null) =>
     id ? players.find((p) => p.id === id) : undefined;
 
@@ -113,6 +145,11 @@ export const MatchupCard: React.FC<{
           : "border-slate-800 bg-slate-900/60"
       }`}
     >
+      {showSide && sideOf(matchup) !== "winners" && (
+        <div className="flex justify-center pb-1">
+          <SideTag side={sideOf(matchup)} size={size} />
+        </div>
+      )}
       <Seat
         player={a}
         score={matchup.scoreA ?? liveScore(a)}
@@ -160,14 +197,26 @@ const BracketView: React.FC<BracketViewProps> = ({
     );
   }
 
-  return (
-    <div className="flex gap-4 overflow-x-auto custom-scrollbar pb-2">
-      {bracket.map((round) => {
+  const sides: BracketSide[] = ["winners", "losers", "final"];
+  const present = sides.filter((side) =>
+    bracket.some((round) => round.matchups.some((m) => sideOf(m) === side)),
+  );
+  // A single-elimination game has one side and draws no headings at all.
+  const split = present.some((side) => side !== "winners");
+
+  const columns = (side: BracketSide) =>
+    bracket
+      .map((round) => ({
+        round,
+        matchups: round.matchups.filter((m) => !split || sideOf(m) === side),
+      }))
+      .filter(({ matchups }) => matchups.length > 0)
+      .map(({ round, matchups }) => {
         const isLive = round.roundNumber === currentRound && !round.resolved;
 
         return (
           <div
-            key={round.roundNumber}
+            key={`${side}-${round.roundNumber}`}
             className="shrink-0 w-64 md:w-72 space-y-2"
           >
             <div
@@ -178,7 +227,7 @@ const BracketView: React.FC<BracketViewProps> = ({
               <span>Round {round.roundNumber}</span>
               {isLive && <span className="animate-pulse">● live</span>}
             </div>
-            {round.matchups.map((matchup) => (
+            {matchups.map((matchup) => (
               <MatchupCard
                 key={matchup.id}
                 matchup={matchup}
@@ -189,29 +238,56 @@ const BracketView: React.FC<BracketViewProps> = ({
             ))}
           </div>
         );
-      })}
+      });
 
-      {champion && (
-        <div className="shrink-0 w-64 md:w-72 flex flex-col justify-center">
-          <div className="rounded-xl border-2 border-yellow-400 bg-yellow-400/10 p-4 text-center shadow-[0_0_25px_rgba(250,204,21,0.3)]">
-            <Crown size={32} className="mx-auto text-yellow-400 mb-2" />
-            <div className="text-xs font-mono uppercase tracking-widest text-yellow-400 mb-2">
-              Champion
-            </div>
-            <div className="flex items-center justify-center mb-2">
-              <AvatarDisplay
-                avatar={champion.avatar}
-                color={champion.avatarColor}
-                accessory={champion.avatarAccessory}
-                size="lg"
-              />
-            </div>
-            <div className="text-2xl font-black text-white">
-              {champion.name}
-            </div>
+  const championCard = champion && (
+    <div className="shrink-0 w-64 md:w-72 flex flex-col justify-center">
+      <div className="rounded-xl border-2 border-yellow-400 bg-yellow-400/10 p-4 text-center shadow-[0_0_25px_rgba(250,204,21,0.3)]">
+        <Crown size={32} className="mx-auto text-yellow-400 mb-2" />
+        <div className="text-xs font-mono uppercase tracking-widest text-yellow-400 mb-2">
+          Champion
+        </div>
+        <div className="flex items-center justify-center mb-2">
+          <AvatarDisplay
+            avatar={champion.avatar}
+            color={champion.avatarColor}
+            accessory={champion.avatarAccessory}
+            size="lg"
+          />
+        </div>
+        <div className="text-2xl font-black text-white">{champion.name}</div>
+      </div>
+    </div>
+  );
+
+  if (!split) {
+    return (
+      <div className="flex gap-4 overflow-x-auto custom-scrollbar pb-2">
+        {columns("winners")}
+        {championCard}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {present.map((side) => (
+        <div key={side}>
+          <div className="mb-2">
+            {side === "winners" ? (
+              <span className="text-[10px] font-mono uppercase tracking-[0.25em] text-neon-green">
+                {SIDE_LABELS.winners} · unbeaten
+              </span>
+            ) : (
+              <SideTag side={side} size={size} />
+            )}
+          </div>
+          <div className="flex gap-4 overflow-x-auto custom-scrollbar pb-2">
+            {columns(side)}
+            {side === present[present.length - 1] && championCard}
           </div>
         </div>
-      )}
+      ))}
     </div>
   );
 };

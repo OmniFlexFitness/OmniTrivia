@@ -67,11 +67,22 @@ export interface Player {
    * it on the snapshot every device renders would hand it to everybody.
    */
   rejoinProof?: string;
+  /**
+   * The rejoin code itself, so the host can read it back to a player who has
+   * forgotten it. Host-side only, like the proof: it is kept on the seat,
+   * saved with the host's copy of the game, and never put on the snapshot.
+   */
+  rejoinCode?: string;
   lastAnswerCorrect?: boolean;
   streak: number;
   // Knocked out of the bracket. Eliminated players stay on the leaderboard and
   // keep their score, they just stop being matched up.
   eliminated?: boolean;
+  /**
+   * Lost once, and still alive in the loser's bracket. Only ever set in a game
+   * the host opened with a loser's bracket; a second loss is `eliminated`.
+   */
+  losersBracket?: boolean;
 }
 
 export interface Question {
@@ -101,12 +112,26 @@ export interface AnswerRecord {
 }
 
 /**
+ * Which half of a double-elimination bracket a matchup belongs to.
+ *
+ * "winners" is everybody who has not lost yet — and the whole bracket when the
+ * game has no loser's bracket. "losers" is everybody who has lost exactly once.
+ * "final" is the one matchup between the last player standing on each side.
+ */
+export type BracketSide = "winners" | "losers" | "final";
+
+/**
  * One head-to-head pairing for a single round. `playerBId` is null for the odd
  * player out, who advances on a bye.
  */
 export interface Matchup {
   id: string;
   roundNumber: number;
+  /**
+   * Which bracket this matchup is played in. Absent on anything written before
+   * the loser's bracket existed, which read as "winners" — every matchup was.
+   */
+  bracket?: BracketSide;
   playerAId: string;
   playerBId: string | null;
   winnerId: string | null;
@@ -234,6 +259,13 @@ export interface GameState {
   isHost: boolean;
   /** The join code, and only that — the room is identified by `gameName`. */
   gamePin: string | null;
+  /**
+   * The headline on the big screen while the room is joining. Defaults to
+   * "Trivia"; the host can change it. `{date}` is replaced with today's date.
+   */
+  broadcastTitle: string;
+  /** The line under it. Defaults to "Elevate · {date}". */
+  broadcastSubtitle: string;
   /** What this game is called. Set by the host, shown on every screen. */
   gameName: string;
   /**
@@ -306,6 +338,12 @@ export interface GameState {
   // When false the room's screen holds on each answer until the host clicks
   // through. Players always advance themselves — that is the point of a seat.
   autoAdvance: boolean;
+  /**
+   * Double elimination: a first loss drops a player into the loser's bracket
+   * instead of out of the game, and the last player on each side meets in a
+   * grand final. Chosen at setup and fixed once the first round is drawn.
+   */
+  losersBracket: boolean;
   // The host plays along from their own screen for testing. Turning this off
   // takes them out of the answer count so a round does not wait on them.
   hostAnsweringEnabled: boolean;
@@ -378,6 +416,7 @@ export interface PublicPlayer {
   isBot: boolean;
   isHost?: boolean;
   eliminated?: boolean;
+  losersBracket?: boolean;
 }
 
 /**
@@ -518,9 +557,20 @@ export interface BroadcastSnapshot {
   phase: GamePhase;
   gamePin: string | null;
   gameName: string;
+  /** The big screen's headline and the line under it, as the host set them. */
+  broadcastTitle: string;
+  broadcastSubtitle: string;
 
   roundNumber: number;
   totalRounds: number;
+  /** The game runs a loser's bracket, so a first loss is not the end. */
+  losersBracket: boolean;
+  /**
+   * The host's own seat is in the answer count. A host running the room from
+   * a remote usually switches it off, and the remote needs to show which way
+   * it is set.
+   */
+  hostAnswering: boolean;
   category: Category | null;
   wheelSpinning: boolean;
   /**
@@ -578,6 +628,35 @@ export interface BroadcastSnapshot {
   categoryPoll: PublicCategoryPoll | null;
 }
 
+/**
+ * One thing a host's remote can ask the host window to do.
+ *
+ * Every one of these is a button the host already has on their own desk; the
+ * remote is a second set of hands on the same game, not a second game. They
+ * carry the value to set rather than "toggle", and the round they were
+ * pressed in, so a tap sent from a screen a beat behind cannot flip a setting
+ * back or skip a round nobody meant to skip.
+ */
+export type RemoteCommand =
+  | { kind: "start-game" }
+  | { kind: "add-bot" }
+  | { kind: "set-losers-bracket"; enabled: boolean }
+  | { kind: "spin"; round: number }
+  | { kind: "start-round"; round: number }
+  | { kind: "pause-all"; paused: boolean }
+  | { kind: "add-time-all"; seconds: number }
+  | { kind: "close-all" }
+  | { kind: "lane-pause"; laneId: string; paused: boolean }
+  | { kind: "lane-add-time"; laneId: string; seconds: number }
+  | { kind: "lane-close"; laneId: string }
+  | { kind: "advance-room" }
+  | { kind: "end-round"; round: number }
+  | { kind: "set-auto-advance"; enabled: boolean }
+  | { kind: "set-host-answering"; enabled: boolean }
+  | { kind: "next-round"; round: number }
+  | { kind: "redraw-ballot" }
+  | { kind: "play-again" };
+
 /** Messages on the host <-> broadcast channel. */
 export type BroadcastMessage =
   | { type: "snapshot"; snapshot: BroadcastSnapshot }
@@ -610,6 +689,12 @@ export type BroadcastMessage =
        * back into it from a device that has nothing else to show.
        */
       rejoinProof?: string;
+      /**
+       * The code itself, so the host can read it back to a player who forgot
+       * it. It adds nothing a watcher could use that the proof beside it does
+       * not already give them, and the host only keeps it when it matches.
+       */
+      rejoinCode?: string;
     }
   | {
       type: "player-join-result";
@@ -657,5 +742,47 @@ export type BroadcastMessage =
   // `hostId` names the host this display is following, so a host that is not
   // being watched does not light up its BROADCAST LIVE pill. Null while the
   // display has not latched onto anyone yet.
+  /* --- the host's remote: a tablet running the round from the floor --- */
+  /**
+   * "I am the host, on another device." `signature` is `remoteSignature` of
+   * the host password's proof, bound to this device's signed-in identity —
+   * never the proof itself, which anybody reading the bus could reuse.
+   */
+  | {
+      type: "remote-hello";
+      pin: string;
+      controllerId: string;
+      label: string;
+      signature: string;
+    }
+  | { type: "remote-welcome"; pin: string; controllerId: string; hostId: string }
+  /**
+   * "password": the signature does not match this game's host password.
+   * "unbound": this host window does not know the remote — it reloaded, or
+   * the game was taken back on another device — and it should say hello again.
+   */
+  | {
+      type: "remote-rejected";
+      pin: string;
+      controllerId: string;
+      reason: "password" | "unbound";
+    }
+  | { type: "remote-heartbeat"; pin: string; controllerId: string }
+  | {
+      type: "remote-command";
+      pin: string;
+      controllerId: string;
+      commandId: string;
+      command: RemoteCommand;
+    }
+  | {
+      type: "remote-ack";
+      pin: string;
+      controllerId: string;
+      commandId: string;
+      ok: boolean;
+      /** Why a command was not carried out, in words for the remote's screen. */
+      reason?: string;
+    }
   | { type: "broadcast-hello"; hostId?: string | null }
   | { type: "broadcast-heartbeat"; at: number; hostId?: string | null };

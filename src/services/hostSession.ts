@@ -49,6 +49,8 @@ export type PersistedHostState = Pick<
   | "currentPlayerId"
   | "gamePin"
   | "gameName"
+  | "broadcastTitle"
+  | "broadcastSubtitle"
   | "totalRounds"
   | "questionsPerRound"
   | "roundsConfig"
@@ -63,6 +65,7 @@ export type PersistedHostState = Pick<
   | "broadcastRevealing"
   | "broadcastRevealSecondsLeft"
   | "autoAdvance"
+  | "losersBracket"
   | "hostAnsweringEnabled"
   | "wheelSpinning"
   | "categoryRevealed"
@@ -124,6 +127,8 @@ export const captureHostState = (state: GameState): PersistedHostState => ({
   currentPlayerId: state.currentPlayerId,
   gamePin: state.gamePin,
   gameName: state.gameName,
+  broadcastTitle: state.broadcastTitle,
+  broadcastSubtitle: state.broadcastSubtitle,
   totalRounds: state.totalRounds,
   questionsPerRound: state.questionsPerRound,
   roundsConfig: state.roundsConfig,
@@ -138,6 +143,7 @@ export const captureHostState = (state: GameState): PersistedHostState => ({
   broadcastRevealing: state.broadcastRevealing,
   broadcastRevealSecondsLeft: state.broadcastRevealSecondsLeft,
   autoAdvance: state.autoAdvance,
+  losersBracket: state.losersBracket,
   hostAnsweringEnabled: state.hostAnsweringEnabled,
   wheelSpinning: state.wheelSpinning,
   categoryRevealed: state.categoryRevealed,
@@ -196,6 +202,16 @@ export const applyHostState = (
 ): GameState => ({
   ...previous,
   ...state,
+  // A game saved before the loser's bracket existed was single elimination.
+  losersBracket: state.losersBracket === true,
+  // And one saved before the big screen's text was the host's to set keeps
+  // whatever this window already has.
+  broadcastTitle:
+    typeof state.broadcastTitle === "string" ? state.broadcastTitle : previous.broadcastTitle,
+  broadcastSubtitle:
+    typeof state.broadcastSubtitle === "string"
+      ? state.broadcastSubtitle
+      : previous.broadcastSubtitle,
   gamePin: pin,
   isHost: true,
   // Whatever this window was before it became the host again.

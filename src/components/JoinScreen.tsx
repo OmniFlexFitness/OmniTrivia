@@ -5,8 +5,8 @@ import Button from './Button';
 import AvatarDisplay from './AvatarDisplay';
 import Instructions from './Instructions';
 import { readSeat } from '../services/seat';
-import { PLAYER_CODE_LENGTH } from '../services/proof';
-import { ArrowLeft, Palette, Smile, Glasses, AlertTriangle, KeyRound, Loader2 } from 'lucide-react';
+import { PLAYER_CODE_LENGTH, suggestRejoinCode } from '../services/proof';
+import { ArrowLeft, Palette, Smile, Glasses, AlertTriangle, KeyRound, Loader2, RefreshCw } from 'lucide-react';
 
 /** `bg-fuchsia-500` → `fuchsia`, so a swatch with no text still has a name. */
 const colorName = (className: string): string =>
@@ -23,7 +23,10 @@ const JoinScreen: React.FC = () => {
 
   const [name, setName] = useState(remembered?.name ?? '');
   const [pin, setPin] = useState(initialPin || remembered?.pin || '');
-  const [rejoinCode, setRejoinCode] = useState(remembered?.code ?? '');
+  // A code is dealt rather than asked for: a room told to invent four digits
+  // on the spot types 1234. The one this phone used before comes back first,
+  // so a player returning on their own phone keeps the code they know.
+  const [rejoinCode, setRejoinCode] = useState(() => remembered?.code ?? suggestRejoinCode());
 
   // Avatar State
   const [selectedAvatar, setSelectedAvatar] = useState(remembered?.avatar ?? AVATARS[0]);
@@ -153,21 +156,36 @@ const JoinScreen: React.FC = () => {
               which is the one case a saved seat cannot cover. */}
           {!isHost && (
             <div>
-              <input
-                type="text"
-                inputMode="numeric"
-                maxLength={PLAYER_CODE_LENGTH}
-                placeholder="REJOIN CODE"
-                value={rejoinCode}
-                onChange={(e) => handleCodeChange(e.target.value)}
-                className="w-full bg-slate-900/50 border border-slate-600 rounded-xl px-4 py-3 text-center text-lg tracking-[0.5em] font-mono focus:border-neon-yellow focus:ring-1 focus:ring-neon-yellow outline-none transition-all"
-              />
+              <label className="block text-[11px] font-mono uppercase tracking-widest text-slate-400 mb-1 text-center">
+                Your rejoin code
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={PLAYER_CODE_LENGTH}
+                  placeholder="REJOIN CODE"
+                  aria-label="Rejoin code"
+                  value={rejoinCode}
+                  onChange={(e) => handleCodeChange(e.target.value)}
+                  className="flex-1 min-w-0 bg-slate-900/50 border border-slate-600 rounded-xl px-4 py-3 text-center text-lg tracking-[0.5em] font-mono text-neon-yellow focus:border-neon-yellow focus:ring-1 focus:ring-neon-yellow outline-none transition-all"
+                />
+                <button
+                  type="button"
+                  onClick={() => handleCodeChange(suggestRejoinCode())}
+                  title="Deal a different code"
+                  aria-label="Deal a different code"
+                  className="px-3 rounded-xl border border-slate-600 text-slate-400 hover:text-neon-yellow hover:border-neon-yellow transition-colors"
+                >
+                  <RefreshCw size={16} />
+                </button>
+              </div>
               <p className="text-[11px] text-slate-400 mt-1.5 flex items-start gap-1.5 leading-snug">
                 <KeyRound size={12} className="shrink-0 mt-0.5 text-neon-yellow" />
                 <span>
-                  {PLAYER_CODE_LENGTH} digits you choose. Your name and this
+                  Picked for you — keep it or type your own. Your name and this
                   code get you back into the same seat, with your score, from
-                  any phone.
+                  any phone. Forget it and the host can look it up.
                 </span>
               </p>
             </div>
