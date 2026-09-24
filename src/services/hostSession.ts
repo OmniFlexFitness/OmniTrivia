@@ -63,6 +63,7 @@ export type PersistedHostState = Pick<
   | "broadcastRevealing"
   | "broadcastRevealSecondsLeft"
   | "autoAdvance"
+  | "losersBracket"
   | "hostAnsweringEnabled"
   | "wheelSpinning"
   | "categoryRevealed"
@@ -138,6 +139,7 @@ export const captureHostState = (state: GameState): PersistedHostState => ({
   broadcastRevealing: state.broadcastRevealing,
   broadcastRevealSecondsLeft: state.broadcastRevealSecondsLeft,
   autoAdvance: state.autoAdvance,
+  losersBracket: state.losersBracket,
   hostAnsweringEnabled: state.hostAnsweringEnabled,
   wheelSpinning: state.wheelSpinning,
   categoryRevealed: state.categoryRevealed,
@@ -196,6 +198,8 @@ export const applyHostState = (
 ): GameState => ({
   ...previous,
   ...state,
+  // A game saved before the loser's bracket existed was single elimination.
+  losersBracket: state.losersBracket === true,
   gamePin: pin,
   isHost: true,
   // Whatever this window was before it became the host again.

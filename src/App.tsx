@@ -1,7 +1,7 @@
 import React from 'react';
 import { GameProvider, useGame } from './context/GameContext';
 import { GamePhase } from './types';
-import { isBroadcastView } from './services/broadcastBus';
+import { isBroadcastView, isRemoteView } from './services/broadcastBus';
 import StartScreen from './components/StartScreen';
 import HostConfigScreen from './components/HostConfigScreen';
 import ImportScreen from './components/ImportScreen';
@@ -14,6 +14,7 @@ import GameScreen from './components/GameScreen';
 import PlayerScreen from './components/PlayerScreen';
 import HostControlScreen from './components/HostControlScreen';
 import BroadcastScreen from './components/BroadcastScreen';
+import RemoteControlScreen from './components/RemoteControlScreen';
 
 const AppContent: React.FC = () => {
   const { phase, isHost, clientPin } = useGame();
@@ -53,6 +54,13 @@ const App: React.FC = () => {
   // provider entirely and can never mutate the game.
   if (isBroadcastView()) {
     return <BroadcastScreen />;
+  }
+
+  // The host's remote is the same kind of window: it holds no game, renders
+  // the host's snapshot, and sends the host window commands to carry out. It
+  // must not be a second GameProvider, or a tablet would become a second host.
+  if (isRemoteView()) {
+    return <RemoteControlScreen />;
   }
 
   return (

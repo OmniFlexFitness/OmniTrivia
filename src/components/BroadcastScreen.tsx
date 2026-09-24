@@ -11,15 +11,23 @@ import {
   RoundReviewItem,
 } from "../types";
 import {
+  PLAYER_ATTACH_TIMEOUT_MS,
+  attachRoomChannel,
+  canReachOtherDevices,
+  detachRoomChannel,
+  pinFromUrl,
+  pinViewToUrl,
   postMessage,
   readStoredSnapshot,
   reloadForNewBuild,
+  roomFailureReason,
   snapshotFit,
   subscribeToMessages,
 } from "../services/broadcastBus";
 import { seatsOf } from "../services/snapshot";
 import AvatarDisplay from "./AvatarDisplay";
-import BracketView, { MatchupCard } from "./BracketView";
+import BracketView, { MatchupCard, SideTag } from "./BracketView";
+import { sideOf } from "../services/bracket";
 import JoinCode from "./JoinCode";
 import CategoryVotePanel from "./CategoryVotePanel";
 import SpectatorWheel from "./SpectatorWheel";
@@ -309,8 +317,15 @@ const MatchupStrip: React.FC<{
           return (
             <div
               key={matchup.id}
-              className="flex items-center gap-3 bg-slate-900/70 border border-slate-800 rounded-full pl-2 pr-4 py-2"
+              className={`flex items-center gap-3 bg-slate-900/70 border rounded-full pl-2 pr-4 py-2 ${
+                sideOf(matchup) === "final"
+                  ? "border-yellow-400/70"
+                  : sideOf(matchup) === "losers"
+                    ? "border-orange-400/50"
+                    : "border-slate-800"
+              }`}
             >
+              <SideTag side={sideOf(matchup)} />
               <AvatarDisplay
                 avatar={a?.avatar ?? "❔"}
                 color={a?.avatarColor}
@@ -435,9 +450,57 @@ const LikedStrip: React.FC<{ snapshot: BroadcastSnapshot }> = ({ snapshot }) => 
  * Phase views
  * ------------------------------------------------------------------ */
 
-const StandbyStage: React.FC<{ snapshot: BroadcastSnapshot | null }> = ({
-  snapshot,
-}) => (
+/**
+ * How a display on its own device is getting on with reaching the room.
+ * "local" is the projector window beside the host's own, which needs no
+ * network at all.
+ */
+type RoomLink = "local" | "connecting" | "connected" | "unreachable" | "denied";
+
+/**
+ * Pointing a screen at a game from scratch.
+ *
+ * A TV's browser, a second laptop, a projector's own stick: none of them is
+ * the host's machine, so none of them can hear the host's window directly.
+ * Typing the PIN reaches the room the same way a phone does.
+ */
+const CastPinForm: React.FC<{ onPin: (pin: string) => void }> = ({ onPin }) => {
+  const [value, setValue] = useState("");
+  const valid = /^\d{4}$/.test(value);
+
+  return (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (valid) onPin(value);
+      }}
+      className="flex items-center justify-center gap-3"
+    >
+      <input
+        value={value}
+        onChange={(event) => setValue(event.target.value.replace(/\D/g, "").slice(0, 4))}
+        inputMode="numeric"
+        placeholder="PIN"
+        aria-label="Game PIN"
+        className="w-48 bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 text-4xl text-center font-mono tracking-[0.3em] text-white focus:border-neon-blue outline-none"
+      />
+      <button
+        type="submit"
+        disabled={!valid}
+        className="px-6 py-4 rounded-xl border border-neon-blue text-neon-blue font-bold uppercase tracking-widest disabled:opacity-40"
+      >
+        Show this game
+      </button>
+    </form>
+  );
+};
+
+const StandbyStage: React.FC<{
+  snapshot: BroadcastSnapshot | null;
+  pin?: string | null;
+  link?: RoomLink;
+  onPin?: (pin: string) => void;
+}> = ({ snapshot, pin = null, link = "local", onPin }) => (
   <div className="flex-1 flex flex-col items-center justify-center text-center gap-6">
     <div className="text-6xl md:text-8xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-neon-blue to-neon-pink">
       OMNI<span className="text-white">TRIVIA</span>
@@ -475,14 +538,30 @@ const StandbyStage: React.FC<{ snapshot: BroadcastSnapshot | null }> = ({
         <RoomRules />
       </>
     ) : (
-      <div className="max-w-xl space-y-3">
+      <div className="max-w-2xl space-y-5">
         <div className="text-2xl text-slate-300 animate-pulse font-mono">
-          WAITING FOR THE HOST
+          {pin
+            ? link === "connecting"
+              ? `CONNECTING TO PIN ${pin}…`
+              : link === "denied"
+                ? "THE GAME SERVER IS REFUSING THIS SCREEN"
+                : link === "unreachable"
+                  ? `CAN'T REACH PIN ${pin} YET`
+                  : `WAITING FOR PIN ${pin}`
+            : "WAITING FOR THE HOST"}
         </div>
         <p className="text-slate-500">
-          Keep this window open on the big screen. It follows the host window
-          automatically — they have to be the same browser on the same machine.
+          {pin
+            ? link === "denied"
+              ? "The room database's rules have not been published, so no device can follow a game. The host has to run npm run rules:deploy (see MULTIPLAYER.md)."
+              : link === "unreachable"
+                ? "This screen has no working connection to the game server. It keeps trying — check the Wi-Fi on this device."
+                : "Keep this window open and full screen. It picks the game up as soon as the host publishes it, and follows it from here on."
+            : canReachOtherDevices()
+              ? "Opened on the host's own machine, this follows the host window by itself. On any other screen — a TV's browser, a second laptop — type the game's PIN."
+              : "Keep this window open on the big screen. It follows the host window automatically — they have to be the same browser on the same machine."}
         </p>
+        {onPin && canReachOtherDevices() && <CastPinForm onPin={onPin} />}
       </div>
     )}
   </div>
@@ -833,6 +912,11 @@ const StandingsList: React.FC<{
                 out
               </span>
             )}
+            {!player.eliminated && player.losersBracket && (
+              <span className="ml-3 text-xs font-mono uppercase tracking-widest text-orange-300">
+                loser's bracket
+              </span>
+            )}
           </div>
           {showRoundScore && (
             <div className="text-xl font-mono text-neon-green">
@@ -880,6 +964,7 @@ const RoundEndStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
                   players={snapshot.players}
                   isLive={false}
                   size="lg"
+                  showSide
                 />
               ))}
             </div>
@@ -1014,6 +1099,65 @@ const BroadcastScreen: React.FC = () => {
   const latchedHost = useRef<string | null>(null);
   const lastHeard = useRef(0);
 
+  /**
+   * The room this screen follows over the network, when it is not the
+   * projector window on the host's own machine. Carried on the URL, so a TV
+   * that reloads comes straight back to the same game.
+   */
+  const [pin, setPin] = useState<string | null>(pinFromUrl);
+  const pinRef = useRef(pin);
+  pinRef.current = pin;
+  const [link, setLink] = useState<RoomLink>(
+    pin && canReachOtherDevices() ? "connecting" : "local",
+  );
+
+  // Anything this browser was holding from a different game is not this one.
+  useEffect(() => {
+    if (pin) {
+      setSnapshot((current) =>
+        current && current.gamePin !== pin ? null : current,
+      );
+    }
+  }, [pin]);
+
+  useEffect(() => {
+    if (!pin || !canReachOtherDevices()) return;
+
+    let cancelled = false;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    setLink("connecting");
+
+    const connect = async () => {
+      const attached = await attachRoomChannel(pin, false, PLAYER_ATTACH_TIMEOUT_MS);
+      if (cancelled) return;
+      if (attached) {
+        setLink("connected");
+        // Ask for the game rather than waiting for its next change.
+        postMessage({ type: "broadcast-hello", hostId: latchedHost.current });
+        return;
+      }
+      const denied = roomFailureReason() === "denied";
+      setLink(denied ? "denied" : "unreachable");
+      // A screen on the wall has nobody standing at it to press retry.
+      if (!denied) retry = setTimeout(() => void connect(), 5000);
+    };
+
+    void connect();
+
+    return () => {
+      cancelled = true;
+      clearTimeout(retry);
+      void detachRoomChannel();
+    };
+  }, [pin]);
+
+  const followPin = (next: string) => {
+    pinViewToUrl(next);
+    latchedHost.current = null;
+    setSnapshot(null);
+    setPin(next);
+  };
+
   useEffect(() => {
     const claim = (id: string | undefined): boolean => {
       if (!id) return true; // A host from before this handshake existed.
@@ -1042,10 +1186,16 @@ const BroadcastScreen: React.FC = () => {
           return;
         }
 
+        // A screen following one game by PIN ignores every other game this
+        // browser can hear — including a host running on this same machine.
+        if (pinRef.current && message.snapshot.gamePin !== pinRef.current) return;
         if (!claim(message.snapshot.hostId)) return;
         setSnapshot(message.snapshot);
         setHostSeenAt(Date.now());
       } else if (message.type === "host-heartbeat") {
+        // A heartbeat carries no PIN, so a screen following one game only
+        // takes them from the host whose snapshot it has already accepted.
+        if (pinRef.current && latchedHost.current === null) return;
         if (!claim(message.hostId)) return;
         // When it got here, not the time the host stamped on it: that is the
         // host's clock, and a phone or projector running a few seconds ahead
@@ -1096,7 +1246,11 @@ const BroadcastScreen: React.FC = () => {
       );
     }
 
-    if (!snapshot) return <StandbyStage snapshot={null} />;
+    if (!snapshot) {
+      return (
+        <StandbyStage snapshot={null} pin={pin} link={link} onPin={followPin} />
+      );
+    }
 
     switch (snapshot.phase) {
       case GamePhase.CATEGORY_SELECT:
@@ -1114,7 +1268,8 @@ const BroadcastScreen: React.FC = () => {
       default:
         return <StandbyStage snapshot={snapshot} />;
     }
-  }, [snapshot, outOfDate]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [snapshot, outOfDate, pin, link]);
 
   return (
     <div className="min-h-screen h-screen tron-backdrop text-white p-6 flex flex-col overflow-hidden">

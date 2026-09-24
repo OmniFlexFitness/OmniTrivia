@@ -16,6 +16,7 @@ import {
   Player,
   Question,
   QuestionType,
+  RemoteCommand,
   RoundConfig,
 } from "../types";
 import {
@@ -48,8 +49,8 @@ import {
 import {
   activePlayerIds,
   buildFirstRound,
-  buildNextRound,
-  resolveRound,
+  rankStanding,
+  settleRound,
 } from "../services/bracket";
 import {
   addLaneSeconds,
@@ -94,6 +95,13 @@ import {
   suggestHostPassword,
 } from "../services/proof";
 import { maySpeakFor, resolveJoinRequest } from "../services/seats";
+import {
+  bindRemote,
+  judgeRemoteHello,
+  judgeRemoteMessage,
+  liveRemotes,
+} from "../services/remoteControl";
+import type { RemoteBinding, RemoteBindings } from "../services/remoteControl";
 import type { SeatBindings } from "../services/seats";
 import {
   allocatePin,
@@ -121,6 +129,14 @@ import {
 interface GameContextType extends GameState {
   /** True while a broadcast window is answering heartbeats. */
   broadcastConnected: boolean;
+  /** The host's remotes that have checked in recently — tablets, phones. */
+  remotes: RemoteBinding[];
+  /**
+   * Bumped each time a remote asks for the wheel to be spun. The host's own
+   * wheel watches it and spins exactly as if the host had pressed SPIN, so
+   * the desk, the projector and the phones all see one spin, not two.
+   */
+  remoteSpinRequest: number;
   initHost: () => void;
   initJoin: () => void;
   generateGame: (rounds: number, questions: number) => Promise<void>;
@@ -140,6 +156,13 @@ interface GameContextType extends GameState {
   resumeHosting: (pin: string, password: string) => Promise<void>;
   clearResumeError: () => void;
   toggleHostAnswering: () => void;
+  /**
+   * Run the game double elimination — a first loss drops a player into the
+   * loser's bracket rather than out. Only takes before the first round is
+   * drawn: changing the format of a bracket already in play would rewrite who
+   * is still alive in it.
+   */
+  setLosersBracket: (enabled: boolean) => void;
   clearJoinError: () => void;
   updateConfig: (rounds: number, questions: number) => void;
   /**
@@ -329,40 +352,38 @@ const finishRound = (prev: GameState): GameState => {
 
   const poll = buildCategoryPoll(prev, prev.currentRound);
 
-  const { round: resolved, advancingIds } = resolveRound(current, prev.players);
-  const bracket = [...prev.bracket];
-  bracket[roundIndex] = resolved;
+  // Who advances, who drops into the loser's bracket, who is out, and who the
+  // next round pairs — one decision, made in `services/bracket` where it can
+  // be tested without a room.
+  const outcome = settleRound(current, prev.players, {
+    losersBracket: prev.losersBracket,
+    playedRounds: prev.bracket.slice(0, roundIndex),
+    hasMoreRounds: prev.currentRound < prev.totalRounds,
+  });
 
-  const wasActive = new Set(activePlayerIds(current));
-  const advancing = new Set(advancingIds);
+  const bracket = [...prev.bracket];
+  bracket[roundIndex] = outcome.round;
+  if (outcome.nextRound) bracket[roundIndex + 1] = outcome.nextRound;
+
+  const out = new Set(outcome.eliminatedIds);
+  const dropped = new Set(outcome.losersIds);
   const players = prev.players.map((player) =>
-    wasActive.has(player.id) && !advancing.has(player.id)
-      ? { ...player, eliminated: true }
-      : player,
+    out.has(player.id)
+      ? { ...player, eliminated: true, losersBracket: false }
+      : dropped.has(player.id)
+        ? { ...player, losersBracket: true }
+        : player,
   );
 
   // One survivor means the bracket is decided and the game is over, even if
   // there are rounds left on the card. A bracket only exists when there were
   // two or more players to draw, so there is no degenerate case here where a
   // lone player is walked through byes for the rest of the night.
-  const decided = advancingIds.length <= 1;
-  const hasMoreRounds = prev.currentRound < prev.totalRounds;
-
-  if (!decided && hasMoreRounds) {
-    // Every round played so far, this one included, so the draw can see who
-    // has already had a bye and give the next one to somebody else.
-    bracket[roundIndex + 1] = buildNextRound(
-      prev.currentRound + 1,
-      advancingIds,
-      bracket.slice(0, roundIndex + 1),
-    );
-  }
-
   return {
     ...prev,
     bracket,
     players,
-    championId: decided ? (advancingIds[0] ?? null) : null,
+    championId: outcome.championId,
     categoryPoll: poll,
     phase: GamePhase.ROUND_END,
   };
@@ -465,6 +486,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     broadcastRevealing: false,
     broadcastRevealSecondsLeft: REVEAL_DURATION,
     autoAdvance: true,
+    losersBracket: false,
     hostAnsweringEnabled: true,
     wheelSpinning: false,
     categoryRevealed: false,
@@ -478,6 +500,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
   });
 
   const [broadcastConnected, setBroadcastConnected] = useState(false);
+  const [remotes, setRemotes] = useState<RemoteBinding[]>([]);
+  const [remoteSpinRequest, setRemoteSpinRequest] = useState(0);
   const broadcastSeenAt = useRef(0);
   // Identifies this host window on the shared channel. Two host tabs in one
   // browser would otherwise both publish into the same projector.
@@ -1641,6 +1665,13 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
       return roundIsComplete(next) ? finishRound(next) : next;
     });
 
+  const setLosersBracket = (enabled: boolean) =>
+    setState((prev) =>
+      prev.bracket.length > 0 && prev.phase !== GamePhase.LOBBY
+        ? prev
+        : { ...prev, losersBracket: enabled },
+    );
+
   const updateConfig = (rounds: number, questions: number) => {
     setState((prev) => ({
       ...prev,
@@ -2033,6 +2064,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         ...p,
         roundScore: 0,
         eliminated: false,
+        losersBracket: false,
         lastAnswerCorrect: undefined,
       }));
 
@@ -2357,21 +2389,18 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         prev.championId !== null || prev.currentRound >= prev.totalRounds;
 
       if (gameIsOver) {
-        // Rounds can run out before the bracket resolves; the highest score
-        // among the players still standing takes it. A tie there falls to the
-        // draw, the same as a matchup does — not to whoever joined first,
-        // which is what sorting the lobby array alone would have used.
+        // Rounds can run out before the bracket resolves. The leader among
+        // the players still standing takes it — somebody nobody has beaten
+        // ahead of somebody in the loser's bracket, then on score. A tie
+        // falls to the draw, the same as a matchup does, not to whoever
+        // joined first, which is what sorting the lobby array alone used.
         const standing = prev.players.filter((p) => !p.eliminated);
         const pool = standing.length > 0 ? standing : prev.players;
-        const draw = new Map(
-          (prev.bracket[0]
+        const leader = rankStanding(
+          pool,
+          prev.bracket[0]
             ? activePlayerIds(prev.bracket[0])
-            : prev.players.map((p) => p.id)
-          ).map((id, index) => [id, index]),
-        );
-        const seed = (id: string) => draw.get(id) ?? Number.MAX_SAFE_INTEGER;
-        const leader = [...pool].sort(
-          (a, b) => b.score - a.score || seed(a.id) - seed(b.id),
+            : prev.players.map((p) => p.id),
         )[0];
 
         return {
@@ -2431,6 +2460,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     }
 
     seatUids.current.clear();
+    remoteBindings.current = new Map();
+    setRemotes([]);
     resetInsightBaselines();
     void detachRoomChannel();
     setState((prev) => ({
@@ -2501,6 +2532,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         roundScore: 0,
         streak: 0,
         eliminated: false,
+        losersBracket: false,
         lastAnswerCorrect: undefined,
       })),
     }));
@@ -2608,11 +2640,221 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     });
   };
 
+  /* ---------------------------------------------------------------- *
+   * The host's remote
+   *
+   * A tablet that has proved the host password sends the same commands the
+   * buttons on this desk make, and they are carried out here through the very
+   * functions those buttons call. Nothing a remote does can reach the game any
+   * other way. See `services/remoteControl` for who may send one.
+   * ---------------------------------------------------------------- */
+  const remoteBindings = useRef<RemoteBindings>(new Map());
+  const seenCommands = useRef<string[]>([]);
+
+  /**
+   * Carry out one command. Returns why not, or null when it was done.
+   *
+   * Every command is checked against the phase and round it was pressed in:
+   * the remote renders a snapshot a beat behind this window, and a second tap
+   * of START ROUND 3 must not become START ROUND 4.
+   */
+  const runRemoteCommand = (command: RemoteCommand): string | null => {
+    const current = stateRef.current;
+    const is = (phase: GamePhase) => current.phase === phase;
+    const seconds = (value: number) => Math.min(60, Math.max(1, Math.round(value) || 10));
+    const hasLane = (laneId: string) => current.lanes.some((lane) => lane.id === laneId);
+
+    switch (command.kind) {
+      case "start-game":
+        if (!is(GamePhase.LOBBY)) return "The game has already started.";
+        startGame();
+        return null;
+      case "add-bot":
+        if (!is(GamePhase.LOBBY)) return "Bots can only join in the lobby.";
+        addBot();
+        return null;
+      case "set-losers-bracket":
+        if (!is(GamePhase.LOBBY)) return "The bracket is already drawn.";
+        setLosersBracket(command.enabled);
+        return null;
+      case "spin":
+        if (!is(GamePhase.CATEGORY_SELECT) || current.currentRound !== command.round) {
+          return "That wheel has already been played.";
+        }
+        if (current.wheelSpinning) return "The wheel is already spinning.";
+        setRemoteSpinRequest((count) => count + 1);
+        return null;
+      case "start-round":
+        if (!is(GamePhase.CATEGORY_SELECT) || current.currentRound !== command.round) {
+          return "That round has already started.";
+        }
+        if (current.wheelSpinning || !current.categoryRevealed) {
+          return "Spin the wheel first — the round is played on whatever it lands on.";
+        }
+        startRound();
+        return null;
+      case "pause-all":
+        if (!is(GamePhase.PLAYING)) return "No round is being played.";
+        setAllLanesPaused(command.paused);
+        return null;
+      case "add-time-all":
+        if (!is(GamePhase.PLAYING)) return "No round is being played.";
+        addTimeToAllLanes(seconds(command.seconds));
+        return null;
+      case "close-all":
+        if (!is(GamePhase.PLAYING)) return "No round is being played.";
+        revealAllLanesNow();
+        return null;
+      case "lane-pause":
+        if (!is(GamePhase.PLAYING) || !hasLane(command.laneId)) return "That match is over.";
+        setState((prev) => setLanePaused(prev, command.laneId, command.paused));
+        return null;
+      case "lane-add-time":
+        if (!is(GamePhase.PLAYING) || !hasLane(command.laneId)) return "That match is over.";
+        addLaneTime(command.laneId, seconds(command.seconds));
+        return null;
+      case "lane-close":
+        if (!is(GamePhase.PLAYING) || !hasLane(command.laneId)) return "That match is over.";
+        revealLaneNow(command.laneId);
+        return null;
+      case "advance-room":
+        if (!is(GamePhase.PLAYING) || !current.broadcastRevealing) {
+          return "The big screen is still waiting on the field.";
+        }
+        advanceBroadcastNow();
+        return null;
+      case "end-round":
+        if (!is(GamePhase.PLAYING) || current.currentRound !== command.round) {
+          return "That round is already over.";
+        }
+        endRoundNow();
+        return null;
+      case "set-auto-advance":
+        if (current.autoAdvance !== command.enabled) toggleAutoAdvance();
+        return null;
+      case "set-host-answering":
+        if (current.hostAnsweringEnabled !== command.enabled) toggleHostAnswering();
+        return null;
+      case "next-round":
+        if (!is(GamePhase.ROUND_END) || current.currentRound !== command.round) {
+          return "That round has already moved on.";
+        }
+        nextRound();
+        return null;
+      case "redraw-ballot":
+        if (!current.categoryPoll) return "There is no ballot up.";
+        redrawCategoryPoll();
+        return null;
+      case "play-again":
+        if (!is(GamePhase.GAME_OVER)) return "The game is not over yet.";
+        playAgain();
+        return null;
+      default:
+        return "This host window does not know that command — reload it.";
+    }
+  };
+
+  // Read through a ref so the subscription below is made once and still
+  // reaches the functions of the latest render.
+  const runRemoteCommandRef = useRef(runRemoteCommand);
+  runRemoteCommandRef.current = runRemoteCommand;
+
+  useEffect(() => {
+    const publishRemotes = () =>
+      setRemotes((previous) => {
+        const next = liveRemotes(remoteBindings.current);
+        const same =
+          previous.length === next.length &&
+          previous.every((remote, i) => remote.controllerId === next[i].controllerId);
+        return same ? previous : next;
+      });
+
+    const unsubscribe = subscribeToMessages((message, meta) => {
+      const current = stateRef.current;
+      const pin = current.gamePin;
+      if (!current.isHost || !pin) return;
+
+      if (message.type === "remote-hello") {
+        const verdict = judgeRemoteHello(hostProofRef.current, pin, message, meta);
+        if (verdict === "ignore") return;
+        if (verdict === "reject") {
+          postMessage({
+            type: "remote-rejected",
+            pin,
+            controllerId: message.controllerId,
+            reason: "password",
+          });
+          return;
+        }
+        remoteBindings.current = bindRemote(remoteBindings.current, message, meta);
+        publishRemotes();
+        postMessage({
+          type: "remote-welcome",
+          pin,
+          controllerId: message.controllerId,
+          hostId: hostId.current,
+        });
+        // Straight to a current picture of the game, rather than whenever it
+        // next happens to change.
+        publishSnapshot(buildSnapshot(stateRef.current, hostId.current));
+        return;
+      }
+
+      if (message.type !== "remote-heartbeat" && message.type !== "remote-command") {
+        return;
+      }
+      if (message.pin !== pin || !hostProofRef.current) return;
+
+      const verdict = judgeRemoteMessage(
+        remoteBindings.current,
+        message.controllerId,
+        meta,
+      );
+      if (verdict === "ignore") return;
+      if (verdict === "unbound") {
+        postMessage({
+          type: "remote-rejected",
+          pin,
+          controllerId: message.controllerId,
+          reason: "unbound",
+        });
+        return;
+      }
+
+      const binding = remoteBindings.current.get(message.controllerId);
+      if (binding) binding.lastSeen = Date.now();
+      if (message.type === "remote-heartbeat") return;
+
+      // The same command can arrive twice — once over this browser's own
+      // channel and once through the room — and is carried out once.
+      if (seenCommands.current.includes(message.commandId)) return;
+      seenCommands.current = [...seenCommands.current.slice(-199), message.commandId];
+
+      const reason = runRemoteCommandRef.current(message.command);
+      postMessage({
+        type: "remote-ack",
+        pin,
+        controllerId: message.controllerId,
+        commandId: message.commandId,
+        ok: reason === null,
+        reason: reason ?? undefined,
+      });
+    });
+
+    const sweep = setInterval(publishRemotes, 3000);
+    return () => {
+      unsubscribe();
+      clearInterval(sweep);
+    };
+  }, []);
+
   return (
     <GameContext.Provider
       value={{
         ...state,
         broadcastConnected,
+        remotes,
+        remoteSpinRequest,
         initHost,
         initJoin,
         generateGame,
@@ -2623,6 +2865,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         resumeHosting,
         clearResumeError,
         toggleHostAnswering,
+        setLosersBracket,
         clearJoinError,
         updateConfig,
         initImport,

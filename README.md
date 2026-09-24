@@ -22,7 +22,9 @@ exactly as they are defined here, and so does the code.
 | **Round** | One spin of the wheel. The wheel picks a category — really picks it, from the ones not yet played — then every player still in the bracket is paired off. A round has one category and one set of questions. |
 | **Matchup** | One pairing for one round: you against one other player. Round one is drawn at random; from then on the bracket decides who you face, because it pairs the players who won. |
 | **Match** | A matchup actually being played — the round's questions, answered by the two people in it. A round has one match per matchup, and every match runs at its own pace. |
-| **Bracket** | Single elimination. The higher round score in a matchup advances; the other player is out. The odd player out each round gets a **bye** and advances unopposed — and a bye goes to whoever has had the fewest so far, so the same person cannot keep drawing them. |
+| **Bracket** | Single elimination by default. The higher round score in a matchup advances; the other player is out. The odd player out each round gets a **bye** and advances unopposed — and a bye goes to whoever has had the fewest so far, so the same person cannot keep drawing them. |
+| **Loser's bracket** | Optional double elimination, switched on at setup or in the lobby. A first loss drops a player into the loser's bracket instead of out; a loss there ends their night. Both sides play in every round, on the same category, and the last player on each side meets in a one-match **grand final**. |
+| **Remote** | A tablet or phone running the round for the host — spin, start, pause, +10s, close, end the round, next round — once it has the PIN and the host password. The host's window still runs the game; the remote drives it. |
 | **Category pool** | The host's own standing list of categories. The end-of-round vote draws its options from it. It is separate from the questions a game happens to be loaded with. |
 | **Rejoin code** | Four digits a player picks when they join. Their name and that code get them back into the same seat — score, streak and place in the bracket — from any phone, at any point in the game. |
 | **Host password** | What the host sets when they open the game. With the PIN it takes the running game back on any device if the host's window closes, reloads or dies. |
@@ -47,7 +49,38 @@ exactly as they are defined here, and so does the code.
    because a bye winner is always last in the list of who advanced.
 5. The game ends when one player is left standing, or when the rounds run out —
    whichever comes first. If the rounds run out first, the highest score among
-   the players still in it takes the night.
+   the players still in it takes the night — with anybody still unbeaten ranked
+   ahead of the loser's bracket.
+
+### The loser's bracket
+
+Switch **LOSER'S BRACKET** on in the game setup (or in the lobby, any time
+before **START GAME**) and the night becomes double elimination:
+
+- **A first loss drops you, it does not remove you.** Lose a matchup in the
+  winners' bracket and you are in the loser's bracket next round. Lose there
+  and you are out.
+- **Both sides play every round.** One spin of the wheel, one category, one
+  set of questions — the winners' matchups and the loser's matchups are just
+  more tables on the same board, all on their own clocks.
+- **Nothing is drawn at random after round one.** The loser's bracket pairs
+  the players who survived it against the players who have just dropped into
+  it, alternately; byes still go to whoever has had the fewest.
+- **The grand final** is the last player on each side, one match, winner
+  takes the night. There is no "bracket reset" if the loser's-bracket player
+  wins it — every round is a spin of the wheel, and the wheel runs out.
+- **While one side is waiting on the other**, its last player takes a bye
+  each round: they keep answering and banking points, with nobody to be
+  drawn against until the other side catches up.
+- **It takes more rounds.** Roughly twice as many: 8 players settle in 3
+  rounds single elimination and 6 with a loser's bracket; 16 players take 4
+  and 7. The lobby shows the exact number for the players in the room next to
+  the number of rounds loaded, and warns when the rounds will run out first.
+
+`npm run check-hosting` plays several hundred simulated nights from 2 to 16
+players and asserts that nobody goes out on one loss (except the grand
+final's loser), the champion has lost at most once, and every bracket is
+decided in exactly the number of rounds the lobby promises.
 
 ### Nobody waits for anybody
 
@@ -333,6 +366,7 @@ npm run preview
 | `npm run check-round-pacing` | Play a round headlessly and assert nobody waits for anybody |
 | `npm run check-game-setup` | Assert shuffling, import trimming and the wheel's geometry all hold |
 | `npm run check-returns` | Take a lost game back headlessly, and check the wrong code cannot |
+| `npm run check-hosting` | Play simulated loser's-bracket nights, and check only the host password gets the remote |
 | `npm run check-live` | Check the *deployed* site: sign-in, published rules, and the proxy's key |
 | `npm run rules:deploy` | Publish `firebase/database.rules.json` to the live database |
 
@@ -502,10 +536,47 @@ the header of the control screen, then drag it onto the second display and put
 it full screen. The button turns green and reads **BROADCAST LIVE** once the
 two windows are talking.
 
-> The two windows sync over `BroadcastChannel`, so they have to be **the same
-> browser on the same machine** — a laptop with the projector as a second
-> display. A different device cannot be the broadcast screen; that needs the
-> backend described under "What this is not".
+### Hosting from more than one device
+
+With [multiplayer configured](MULTIPLAYER.md), neither the broadcast nor the
+controls have to live on the laptop. **CAST & REMOTE** — in the lobby, and in
+the header of the control screen — has a link and a QR code for each:
+
+- **Broadcast on another device** (`?view=broadcast&pin=1234`). Open it on a
+  smart TV's browser, the laptop wired to the projector, anything with a
+  browser, and go full screen. It follows the game by PIN over the network,
+  exactly the way a phone does, and shows exactly what the projector window
+  shows — no controls, and no answers before they are due. A screen with no
+  camera can open `?view=broadcast` on its own and type the PIN. It
+  reconnects by itself if its Wi-Fi drops, and a reload comes back to the
+  same game.
+- **Remote for your tablet** (`?view=remote&pin=1234`). Scan it with an iPad
+  and type the **host password**, and the round runs from wherever you are
+  standing: add bots and start the game, turn the loser's bracket on or off
+  in the lobby, **spin** the wheel (the laptop's wheel spins, lands and
+  decides, exactly as if you had pressed it there), **start the round**,
+  pause / +10s / close one table or every table, **move the room on**, **end
+  the round**, redraw the ballot, **start the next round**, **play again**.
+  It also shows the answer to whatever each table is reading, behind a tap,
+  for adjudicating from the floor, and switches your own seat's answering
+  off so nothing waits on you while you walk.
+
+The laptop still runs the game in both cases — the remote is a second set of
+hands on its buttons, not a second host — so keep its window open and not
+minimised (a hidden tab's timers are slowed down by the browser). The header
+shows which remotes are linked. Ending the game for good stays on the laptop.
+
+**How the remote proves it is you.** The password never leaves the tablet.
+It becomes the same proof a returning host uses, and the tablet signs a
+hello with it (HMAC-SHA256) bound to its own signed-in identity. The host
+window checks the signature, binds that identity, and from then on accepts
+commands only from it — the database stamps every message with the sender's
+real identity, so a hello or a command copied off the room's bus and sent
+from another device is refused. Nothing needed changing in
+`firebase/database.rules.json`: the existing rules already carry all of it.
+
+> Without multiplayer, the broadcast and the remote still work — as windows
+> of **the same browser on the same machine**, over `BroadcastChannel`.
 
 ### Joining by PIN
 
@@ -615,7 +686,10 @@ without the hash ever being readable, is in
    as a player automatically. The lobby shows the host password one last time
    (behind an eye toggle, because a laptop on a bar table gets read over
    shoulders). **OPEN BROADCAST DISPLAY** and move it to the big screen.
-   **EDIT MY PLAYER** renames your seat, **ADD BOT** adds opponents.
+   **EDIT MY PLAYER** renames your seat, **ADD BOT** adds opponents. The
+   **loser's bracket** can still be switched here, with the number of rounds
+   it needs for the players who turned up. **CAST & REMOTE** puts the
+   broadcast on another device or the controls on your tablet.
 5. **START GAME** → **SPIN THE WHEEL** each round, then **START ROUND**. The
    spin decides the category: whichever slice stops under the pointer is what
    the room plays, and it comes off the wheel for the rest of the game. That
@@ -759,9 +833,9 @@ from that:
   was scored wrongly in a browser. A lost host window is recoverable (see
   "Getting a lost game back"); a lost host *machine* takes the broadcast
   display with it.
-- **The broadcast screen is still a second window of the host's own browser**,
-  synced over `BroadcastChannel`. A projector on the host machine, not a device
-  you point at the URL.
+- **The laptop stays the referee even when it is not the screen.** A broadcast
+  on a TV and a remote on a tablet both follow the host's window over the
+  network; neither can run the game without it.
 
 **Multiplayer is off until it is set up.** With no Firebase configuration the
 app runs exactly as it always did: joining works between windows of one

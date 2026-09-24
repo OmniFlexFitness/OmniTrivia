@@ -24,7 +24,8 @@ import {
 } from "../services/lanes";
 import Button from "./Button";
 import AvatarDisplay from "./AvatarDisplay";
-import BracketView from "./BracketView";
+import BracketView, { SideTag } from "./BracketView";
+import { matchupById, sideOf } from "../services/bracket";
 import QuestionCard from "./QuestionCard";
 import { QuestionPanel } from "./CyberQuestion";
 import Wheel from "./Wheel";
@@ -33,6 +34,7 @@ import CategoryLikeButton from "./CategoryLikeButton";
 import CategoryVotePanel from "./CategoryVotePanel";
 import CategoryPoolManager from "./CategoryPoolManager";
 import InsightsPanel from "./InsightsPanel";
+import HostScreensPanel from "./HostScreensPanel";
 import {
   ArrowRight,
   BarChart3,
@@ -50,6 +52,7 @@ import {
   Shuffle,
   SkipForward,
   Swords,
+  Tablet,
   Trophy,
   Tv,
   Zap,
@@ -288,11 +291,13 @@ const LaneCard: React.FC<{ lane: MatchupLane }> = ({ lane }) => {
   const {
     players,
     questionsQueue,
+    bracket,
     revealLaneNow,
     toggleLanePaused,
     addLaneTime,
   } = useGame();
   const hostProgress = useHostProgress();
+  const matchup = matchupById(bracket, lane.matchupId);
 
   const status = laneStatus(lane);
   const running = laneIsRunning(lane);
@@ -317,7 +322,8 @@ const LaneCard: React.FC<{ lane: MatchupLane }> = ({ lane }) => {
       }`}
     >
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[11px] font-mono uppercase tracking-widest text-slate-500">
+        <span className="flex items-center gap-2 text-[11px] font-mono uppercase tracking-widest text-slate-500">
+          {matchup && <SideTag side={sideOf(matchup)} />}
           {lane.playerIds.length < 2 ? "bye" : "matchup"} · {completed}/
           {questionsQueue.length} both through
         </span>
@@ -1027,9 +1033,11 @@ const HostControlScreen: React.FC = () => {
     championId,
     loading,
     roomWarning,
+    remotes,
   } = useGame();
 
   const [showPool, setShowPool] = React.useState(false);
+  const [showScreens, setShowScreens] = React.useState(false);
   const [showInsights, setShowInsights] = React.useState(false);
 
   if (loading) {
@@ -1054,6 +1062,7 @@ const HostControlScreen: React.FC = () => {
     <div className="min-h-screen tron-backdrop text-white p-4 md:p-6">
       {showPool && <CategoryPoolManager onClose={() => setShowPool(false)} />}
       {showInsights && <InsightsPanel onClose={() => setShowInsights(false)} />}
+      {showScreens && <HostScreensPanel onClose={() => setShowScreens(false)} />}
 
       {/* A room that cannot be reached, or one this window no longer owns
           because another device took the game back with the host password.
@@ -1112,6 +1121,21 @@ const HostControlScreen: React.FC = () => {
           >
             <Heart size={14} />
             data{likesThisGame > 0 ? ` · ${likesThisGame}` : ""}
+          </button>
+
+          <button
+            onClick={() => setShowScreens(true)}
+            className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-xs font-mono uppercase tracking-widest transition-colors ${
+              remotes.length > 0
+                ? "border-neon-yellow text-neon-yellow bg-neon-yellow/10"
+                : "border-slate-600 text-slate-400 hover:text-white"
+            }`}
+            title="Put the broadcast on another device, or run the round from a tablet"
+          >
+            <Tablet size={14} />
+            {remotes.length > 0
+              ? `remote · ${remotes.map((remote) => remote.label).join(", ")}`
+              : "cast & remote"}
           </button>
 
           <button
@@ -1218,6 +1242,14 @@ const HostControlScreen: React.FC = () => {
                     <span className="flex-1 truncate font-bold">
                       {player.name}
                     </span>
+                    {player.losersBracket && !player.eliminated && (
+                      <span
+                        className="px-1.5 rounded border border-orange-400/60 text-[9px] font-mono uppercase tracking-widest text-orange-300"
+                        title="Lost once — in the loser's bracket"
+                      >
+                        LB
+                      </span>
+                    )}
                     <span className="font-mono text-neon-green text-xs">
                       +{player.roundScore}
                     </span>

@@ -44,7 +44,17 @@ export const GLOSSARY: GlossaryEntry[] = [
   {
     term: "Bracket",
     definition:
-      "Single elimination. The higher round score in a matchup advances, the other player is out. A bye advances whoever is left over when the numbers are odd.",
+      "Single elimination by default: the higher round score in a matchup advances, the other player is out. A bye advances whoever is left over when the numbers are odd.",
+  },
+  {
+    term: "Loser's bracket",
+    definition:
+      "Optional, chosen by the host at setup. A first loss drops you into the loser's bracket instead of out; a second loss there ends your night. Both sides play every round on the same category, and the last player on each side meets in a grand final for the title.",
+  },
+  {
+    term: "Remote",
+    definition:
+      "A second screen for the host — a tablet or phone that runs the round from anywhere in the room once it has the PIN and the host password. The host's own window still runs the game; the remote drives it.",
   },
   {
     term: "Rejoin code",
@@ -104,7 +114,7 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
       "HOST GAME runs the night from this machine: you load the questions, spin the wheel and drive the big screen.",
       "JOIN GAME takes a seat in somebody else's game with their four-digit PIN.",
       "RESUME HOSTING is for a host whose window went away mid-game — the PIN and the host password put you back at the controls.",
-      "Everything in a game is scored head-to-head. Win your matchup and you are in the next round; lose it and you are out.",
+      "Everything in a game is scored head-to-head. Win your matchup and you are in the next round; lose it and you are out — or, if the host turned on the loser's bracket, you drop into it and get a second life.",
     ],
   },
 
@@ -116,7 +126,8 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
       "Questions per round: how many questions each match works through. Five keeps a round to a few minutes.",
       "The game name is what the room sees on the big screen. The PIN is only the code players type to get in.",
       "GENERATE & REVIEW writes the questions with Claude; USE THE QUESTION BANK takes the premade set, which needs no API key and nothing written; IMPORT MY OWN takes a CSV or a Google Sheet.",
-      "The host password is your way back in. If this window closes, reloads or the laptop dies, that password and the PIN take the running game back on any device — so write it down before you open the lobby.",
+      "The host password is your way back in. If this window closes, reloads or the laptop dies, that password and the PIN take the running game back on any device — so write it down before you open the lobby. It is also what lets a tablet run the round as a remote.",
+      "Loser's bracket turns the night into double elimination: a first loss drops a player into it rather than out. It needs roughly twice as many rounds to settle, and the lobby tells you exactly how many for the players who turn up.",
     ],
   },
 
@@ -187,6 +198,8 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
       "Open the broadcast display and drag it onto the projector before you start — it is the only screen the room should be looking at.",
       "ADD BOT fills the room out so a bracket can be tested; the host is always seated as a player.",
       "START GAME closes the lobby and draws the first round's matchups at random.",
+      "The loser's bracket can still be switched on or off here, up until START GAME. The panel says how many rounds the bracket needs for the players in the room.",
+      "Hosting from more than one screen: CAST shows a link and QR code for putting the broadcast on any device, and REMOTE shows one for running the round from a tablet with the host password.",
       "The host password on this screen is what takes this game back if this window goes away. It is shown here and nowhere else — note it down now.",
     ],
   },
@@ -233,7 +246,7 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
     lead: "Matchups are settled on this round's points, and the winners are paired for the next one.",
     points: [
       "Every matchup is decided on the round just played, not on the running total — so every round starts level.",
-      "Losers stay on the leaderboard with their score; they are just out of the bracket.",
+      "Losers stay on the leaderboard with their score; they are just out of the bracket. With a loser's bracket, a first loss drops a player into it instead, and only a second loss puts them out.",
       "The next round's pairings are drawn as soon as this one is settled, so who you play next is on your screen before the wheel is spun for it.",
       "Vote on what you want to play in future: the options are the same on every screen, and the host keeps the results.",
       "Liking the category you have just played tells the host to write more of it.",
@@ -242,7 +255,7 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
 
   gameOver: {
     title: "End of the game",
-    lead: "The last player standing takes it — or the highest score among those still in, if the rounds run out first.",
+    lead: "The last player standing takes it — or, if the rounds run out first, the highest score among those still in, with anyone unbeaten ranked ahead of the loser's bracket.",
     points: [
       "PLAY AGAIN replays the same questions with the scores reset and the bracket redrawn.",
       "The category data — likes and votes — is kept between games, so it is worth checking after a few nights rather than one.",

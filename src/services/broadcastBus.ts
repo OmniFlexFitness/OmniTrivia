@@ -74,7 +74,7 @@ const ROOM_TTL_MS = 20000;
  * whole page down. So the version travels with every snapshot and is checked
  * before anything is rendered from it.
  */
-export const SNAPSHOT_VERSION = 4;
+export const SNAPSHOT_VERSION = 5;
 
 /** How a snapshot's version compares to what this build can render. */
 export type SnapshotFit = "ok" | "sender-is-newer" | "sender-is-older";
@@ -128,6 +128,8 @@ export const reloadForNewBuild = (): boolean => {
 /** Query param that turns this window into the projector view. */
 export const BROADCAST_VIEW_PARAM = "view";
 export const BROADCAST_VIEW_VALUE = "broadcast";
+/** The same param's value for the host's remote — a tablet running the round. */
+export const REMOTE_VIEW_VALUE = "remote";
 
 const hasChannel = typeof BroadcastChannel !== "undefined";
 
@@ -141,6 +143,57 @@ const getChannel = (): BroadcastChannel | null => {
 export const isBroadcastView = (): boolean =>
   new URLSearchParams(window.location.search).get(BROADCAST_VIEW_PARAM) ===
   BROADCAST_VIEW_VALUE;
+
+export const isRemoteView = (): boolean =>
+  new URLSearchParams(window.location.search).get(BROADCAST_VIEW_PARAM) ===
+  REMOTE_VIEW_VALUE;
+
+/** The four-digit PIN on this page's URL, if it carries one. */
+export const pinFromUrl = (): string | null => {
+  try {
+    const pin = new URLSearchParams(window.location.search).get("pin");
+    return pin && /^\d{4}$/.test(pin) ? pin : null;
+  } catch {
+    return null;
+  }
+};
+
+/** Name the room this page is following in its own address, so a reload keeps it. */
+export const pinViewToUrl = (pin: string | null): void => {
+  try {
+    const url = new URL(window.location.href);
+    if (pin) url.searchParams.set("pin", pin);
+    else url.searchParams.delete("pin");
+    window.history.replaceState(null, "", url.toString());
+  } catch {
+    // An address this browser will not rewrite; the view still works.
+  }
+};
+
+/**
+ * A view of one room, for a device that is not the host's machine: the
+ * broadcast display on a TV's browser, or the host's remote on a tablet.
+ *
+ * Both reach the room the same way a phone does — over the network, by PIN —
+ * which is the whole difference from the projector window the host opens
+ * beside their own, and the only reason these links carry a PIN at all.
+ */
+const roomViewUrl = (view: string, pin: string): string => {
+  const url = new URL(window.location.href);
+  url.search = "";
+  url.hash = "";
+  url.searchParams.set(BROADCAST_VIEW_PARAM, view);
+  url.searchParams.set("pin", pin);
+  return url.toString();
+};
+
+/** The broadcast display, for a screen that is not on the host's machine. */
+export const castUrl = (pin: string): string =>
+  roomViewUrl(BROADCAST_VIEW_VALUE, pin);
+
+/** The host's remote, for a tablet or phone running the round from the floor. */
+export const remoteUrl = (pin: string): string =>
+  roomViewUrl(REMOTE_VIEW_VALUE, pin);
 
 /** URL of the broadcast view, preserving whatever else is on the query string. */
 export const broadcastUrl = (): string => {
