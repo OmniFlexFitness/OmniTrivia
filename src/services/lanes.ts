@@ -269,8 +269,13 @@ export const buildRoundLanes = (state: GameState): MatchupLane[] => {
  * ------------------------------------------------------------------ */
 
 /**
- * Close one player's question: bank their points, then put the answer in front
- * of them — and only them.
+ * Close one player's question: bank their points and give them a short
+ * "locked in" beat before the next one.
+ *
+ * The points are real from this moment — the host's desk and the bracket read
+ * them — but the player is not told how the answer went. The published
+ * snapshot keeps every verdict, and every score that would betray one, back
+ * until the match is over (see `snapshot.ts`).
  *
  * Their opponent is not touched. They may be four questions behind or already
  * finished; either way this player's round carries on from here.
@@ -289,8 +294,8 @@ export const closeSeatQuestion = (
   const isCorrect = record?.isCorrect ?? false;
   const points = record?.points ?? 0;
 
-  // Points land here rather than at submit time so the scoreboard turns over
-  // with the reveal the player is looking at, not a beat before it.
+  // Points land here, when the question closes — whether by an answer, the
+  // clock or the host — so every way out of a question scores the same way.
   const players = state.players.map((player) =>
     player.id === playerId
       ? {
@@ -314,11 +319,12 @@ export const closeSeatQuestion = (
 };
 
 /**
- * Leave a player's reveal: their next question, or the end of their round.
+ * Leave a player's "locked in" beat: their next question, or the end of their
+ * round.
  *
- * Called by the reveal clock running out and by the player themselves tapping
- * through. They are the same transition on purpose — a player who has read the
- * answer in two seconds should not be made to sit out the other four.
+ * Called by the beat running out and by the player themselves tapping
+ * through. They are the same transition on purpose — a player who is ready
+ * should never be made to sit out the rest of it.
  */
 export const advanceSeat = (
   state: GameState,
@@ -347,7 +353,7 @@ export const advanceSeat = (
 };
 
 /**
- * A player has read their answer and wants the next question now.
+ * A player has locked in and wants the next question now.
  *
  * This is the whole point of the format from a player's side, so it is a first
  * class transition rather than a shortcut: find their seat wherever it is and
@@ -383,9 +389,9 @@ const retireSeat = (
  * Record one answer, and close the question it answers on the spot.
  *
  * There is nothing to wait for: the player has answered, so they have earned
- * their points and their feedback, and their opponent's pace is their own
- * business. This is the line that makes a round asynchronous all the way down
- * to the individual.
+ * their points — which they will hear about when the match is over — and
+ * their opponent's pace is their own business. This is the line that makes a
+ * round asynchronous all the way down to the individual.
  */
 export const recordLaneAnswer = (
   state: GameState,
@@ -475,7 +481,7 @@ export const syncLaneRosters = (state: GameState): GameState => {
  * can see from the desk. Underneath, each seat is still moved on its own.
  * ------------------------------------------------------------------ */
 
-/** Stop a whole table's clocks and put each player's answer in front of them. */
+/** Stop a whole table's clocks and close each player's question where it stands. */
 export const closeLaneQuestion = (
   state: GameState,
   laneId: string,
@@ -610,8 +616,9 @@ export const broadcastIndex = (state: GameState): number =>
   );
 
 /**
- * Put the answer on the projector if the last player has just cleared the
- * question it is showing.
+ * Tell the room everyone is locked in, if the last player has just cleared the
+ * question the projector is showing. (The answer itself waits for the end of
+ * the round; this only marks that nobody is left on the question.)
  *
  * This runs off the back of a seat closing rather than off the clock, so the
  * big screen turns over the moment the field is through rather than up to a

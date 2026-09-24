@@ -393,7 +393,18 @@ export interface PublicQuestion {
   options: string[];
 }
 
-/** Everything the broadcast needs to show the answer, sent only at reveal. */
+/** One question of a finished round, with its answer, for the review. */
+export interface RoundReviewItem {
+  question: PublicQuestion;
+  reveal: RevealDetail;
+  /** How many of the players who answered it got it right. */
+  correctCount: number;
+  answeredCount: number;
+  /** Picks per public option — multiple choice and true/false only. */
+  optionTallies: number[] | null;
+}
+
+/** Everything a screen needs to show an answer, sent only once it is due. */
 export interface RevealDetail {
   /** Human-readable answer, already formatted for the question type. */
   label: string;
@@ -405,9 +416,25 @@ export interface RevealDetail {
 }
 
 /**
+ * How one player did on one question, published only once their match is
+ * over. Until then nobody — not the player, not the room — is told whether an
+ * answer was right.
+ */
+export interface SeatResult {
+  /** They locked something in before their clock ran out. */
+  answered: boolean;
+  correct: boolean;
+  points: number;
+  /** What they gave, so the end-of-round review can show it beside the key. */
+  answer: Answer | null;
+}
+
+/**
  * One player's seat, as published. This is what a player's own phone renders:
- * their question, their clock, and — only once they have closed it — their
- * answer.
+ * their question and their clock — and, once the match is over, how they did.
+ *
+ * Nothing on a seat says whether an answer was right while the match is still
+ * being played. A player finds out at the end, all at once.
  */
 export interface PublicSeat {
   playerId: string;
@@ -417,14 +444,15 @@ export interface PublicSeat {
   /** How many of the round's questions this player is through. */
   completed: number;
   question: PublicQuestion | null;
-  /** Non-null only while this player is looking at their own answer. */
-  reveal: RevealDetail | null;
   /** They are in on the question they are currently on. */
   answered: boolean;
-  /** Whether they got it — published only once they are past the question. */
-  wasCorrect: boolean | null;
-  /** Points their last closed question earned them. */
-  lastPoints: number | null;
+  /**
+   * One entry per question in the round, published once *both* players in
+   * the match are through it — the end of the match. Null before that.
+   */
+  results: SeatResult[] | null;
+  /** Points this round, published with `results` and not before. */
+  roundPoints: number | null;
   timeLeft: number;
   timerDuration: number;
   timerPaused: boolean;
@@ -509,12 +537,15 @@ export interface BroadcastSnapshot {
   questionNumber: number;
   questionsInRound: number;
   question: PublicQuestion | null;
-  /** Set once every player is through the room's question, and not before. */
-  reveal: RevealDetail | null;
+  /**
+   * Every player is through the room's question. The screen says so — and
+   * nothing more: the answer waits for the end of the round.
+   */
+  roomLockedIn: boolean;
   /** Longest a player still on the room's question has left on their clock. */
   timeLeft: number;
   timerDuration: number;
-  /** Seconds the room's screen holds this answer before moving on. */
+  /** Seconds the room's screen holds on a finished question before moving on. */
   revealSecondsLeft: number;
   autoAdvance: boolean;
 
@@ -524,18 +555,16 @@ export interface BroadcastSnapshot {
   /** Every match, so both the desk and the room can see the field. */
   lanes: PublicLane[];
 
-  /** Who is competing this round, who is through the room's question, and
-   * — once its answer is up — who got it right. */
+  /** Who is competing this round, and who is locked in on the room's
+   * question. Never who got it right — that is for the end of the round. */
   activePlayerIds: string[];
   answeredPlayerIds: string[];
-  correctPlayerIds: string[];
 
   /**
-   * How many players picked each public option, across every match. Sent
-   * only with the reveal — a live tally would tell the room where the crowd is
-   * going, and would leak to players who have not reached the question yet.
+   * The round's answer key, published once the round is over and not a
+   * moment before: every question, its answer, and how the room did on it.
    */
-  optionTallies: number[] | null;
+  roundReview: RoundReviewItem[] | null;
 
   players: PublicPlayer[];
   bracket: BracketRound[];

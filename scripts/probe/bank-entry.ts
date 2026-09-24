@@ -15,8 +15,9 @@ import "./dom-stub";
 import { DEFAULT_QUESTION_BANK } from "../../src/constants";
 import {
   fetchDefaultQuestionBank,
-  parseImportData,
+  parseImportDataWithReport,
 } from "../../src/services/importService";
+import { isPlayable } from "../../src/services/questionQuality";
 import { buildRoundsFromContent } from "../../src/services/questionSet";
 import { isAnswerCorrect } from "../../src/services/scoring";
 import { publicOptions } from "../../src/services/snapshot";
@@ -46,13 +47,22 @@ try {
 const rows = csv.trim().split("\n").length - 1;
 check("the bank downloads", csv.length > 0, `${rows} rows, ${csv.length} bytes`);
 
-const contents: CategoryContent[] = Object.values(parseImportData(csv));
+const report = parseImportDataWithReport(csv);
+const contents: CategoryContent[] = Object.values(report.contents);
 const questions: Question[] = contents.flatMap((c) => c.questions);
 
+// A row is either played or eliminated for a reason the host is told — never
+// lost without a word. Placeholder answers ("Placeholder 1") are eliminated on
+// purpose, so they are counted here rather than treated as a failure.
 check(
-  "every row in the sheet becomes a question",
-  questions.length === rows,
-  `${questions.length} of ${rows} — ${rows - questions.length} dropped`,
+  "every row in the sheet is either a question or eliminated with a reason",
+  questions.length + report.skipped.length === rows,
+  `${questions.length} playable, ${report.skipped.length} eliminated, ${rows - questions.length - report.skipped.length} unaccounted for`,
+);
+check(
+  "no placeholder makes it into a game",
+  questions.every((q) => isPlayable(q)) &&
+    !questions.some((q) => q.options.some((o) => /placeholder/i.test(o))),
 );
 
 check(

@@ -58,10 +58,12 @@ const ReviewScreen: React.FC = () => {
         <div className="w-full max-w-4xl bg-amber-900/40 border border-amber-500 text-amber-200 p-4 rounded-xl mb-6 flex items-start gap-3">
           <AlertTriangle className="shrink-0 mt-0.5" />
           <div>
-            <p className="font-bold">These are not real questions.</p>
+            <p className="font-bold">Some questions were left out.</p>
             <p className="text-sm mt-1 text-amber-300/90">{contentWarning}</p>
             <p className="text-sm mt-1 text-amber-300/90">
-              Restart and try again, or import your own questions, before playing in front of anyone.
+              Placeholders and questions with nothing to choose between are
+              eliminated automatically — everything below is playable. If a
+              round came out shorter than you wanted, restart or import more.
             </p>
           </div>
         </div>

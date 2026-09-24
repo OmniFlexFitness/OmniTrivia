@@ -126,7 +126,7 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
     points: [
       "LOAD THE QUESTION BANK is the premade set — hundreds of questions, thirty-odd categories, no API key and nothing to write. Everything below is for bringing your own.",
       "Required columns: category, question, correctAnswer. Optional: type, option1–option5, explanation.",
-      "Leave the option columns empty and the row is read as a typed answer, or as true/false when correctAnswer says True or False. A row whose correctAnswer matches none of its options is dropped rather than guessed at.",
+      "Leave the option columns empty and the row is read as a typed answer, or as true/false when correctAnswer says True or False. A row whose correctAnswer matches none of its options is dropped rather than guessed at, and so is any question with placeholder answers (\"Placeholder 1\", \"Option A\") or nothing to choose between.",
       "A Google Sheet has to be shared as 'anyone with the link can view' before it can be read.",
       "Bring the whole file. You choose how much of it to play on the next screen, so a library of twenty categories is fine for a three-round night.",
       "You review everything before a single player sees it.",
@@ -197,8 +197,8 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
     points: [
       "One spin, one category, one round. The spin genuinely decides it — whichever slice stops under the pointer is what you play.",
       "The wheel only carries the categories still to be played, so it loses a slice every round and the last round is a wheel of one.",
-      "The host spins it, and the big screen and every phone in the room turn the same wheel alongside them — nobody is told where it is going until it stops.",
-      "The matchups for this round are on the big screen and on your own phone — that is who you are playing.",
+      "The host spins it, and the big screen and every phone in the room turn the same wheel alongside them. The slices show only icons and colours — the category's name is announced once the wheel stops.",
+      "Your phone opens on your matchup — you, VS, your opponent — before the wheel turns. The big screen shows every pairing.",
       "START ROUND deals every match its questions and stops coordinating them. From there, nobody waits for anybody.",
     ],
   },
@@ -207,10 +207,11 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
     title: "Playing your match",
     lead: "This is your match against one opponent. Your clock is yours alone.",
     points: [
-      "Answer, see whether you got it, and take the next question straight away — you never wait for your opponent.",
+      "Answer, lock it in, and take the next question straight away — you never wait for your opponent.",
+      "You are not told whether an answer was right until your match is over. Then the whole round lands at once, and the answer key goes up when every match has finished.",
       "Points are 100 for a correct answer plus 10 for every second left on your clock. Fast is worth more.",
       "You and your opponent answer the same questions; whoever has more points at the end of the round wins the matchup.",
-      "The big screen is behind you on purpose. It only moves when the slowest player in the room is through a question, so it can never spoil yours.",
+      "The big screen is behind you on purpose. It only moves when the slowest player in the room is through a question, and it never shows an answer mid-round.",
     ],
   },
 
@@ -218,9 +219,10 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
     title: "Running the round",
     lead: "Every match is a card on the board, and every player in it has their own clock.",
     points: [
-      "Pause, +10s and Reveal act on one table. The 'every table' buttons are for when you really do mean the whole room.",
+      "Pause, +10s and Close Q act on one table. The 'every table' buttons are for when you really do mean the whole room.",
       "A player's question closes the moment they answer it — that is the format, not a bug. Their opponent may be three questions behind.",
-      "The projector holds whichever question the slowest player is still on and only shows the answer once everyone is through it.",
+      "Players are not told whether they were right until their match is over. The board here shows you the points as they land; nobody else sees them mid-match.",
+      "The projector holds whichever question the slowest player is still on, marks it once everyone is locked in, and shows the answer key only when the round is over.",
       "END ROUND NOW stops the whole round wherever it has got to and settles it on the scores as they stand. Nothing is lost by it: points are banked as each answer is given, and a question nobody reached is simply not played.",
       "Your own matchup is beside the board. 'Answering off' takes you out of it so nothing waits on you while you run the show.",
     ],
@@ -252,7 +254,7 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
     lead: "The room's screen follows the field; it never sets its pace.",
     points: [
       "It holds whichever question the slowest player is still working on.",
-      "The answer only goes up once every player has been through that question.",
+      "No answers mid-round: the answer key goes up once every match is finished.",
       "The field board shows how far ahead each player is in their own match.",
     ],
   },

@@ -17,6 +17,8 @@ import {
   Question,
   QuestionType,
   RevealDetail,
+  RoundReviewItem,
+  SeatResult,
 } from "../types";
 import { CATEGORIES } from "../constants";
 import { answeringRoster } from "./bracket";
@@ -37,17 +39,21 @@ import { SNAPSHOT_VERSION } from "./broadcastBus";
  * Builds the read-only view of the game that the projector and the players'
  * phones render.
  *
- * The broadcast is a public screen, so this is where the answer is held back:
- * `question` carries only what the room may see, and the answer travels
- * separately in `reveal`, which is populated only once *every* player is
- * through that question. The room's question is the slowest player's, so the
- * big screen can never run ahead of anyone playing.
+ * The broadcast is a public screen, so this is where the answers are held
+ * back — and not only the answer to the live question. Nobody is told whether
+ * they got a question right until their match is over:
  *
- * Each seat publishes its own question and — while its player is looking at
- * the answer — its own reveal, because that phone has to render it. Every tab
- * on the channel receives the whole snapshot, so a seat's answer is only as
- * private as the machine the game is running on; a real backend would address
- * each seat's payload to the player in it.
+ * - a seat publishes its question and its clock, never a verdict, until both
+ *   players in its match are through the round (`results`);
+ * - a player's score is published as it stood when the round began until
+ *   their match is over, because a number that jumps by 150 is a verdict too;
+ * - the room's screen says when everyone is locked in on a question, never
+ *   what the answer was, and the answer key (`roundReview`) goes up only once
+ *   the round is over — every match in it, not just one.
+ *
+ * Every tab on the channel receives the whole snapshot, so what is published
+ * is only as private as the machine the game is running on; a real backend
+ * would address each seat's payload to the player in it.
  */
 
 /** FNV-1a. Enough to turn a question id into a stable shuffle seed. */
@@ -188,26 +194,54 @@ const tallyOptions = (
   return tallies;
 };
 
-const toPublicPlayer = (player: Player): PublicPlayer => ({
+/**
+ * One player, as every screen sees them.
+ *
+ * `midMatch` is true while the match this player is in is still being played.
+ * Points are banked the instant an answer is given, so a live score is a
+ * running verdict on every question; until the match is over the room is
+ * shown the score this player started the round on instead.
+ */
+const toPublicPlayer = (player: Player, midMatch: boolean): PublicPlayer => ({
   id: player.id,
   name: player.name,
   avatar: player.avatar,
   avatarColor: player.avatarColor,
   avatarAccessory: player.avatarAccessory,
-  score: player.score,
-  roundScore: player.roundScore,
-  streak: player.streak,
+  score: midMatch ? player.score - player.roundScore : player.score,
+  roundScore: midMatch ? 0 : player.roundScore,
+  // A streak moves with every right answer, so it is held back with the rest.
+  streak: midMatch ? 0 : player.streak,
   isBot: player.isBot,
   isHost: player.isHost,
   eliminated: player.eliminated,
 });
 
 /**
+ * A match is over once both of its players are through every question — or
+ * once the round itself is, which is what an early finish from the desk is.
+ */
+const matchIsOver = (lane: MatchupLane, state: GameState): boolean =>
+  state.phase !== GamePhase.PLAYING || laneStatus(lane) === LaneStatus.DONE;
+
+/** How one player did on every question in the round. */
+const seatResults = (lane: MatchupLane, playerId: string, state: GameState): SeatResult[] =>
+  state.questionsQueue.map((_, index) => {
+    const record = answerBy(lane, playerId, index);
+    return {
+      answered: Boolean(record),
+      correct: record?.isCorrect ?? false,
+      points: record?.points ?? 0,
+      answer: record?.answer ?? null,
+    };
+  });
+
+/**
  * One player's seat, stripped of anything they are not owed yet.
  *
- * The answer travels with the seat and only once that seat has closed its
- * question, so a player who is still reading question two cannot be handed the
- * answer to it because the person across the table has already moved on.
+ * A seat carries its question and its clock, and nothing about how any answer
+ * went until the match is over. The verdicts then arrive together, for the
+ * whole round, so the end of a match is where a player finds out.
  */
 const toPublicSeat = (
   seat: LaneSeat,
@@ -216,8 +250,10 @@ const toPublicSeat = (
 ): PublicSeat => {
   const questionsInRound = state.questionsQueue.length;
   const question = state.questionsQueue[seat.questionIndex];
-  const isRevealing = seat.status === LaneStatus.REVEAL;
   const record = answerBy(lane, seat.playerId, seat.questionIndex);
+  const results = matchIsOver(lane, state)
+    ? seatResults(lane, seat.playerId, state)
+    : null;
 
   return {
     playerId: seat.playerId,
@@ -231,11 +267,11 @@ const toPublicSeat = (
       question && seat.status !== LaneStatus.DONE
         ? toPublicQuestion(question)
         : null,
-    reveal: isRevealing && question ? buildReveal(question) : null,
     answered: Boolean(record),
-    // Whether they were right is a spoiler until their own answer is up.
-    wasCorrect: isRevealing ? (record?.isCorrect ?? false) : null,
-    lastPoints: isRevealing ? (record?.points ?? 0) : null,
+    results,
+    roundPoints: results
+      ? results.reduce((total, result) => total + result.points, 0)
+      : null,
     timeLeft: seat.timeLeft,
     timerDuration: seat.questionDuration,
     timerPaused: seat.timerPaused,
@@ -346,12 +382,36 @@ export const buildSnapshot = (
   const questionsInRound = state.questionsQueue.length;
   const roomIndex = broadcastIndex(state);
   const roomQuestion = state.questionsQueue[roomIndex] ?? null;
-  // The answer only goes on the projector once there is nobody left who could
-  // still be looking at the question.
-  const roomRevealing =
+  // Everyone is through the question the room is showing. That is all the
+  // room is told about it until the round is over.
+  const roomLockedIn =
     state.phase === GamePhase.PLAYING &&
     state.broadcastRevealing &&
     everyLaneCompleted(state.lanes, roomIndex);
+
+  /* --- the answer key, once there is nobody left to spoil --- */
+  const roundOver =
+    state.phase === GamePhase.ROUND_END || state.phase === GamePhase.GAME_OVER;
+  const roundReview: RoundReviewItem[] | null =
+    roundOver && state.lanes.length > 0
+      ? state.questionsQueue.map((question, index) => {
+          const answers = answersForQuestion(state.lanes, index);
+          return {
+            question: toPublicQuestion(question),
+            reveal: buildReveal(question),
+            correctCount: answers.filter((a) => a.isCorrect).length,
+            answeredCount: answers.length,
+            optionTallies: tallyOptions(question, answers),
+          };
+        })
+      : null;
+
+  // Whose match is still being played, so their scores stay as they began.
+  const midMatch = new Set(
+    state.lanes
+      .filter((lane) => !matchIsOver(lane, state))
+      .flatMap((lane) => lane.playerIds),
+  );
 
   const roomAnswers = roomQuestion
     ? answersForQuestion(state.lanes, roomIndex)
@@ -383,7 +443,7 @@ export const buildSnapshot = (
     questionNumber: roomIndex + 1,
     questionsInRound,
     question: roomQuestion ? toPublicQuestion(roomQuestion) : null,
-    reveal: roomRevealing && roomQuestion ? buildReveal(roomQuestion) : null,
+    roomLockedIn,
 
     // The room is waiting on whichever player has the most clock left on this
     // question — that is the longest it can still be held up.
@@ -410,16 +470,12 @@ export const buildSnapshot = (
       state.hostAnsweringEnabled,
     ),
     answeredPlayerIds: roomAnswers.map((a) => a.playerId),
-    correctPlayerIds: roomRevealing
-      ? roomAnswers.filter((a) => a.isCorrect).map((a) => a.playerId)
-      : [],
 
-    optionTallies:
-      roomRevealing && roomQuestion
-        ? tallyOptions(roomQuestion, roomAnswers)
-        : null,
+    roundReview,
 
-    players: state.players.map(toPublicPlayer),
+    players: state.players.map((player) =>
+      toPublicPlayer(player, midMatch.has(player.id)),
+    ),
     bracket: state.bracket,
     nextRoundMatchups:
       state.phase === GamePhase.ROUND_END

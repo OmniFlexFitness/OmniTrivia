@@ -8,6 +8,7 @@ import {
   PublicLane,
   PublicPlayer,
   QuestionType,
+  RoundReviewItem,
 } from "../types";
 import {
   postMessage,
@@ -23,12 +24,14 @@ import JoinCode from "./JoinCode";
 import CategoryVotePanel from "./CategoryVotePanel";
 import SpectatorWheel from "./SpectatorWheel";
 import { GLOSSARY, SCORING_RULES } from "../content/instructions";
+import { CHOICE_KEYS, QuestionPanel, accentStyle } from "./CyberQuestion";
 import {
   CheckCircle2,
   Crown,
   Flag,
   Heart,
   Hourglass,
+  Lock,
   Radio,
   Swords,
   Trophy,
@@ -42,16 +45,14 @@ import {
  *
  * It follows the field rather than setting its pace. Each matchup plays at its
  * own speed, so the big screen holds whichever question the slowest table is
- * still working on and only puts the answer up once every table is through it.
- * That is what makes it safe to look at: nobody can be shown a question — or
- * an answer — ahead of where they are. The race board is where the room
- * watches the faster tables pull ahead.
+ * still working on, and says so when every table is through it — nothing
+ * more. Nobody is told whether they were right until their match is over, and
+ * the answers themselves go up as an answer key once the whole round is. The
+ * race board is where the room watches the faster tables pull ahead.
  */
 
 /** No word from the host window for this long and we say so on screen. */
 const HOST_TIMEOUT_MS = 8000;
-
-const CHOICE_LETTERS = ["A", "B", "C", "D", "E", "F"];
 
 /* ------------------------------------------------------------------ *
  * Shared pieces
@@ -110,48 +111,49 @@ const CountdownRing: React.FC<{
 
 /**
  * Where the room is on the question it is being shown: how many matchups are
- * through it, and which players have locked an answer in.
+ * through it, and which players have locked an answer in. Locked in, never
+ * right or wrong — that is for the end of the match.
  */
 const RoomProgress: React.FC<{
   snapshot: BroadcastSnapshot;
   players: PublicPlayer[];
 }> = ({ snapshot, players }) => {
   const answered = new Set(snapshot.answeredPlayerIds);
-  const revealing = !!snapshot.reveal;
+  const lockedIn = snapshot.roomLockedIn;
   const waiting = Math.max(0, snapshot.lanesInPlay - snapshot.lanesCompleted);
   const progress = snapshot.lanesInPlay
     ? (snapshot.lanesCompleted / snapshot.lanesInPlay) * 100
     : 0;
 
   return (
-    <div className="w-full bg-slate-900/80 border border-slate-800 rounded-2xl p-5">
+    <div className="w-full cyber-panel p-5">
       <div className="flex items-end justify-between mb-3">
         <div>
-          <div className="text-5xl font-black font-mono text-neon-green leading-none">
+          <div className="font-hud text-5xl font-black text-[#39ff88] leading-none">
             {snapshot.lanesCompleted}
             <span className="text-2xl text-slate-600">
               /{snapshot.lanesInPlay}
             </span>
           </div>
-          <div className="text-[11px] font-mono uppercase tracking-widest text-slate-500 mt-1">
+          <div className="cyber-hud text-[10px] text-slate-500 mt-2">
             matchups through it
           </div>
         </div>
         <div className="text-right">
           <div
-            className={`text-5xl font-black font-mono leading-none ${waiting > 0 ? "text-neon-yellow" : "text-slate-700"}`}
+            className={`font-hud text-5xl font-black leading-none ${waiting > 0 ? "text-[#f5ff3b]" : "text-slate-700"}`}
           >
             {waiting}
           </div>
-          <div className="text-[11px] font-mono uppercase tracking-widest text-slate-500 mt-1">
+          <div className="cyber-hud text-[10px] text-slate-500 mt-2">
             still on it
           </div>
         </div>
       </div>
 
-      <div className="h-3 w-full bg-slate-800 rounded-full overflow-hidden border border-slate-700">
+      <div className="cyber-timer h-3">
         <div
-          className="h-full bg-neon-green transition-all duration-500 shadow-[0_0_10px_#0aff00]"
+          className="cyber-timer-fill"
           style={{ width: `${progress}%` }}
         />
       </div>
@@ -160,16 +162,13 @@ const RoomProgress: React.FC<{
         {snapshot.activePlayerIds.map((id) => {
           const player = players.find((p) => p.id === id);
           if (!player) return null;
-          const isIn = answered.has(id);
-          const wasRight = snapshot.correctPlayerIds.includes(id);
+          const isIn = answered.has(id) || lockedIn;
 
           return (
             <div
               key={id}
               className={`relative transition-all duration-300 ${
-                isIn || revealing
-                  ? "opacity-100 scale-100"
-                  : "opacity-30 grayscale scale-95"
+                isIn ? "opacity-100 scale-100" : "opacity-30 grayscale scale-95"
               }`}
               title={player.name}
             >
@@ -179,26 +178,10 @@ const RoomProgress: React.FC<{
                 accessory={player.avatarAccessory}
                 size="md"
               />
-              {/* Running out of time is an outcome too — it is scored as a
-                  miss, so it gets a mark rather than being left blank. */}
-              {revealing && (
-                <span
-                  className={`absolute -bottom-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black border-2 border-slate-900 ${
-                    !isIn
-                      ? "bg-slate-600 text-slate-300"
-                      : wasRight
-                        ? "bg-green-500"
-                        : "bg-red-500"
-                  }`}
-                >
-                  {!isIn ? "–" : wasRight ? "✓" : "✕"}
+              {isIn && (
+                <span className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center bg-slate-950 border border-[#00f0ff] text-[#00f0ff]">
+                  <Lock size={10} />
                 </span>
-              )}
-              {isIn && !revealing && (
-                <CheckCircle2
-                  size={18}
-                  className="absolute -bottom-1 -right-1 text-neon-green bg-slate-900 rounded-full"
-                />
               )}
             </div>
           );
@@ -236,8 +219,8 @@ const LaneRace: React.FC<{
   );
 
   return (
-    <div className="w-full bg-slate-900/80 border border-slate-800 rounded-2xl p-4">
-      <div className="text-[11px] font-mono uppercase tracking-[0.3em] text-slate-500 mb-3">
+    <div className="w-full cyber-panel p-4">
+      <div className="cyber-hud text-[10px] text-slate-500 mb-3">
         The field
       </div>
       <div className="space-y-3">
@@ -256,9 +239,13 @@ const LaneRace: React.FC<{
                     <span className="flex-1 truncate font-bold text-white">
                       {player?.name ?? "Unknown"}
                     </span>
-                    <span className="font-mono text-neon-green shrink-0">
-                      {player?.roundScore ?? 0}
-                    </span>
+                    {/* Points only once this match is over — a live score
+                        is a verdict on every answer. */}
+                    {seat.roundPoints !== null && (
+                      <span className="font-mono text-neon-green shrink-0">
+                        {seat.roundPoints}
+                      </span>
+                    )}
                     <span
                       className={`font-mono text-xs shrink-0 w-16 text-right ${done ? "text-neon-green" : "text-slate-500"}`}
                     >
@@ -533,7 +520,7 @@ const RoundIntroStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
             className="w-[30vh] h-[30vh] shrink-0"
           />
           {settled ? (
-            <div className="text-6xl font-black text-white neon-text animate-bounce-short">
+            <div className="cyber-question text-7xl text-white neon-text animate-bounce-short">
               {settled.icon} {settled.name}
             </div>
           ) : (
@@ -593,154 +580,103 @@ const RoundIntroStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
   );
 };
 
-/** Options as the room sees them, with the answer marked once it is up. */
+/**
+ * Options as the room sees them. Never marked: the answer waits for the end
+ * of the round, where it goes up in the answer key.
+ */
 const BroadcastOptions: React.FC<{ snapshot: BroadcastSnapshot }> = ({
   snapshot,
 }) => {
   const question = snapshot.question;
   if (!question) return null;
 
-  const reveal = snapshot.reveal;
-  const tallies = snapshot.optionTallies;
-  const totalAnswers = tallies?.reduce((sum, n) => sum + n, 0) ?? 0;
-
   switch (question.type) {
     case QuestionType.TYPE_ANSWER:
       return (
-        <div className="flex items-center justify-center py-8">
-          {reveal ? (
-            <div className="px-12 py-8 rounded-2xl bg-green-600/20 border-4 border-green-500 text-center">
-              <div className="text-sm font-mono uppercase tracking-widest text-green-400 mb-2">
-                Answer
-              </div>
-              <div className="text-6xl font-black text-white">
-                {reveal.label}
-              </div>
-            </div>
-          ) : (
-            <div className="px-12 py-8 rounded-2xl border-4 border-dashed border-slate-700 text-4xl font-bold text-slate-500">
-              ✍️ Type your answer
-            </div>
-          )}
+        <div className="flex items-center justify-center py-6">
+          <div className="cyber-panel px-12 py-8 text-center">
+            <div className="cyber-hud text-sm text-[#00f0ff]">Typed answer</div>
+            <div className="cyber-question text-4xl mt-2">✍️ Type it on your phone</div>
+          </div>
         </div>
       );
 
     case QuestionType.SLIDER: {
       const [min, max] = question.options.map(Number);
-      const span = max - min || 1;
-      const range = reveal?.correctRange;
-
       return (
-        <div className="py-10 px-6">
-          <div className="relative h-8 w-full rounded-full bg-slate-800 border border-slate-700">
-            {range && (
-              <div
-                className="absolute top-0 h-full rounded-full bg-green-500/70 shadow-[0_0_20px_#22c55e]"
-                style={{
-                  left: `${((range[0] - min) / span) * 100}%`,
-                  width: `${Math.max(2, ((range[1] - range[0]) / span) * 100)}%`,
-                }}
-              />
-            )}
+        <div className="py-8 px-6">
+          <div className="cyber-timer h-8">
+            <div className="cyber-timer-fill opacity-30" style={{ width: "100%" }} />
           </div>
-          <div className="flex justify-between mt-3 text-2xl font-mono text-slate-400">
+          <div className="font-hud flex justify-between mt-3 text-3xl text-slate-300">
             <span>{min}</span>
-            {range && (
-              <span className="text-3xl font-black text-green-400">
-                {reveal?.label}
-              </span>
-            )}
+            <span className="cyber-hud text-sm self-center text-slate-500">
+              slide to your guess
+            </span>
             <span>{max}</span>
           </div>
         </div>
       );
     }
 
-    case QuestionType.PUZZLE: {
-      const order = reveal?.correctOrder ?? question.options;
+    case QuestionType.PUZZLE:
       return (
-        <div className="flex flex-col gap-3 max-w-4xl mx-auto w-full py-4">
-          {order.map((item, index) => (
+        <div className="flex flex-col gap-3 max-w-4xl mx-auto w-full py-2">
+          {question.options.map((item, index) => (
             <div
               key={item}
-              className={`flex items-center gap-5 p-5 rounded-2xl border-4 ${
-                reveal
-                  ? "bg-green-600/20 border-green-500"
-                  : "bg-slate-800 border-slate-700"
-              }`}
+              style={accentStyle(index)}
+              className="cyber-option gap-5 px-5 py-4"
             >
-              <div className="w-12 h-12 rounded-full bg-slate-900 flex items-center justify-center font-mono font-black text-2xl text-neon-blue shrink-0">
-                {reveal ? index + 1 : "?"}
-              </div>
-              <span className="text-3xl font-bold text-white">{item}</span>
+              <span className="cyber-option-key w-12 h-12 text-2xl">?</span>
+              <span className="text-3xl">{item}</span>
             </div>
           ))}
-          {!reveal && (
-            <div className="text-center text-slate-500 font-mono uppercase tracking-widest">
-              Put them in the right order
+          <div className="cyber-hud text-center text-sm text-slate-500">
+            Put them in the right order
+          </div>
+        </div>
+      );
+
+    default: {
+      const isTrueFalse = question.type === QuestionType.TRUE_FALSE;
+      return (
+        <div className={`grid gap-5 ${isTrueFalse ? "grid-cols-2" : "grid-cols-1 md:grid-cols-2"}`}>
+          {question.options.map((option, index) => (
+            <div
+              key={index}
+              style={accentStyle(index)}
+              className={`cyber-option min-h-[6rem] px-6 py-5 gap-6 ${isTrueFalse ? "justify-center" : ""}`}
+            >
+              {!isTrueFalse && (
+                <span className="cyber-option-key w-14 h-14 text-2xl">
+                  {CHOICE_KEYS[index] ?? index + 1}
+                </span>
+              )}
+              <span
+                className={`leading-snug ${isTrueFalse ? "text-5xl uppercase tracking-wider" : "flex-1 text-3xl"}`}
+              >
+                {option}
+              </span>
             </div>
-          )}
+          ))}
         </div>
       );
     }
-
-    default:
-      return (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          {question.options.map((option, index) => {
-            const isCorrect = reveal?.correctIndex === index;
-            const picked = tallies?.[index] ?? 0;
-            const share = totalAnswers ? (picked / totalAnswers) * 100 : 0;
-
-            return (
-              <div
-                key={index}
-                className={`relative overflow-hidden p-7 rounded-2xl border-4 flex items-center transition-all duration-300 ${
-                  !reveal
-                    ? "bg-slate-800 border-slate-600"
-                    : isCorrect
-                      ? "bg-green-600/30 border-green-400 shadow-[0_0_30px_rgba(34,197,94,0.4)] scale-[1.02]"
-                      : "bg-slate-900 border-slate-800 opacity-40"
-                }`}
-              >
-                {reveal && tallies && (
-                  <div
-                    className="absolute inset-y-0 left-0 bg-white/5"
-                    style={{ width: `${share}%` }}
-                  />
-                )}
-                <div className="relative w-14 h-14 rounded-full border-4 border-current flex items-center justify-center mr-6 font-black text-2xl shrink-0 opacity-70">
-                  {CHOICE_LETTERS[index] ?? index + 1}
-                </div>
-                <span className="relative flex-1 font-bold text-white text-3xl">
-                  {option}
-                </span>
-                {reveal && tallies && (
-                  <span className="relative font-mono text-xl text-slate-400 ml-4">
-                    {picked}
-                  </span>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      );
   }
 };
 
 /**
  * The room's question.
  *
- * The header says plainly that this is the field's slowest table rather than
- * anybody's live question, so nobody in the room reads it as the question they
- * are supposed to be on.
+ * The header says plainly which question of the round this is, and the
+ * caption under the options says it is the field's slowest table rather than
+ * anybody's live question, so nobody reads it as the one they should be on.
  */
 const QuestionStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
   snapshot,
 }) => {
-  const reveal = snapshot.reveal;
-  const correctCount = snapshot.correctPlayerIds.length;
-  const answeredCount = snapshot.answeredPlayerIds.length;
+  const lockedIn = snapshot.roomLockedIn;
   const waiting = Math.max(0, snapshot.lanesInPlay - snapshot.lanesCompleted);
   // Everyone still answering is paused, so the room's clock is too.
   const answering = snapshot.lanes
@@ -752,52 +688,46 @@ const QuestionStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
     <div className="flex-1 flex flex-col lg:flex-row gap-6 min-h-0">
       {/* Question + answers */}
       <div className="flex-1 flex flex-col justify-center gap-6 min-w-0">
-        <div className="bg-white text-slate-900 p-8 rounded-3xl shadow-2xl text-center border-4 border-slate-200">
-          <div className="text-xs font-mono uppercase tracking-[0.3em] text-slate-500 mb-3">
-            Question {snapshot.questionNumber} of {snapshot.questionsInRound}
-            {snapshot.category?.name ?? snapshot.question?.category
-              ? ` — ${snapshot.category?.name ?? snapshot.question?.category}`
-              : ""}
-          </div>
-          <h1 className="text-4xl md:text-6xl font-black leading-tight tracking-tight">
-            {snapshot.question?.text}
-          </h1>
-        </div>
+        <QuestionPanel
+          text={snapshot.question?.text ?? ""}
+          number={snapshot.questionNumber}
+          total={snapshot.questionsInRound}
+          category={snapshot.category?.name ?? snapshot.question?.category}
+          size="room"
+        />
 
         <BroadcastOptions snapshot={snapshot} />
 
-        {reveal ? (
+        {lockedIn ? (
           <div className="text-center">
-            <div className="text-2xl font-bold text-green-400">
-              {correctCount} of {answeredCount || 0} answered correctly
+            <div className="cyber-question text-3xl text-[#00f0ff] neon-text">
+              Everyone is locked in
             </div>
-            {reveal.explanation && (
-              <p className="text-xl text-slate-300 mt-2 max-w-4xl mx-auto">
-                {reveal.explanation}
-              </p>
-            )}
+            <div className="cyber-hud text-sm text-slate-400 mt-2">
+              Answers revealed when the round is over
+            </div>
             {snapshot.autoAdvance && (
-              <div className="mt-3 text-lg font-mono uppercase tracking-widest text-neon-blue animate-pulse">
+              <div className="cyber-hud mt-3 text-base text-[#ff2bd6] animate-pulse">
                 Next question in {snapshot.revealSecondsLeft}…
               </div>
             )}
           </div>
         ) : (
-          <div className="text-center text-lg font-mono uppercase tracking-widest text-slate-500">
+          <div className="cyber-hud text-center text-sm text-slate-500">
             {waiting > 0
-              ? `The answer goes up when the last ${waiting === 1 ? "match is" : `${waiting} matches are`} through it`
-              : "Everyone is through — answer coming up"}
+              ? `Moves on when the last ${waiting === 1 ? "match is" : `${waiting} matches are`} through it`
+              : "Everyone is through — moving on"}
           </div>
         )}
       </div>
 
       {/* Clock and the field's progress */}
       <div className="w-full lg:w-96 shrink-0 flex flex-col items-center gap-5 overflow-y-auto custom-scrollbar">
-        {reveal ? (
-          <div className="w-48 h-48 shrink-0 rounded-full border-8 border-green-500 flex flex-col items-center justify-center bg-green-500/10 shadow-[0_0_40px_rgba(34,197,94,0.35)]">
-            <CheckCircle2 size={56} className="text-green-400" />
-            <div className="mt-2 font-mono uppercase tracking-widest text-green-400 text-sm text-center px-4">
-              Everybody is through it
+        {lockedIn ? (
+          <div className="w-48 h-48 shrink-0 rounded-full border-4 border-[#00f0ff] flex flex-col items-center justify-center bg-[#00f0ff]/5 shadow-[0_0_40px_rgba(0,240,255,0.35)]">
+            <Lock size={52} className="text-[#00f0ff]" />
+            <div className="cyber-hud mt-3 text-[10px] text-[#00f0ff] text-center px-4">
+              All locked in
             </div>
           </div>
         ) : (
@@ -821,6 +751,41 @@ const QuestionStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
     </div>
   );
 };
+
+/**
+ * The round's answers, once there is no match left to spoil: every question,
+ * its answer, and how many in the room got it.
+ */
+const AnswerKey: React.FC<{ review: RoundReviewItem[] }> = ({ review }) => (
+  <div>
+    <div className="cyber-hud text-center text-xs text-slate-500 mb-3">
+      Answer key
+    </div>
+    <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+      {review.map((item, index) => (
+        <div key={`${item.question.id}-${index}`} className="cyber-panel px-5 py-4">
+          <div className="flex items-baseline justify-between gap-4">
+            <span className="cyber-hud text-xs text-[#00f0ff]">
+              Q{String(index + 1).padStart(2, "0")}
+            </span>
+            <span className="cyber-hud text-[10px] text-slate-400 tracking-normal">
+              {item.correctCount}/{item.answeredCount} got it
+            </span>
+          </div>
+          <div className="cyber-question text-xl mt-1 leading-snug">
+            {item.question.text}
+          </div>
+          <div className="cyber-question text-2xl mt-2 text-[#39ff88]">
+            {item.reveal.label}
+          </div>
+          {item.reveal.explanation && (
+            <p className="text-sm text-slate-400 mt-1">{item.reveal.explanation}</p>
+          )}
+        </div>
+      ))}
+    </div>
+  </div>
+);
 
 const StandingsList: React.FC<{
   players: PublicPlayer[];
@@ -921,6 +886,10 @@ const RoundEndStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
           <StandingsList players={snapshot.players} showRoundScore />
         </div>
       </div>
+
+      {snapshot.roundReview && snapshot.roundReview.length > 0 && (
+        <AnswerKey review={snapshot.roundReview} />
+      )}
 
       <LikedStrip snapshot={snapshot} />
 
