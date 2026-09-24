@@ -235,6 +235,11 @@
 
       /* One answer. `--accent` / `--accent-rgb` are set per option, so each
          choice keeps its own colour everywhere it appears. */
+      /* An answer option, drawn the way the app's neon buttons are: a clean
+         outline and label in the option's own colour, a glow around it, and
+         a solid fill of that colour under a finger or once it is locked in.
+         Each option keeps its accent (A cyan, B magenta, C yellow, D green…)
+         so it is the same colour on a phone, the host's seat and the wall. */
       .cyber-option {
         --accent: #00e5ff;
         --accent-rgb: 0, 229, 255;
@@ -243,66 +248,71 @@
         align-items: center;
         width: 100%;
         text-align: left;
-        color: #f8fafc;
+        color: var(--accent);
         font-family: "Exo 2", "Segoe UI", system-ui, sans-serif;
         font-weight: 700;
-        border-radius: 18px;
-        border: 2px solid rgba(var(--accent-rgb), 0.75);
-        background:
-          radial-gradient(120% 140% at 0% 50%, rgba(var(--accent-rgb), 0.20), transparent 55%),
-          var(--grid-ink);
-        box-shadow:
-          0 0 14px rgba(var(--accent-rgb), 0.28),
-          inset 0 0 20px rgba(var(--accent-rgb), 0.10);
+        border-radius: 0.75rem;
+        border: 2px solid var(--accent);
+        background: rgba(5, 6, 15, 0.55);
+        text-shadow: 0 0 8px rgba(var(--accent-rgb), 0.45);
+        box-shadow: 0 0 15px rgba(var(--accent-rgb), 0.5);
         transition:
-          transform 140ms ease,
-          box-shadow 180ms ease,
-          background 180ms ease,
-          border-color 180ms ease,
+          transform 200ms ease,
+          box-shadow 200ms ease,
+          background-color 200ms ease,
+          color 200ms ease,
           opacity 200ms ease,
           filter 200ms ease;
       }
       button.cyber-option:not(:disabled):hover {
-        transform: translateY(-2px);
-        border-color: var(--accent);
-        box-shadow:
-          0 0 22px rgba(var(--accent-rgb), 0.5),
-          0 0 44px rgba(var(--accent-rgb), 0.18),
-          inset 0 0 26px rgba(var(--accent-rgb), 0.18);
+        transform: scale(1.02);
+        color: #05060f;
+        text-shadow: none;
+        background: var(--accent);
+        box-shadow: 0 0 25px rgba(var(--accent-rgb), 0.8);
       }
       button.cyber-option:not(:disabled):active {
-        transform: scale(0.98);
+        transform: scale(0.97);
       }
       button.cyber-option:focus-visible {
         outline: 3px solid rgba(var(--accent-rgb), 0.9);
         outline-offset: 3px;
       }
-      /* The letter: a glowing disc of the option's colour. */
+      /* The letter: a glowing disc of the option's colour, which turns to ink
+         on the option's colour when the whole button lights up. */
       .cyber-option-key {
         font-family: Orbitron, "Segoe UI", system-ui, sans-serif;
         font-weight: 900;
         color: #05060f;
+        text-shadow: none;
         border-radius: 999px;
-        background: radial-gradient(circle at 35% 30%, #ffffff 0, var(--accent) 45%, rgba(var(--accent-rgb), 0.85) 100%);
-        box-shadow:
-          0 0 12px rgba(var(--accent-rgb), 0.75),
-          0 0 26px rgba(var(--accent-rgb), 0.3);
+        background: var(--accent);
+        box-shadow: 0 0 12px rgba(var(--accent-rgb), 0.75);
         display: flex;
         align-items: center;
         justify-content: center;
         flex-shrink: 0;
+        transition: background-color 200ms ease, color 200ms ease, box-shadow 200ms ease;
       }
-      /* Locked in: the pick lights up, everything else steps back. No colour
-         here ever means right or wrong — that is for the end of the match. */
+      button.cyber-option:not(:disabled):hover .cyber-option-key,
+      .cyber-option.is-picked .cyber-option-key {
+        background: #05060f;
+        color: var(--accent);
+        box-shadow: none;
+      }
+      /* Locked in: the pick lights up solid, everything else steps back. No
+         colour here ever means right or wrong — that is for the end of the
+         match. */
       .cyber-option.is-picked {
-        border-color: var(--accent);
-        background:
-          radial-gradient(140% 160% at 0% 50%, rgba(var(--accent-rgb), 0.42), rgba(var(--accent-rgb), 0.12) 70%),
-          var(--grid-ink);
+        color: #05060f;
+        text-shadow: none;
+        background: var(--accent);
         box-shadow:
-          0 0 26px rgba(var(--accent-rgb), 0.6),
-          0 0 60px rgba(var(--accent-rgb), 0.22),
-          inset 0 0 30px rgba(var(--accent-rgb), 0.3);
+          0 0 25px rgba(var(--accent-rgb), 0.8),
+          0 0 55px rgba(var(--accent-rgb), 0.3);
+      }
+      .cyber-option.is-picked svg {
+        color: #05060f;
       }
       .cyber-option.is-muted {
         opacity: 0.32;
