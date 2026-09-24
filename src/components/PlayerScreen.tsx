@@ -627,7 +627,11 @@ const PlayerScreen: React.FC = () => {
         setHostSeenAt(Date.now());
       } else if (message.type === "host-heartbeat") {
         if (latchedHost.current && message.hostId !== latchedHost.current) return;
-        setHostSeenAt(message.at);
+        // When it got here, not the time the host stamped on it: that is the
+        // host's clock, and a phone or projector running a few seconds ahead
+        // of it would read every heartbeat as stale and show "no host" for
+        // the whole game.
+        setHostSeenAt(Date.now());
       }
     });
 
@@ -982,7 +986,7 @@ const PlayerScreen: React.FC = () => {
     !!seat.question;
 
   return (
-    <div className="min-h-screen bg-slate-900 text-white p-4 flex flex-col">
+    <div className="min-h-screen tron-backdrop text-white p-4 flex flex-col">
       <header className="flex items-center justify-between mb-4">
         <div>
           <div className="text-lg font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-neon-blue to-neon-pink">

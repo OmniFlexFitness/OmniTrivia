@@ -4,13 +4,14 @@ import { planSpin, wheelCategories } from "../services/wheel";
 import { Category } from "../types";
 import Button from "./Button";
 import WheelFace from "./WheelFace";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, RotateCcw } from "lucide-react";
 
 /**
  * The host's wheel — the only one in the game that decides anything.
  *
  * It is flicked or pressed, it comes to rest, and the slice under the pointer
- * is the round. The projector and the players' phones draw the same face (see
+ * is the round — until the host spins again. A landing is not final: the host
+ * can respin as many times as they like, and only START ROUND commits it. The projector and the players' phones draw the same face (see
  * `WheelFace`) but are only watching: they are told the category once the
  * wheel has stopped, never where it is going.
  */
@@ -87,7 +88,8 @@ const Wheel: React.FC = () => {
   // Handle drag start
   const handleDragStart = useCallback(
     (clientX: number, clientY: number) => {
-      if (!isHost || winningCategory || isSpinning) return;
+      // A landed wheel can be flicked again: that is a respin.
+      if (!isHost || isSpinning) return;
 
       // Cancel any running animation
       if (animationFrameRef.current) {
@@ -101,7 +103,7 @@ const Wheel: React.FC = () => {
       lastTimeRef.current = performance.now();
       velocityRef.current = 0;
     },
-    [isHost, winningCategory, isSpinning, getAngleFromCenter],
+    [isHost, isSpinning, getAngleFromCenter],
   );
 
   // Handle drag move
@@ -147,8 +149,10 @@ const Wheel: React.FC = () => {
    */
   const triggerSpin = useCallback(
     (velocity: number) => {
-      if (winningCategory || isSpinning) return;
+      if (isSpinning) return;
 
+      // A respin: the last landing is off the table until this one stops.
+      setWinningCategory(null);
       setIsSpinning(true);
       // Hold the slices still for the rest of this round. Landing rewrites the
       // list they come from, and a wheel that re-labels itself mid-spin is a
@@ -171,14 +175,16 @@ const Wheel: React.FC = () => {
       // any earlier would be the old behaviour wearing a different hat.
       setTimeout(() => {
         setIsSpinning(false);
-        setWinningCategory(activeCategories[landedIndex] ?? null);
+        const landed = activeCategories[landedIndex] ?? null;
+        setWinningCategory(landed);
         // The room sees the category the moment the wheel stops, rather than
         // sitting on the spinning screen until the host presses START ROUND.
-        revealCategory(landedIndex);
+        // By id as well as index: on a respin the slices on screen are still
+        // in the order they had before the first landing reshuffled the game.
+        revealCategory(landedIndex, landed?.id);
       }, SPIN_MS);
     },
     [
-      winningCategory,
       isSpinning,
       activeCategories,
       sliceCount,
@@ -194,13 +200,13 @@ const Wheel: React.FC = () => {
 
     const velocity = Math.abs(velocityRef.current);
 
-    if (velocity >= MIN_SPIN_VELOCITY && !winningCategory) {
+    if (velocity >= MIN_SPIN_VELOCITY) {
       triggerSpin(velocity);
     } else if (velocity > 0) {
       // Below threshold - gentle deceleration back to rest
       animateDeceleration();
     }
-  }, [isDragging, winningCategory, triggerSpin]);
+  }, [isDragging, triggerSpin]);
 
   // Button path: always available to the host, so a weak flick, a trackpad, or
   // a touchscreen can never leave the game stuck on category selection.
@@ -346,31 +352,48 @@ const Wheel: React.FC = () => {
         transition={wheelTransition}
         landed={winningCategory}
         cursor={
-          isHost && !winningCategory ? (isDragging ? "grabbing" : "grab") : "default"
+          isHost && !isSpinning ? (isDragging ? "grabbing" : "grab") : "default"
         }
         faceRef={wheelRef}
         onMouseDown={handleMouseDown}
         onTouchStart={handleTouchStart}
       />
 
-      <div className="mt-12 h-24 flex items-center justify-center w-full max-w-md">
+      <div className="mt-12 min-h-[6rem] flex items-center justify-center w-full max-w-md">
         {winningCategory ? (
-          <div className="flex flex-col items-center animate-bounce-short w-full">
-            <div className="text-xl font-bold mb-4 text-white">
+          <div className="flex flex-col items-center w-full">
+            {/* Only the name bounces: buttons that move are buttons that get
+                missed, and there are two of them now. */}
+            <div className="text-xl font-bold mb-4 text-white animate-bounce-short">
               Category:{" "}
               <span className="text-neon-blue text-2xl ml-2">
                 {winningCategory.name}
               </span>
             </div>
             {isHost && (
-              <Button
-                onClick={handleContinue}
-                variant="neon"
-                fullWidth
-                className="flex items-center justify-center gap-2"
-              >
-                START ROUND <ArrowRight size={20} />
-              </Button>
+              <>
+                <div className="flex w-full gap-3">
+                  <Button
+                    onClick={handleSpinClick}
+                    variant="secondary"
+                    className="flex items-center justify-center gap-2 shrink-0"
+                  >
+                    <RotateCcw size={18} /> RESPIN
+                  </Button>
+                  <Button
+                    onClick={handleContinue}
+                    variant="neon"
+                    fullWidth
+                    className="flex items-center justify-center gap-2"
+                  >
+                    START ROUND <ArrowRight size={20} />
+                  </Button>
+                </div>
+                <div className="text-slate-500 text-xs text-center mt-2">
+                  Not this one? Respin as many times as you like — nothing is
+                  locked in until you start the round.
+                </div>
+              </>
             )}
           </div>
         ) : isHost ? (

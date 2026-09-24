@@ -93,3 +93,26 @@ export const clearSeat = (): void => {
     // Nothing to clean up.
   }
 };
+
+/**
+ * Put the room's PIN in this page's address, or take it out (`null`).
+ *
+ * The saved seat is only reclaimed on load when the address names its room —
+ * that is what a scanned QR code gives a phone. A player who typed the PIN
+ * instead was left on a bare address, so the reload an iPhone does to a tab
+ * it swapped out landed them on the start screen, out of a game they still
+ * held a seat in. With the PIN in the address every reload comes back the
+ * way a scan does, straight into the seat.
+ */
+export const pinSeatToUrl = (pin: string | null): void => {
+  try {
+    const url = new URL(window.location.href);
+    if ((url.searchParams.get("pin") ?? null) === pin) return;
+    if (pin) url.searchParams.set("pin", pin);
+    else url.searchParams.delete("pin");
+    window.history.replaceState(window.history.state, "", url.toString());
+  } catch {
+    // An address this browser will not rewrite: the seat is still saved, and
+    // the join form still offers it back.
+  }
+};

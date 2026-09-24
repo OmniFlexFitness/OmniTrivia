@@ -5,13 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>OmniTrivia</title>
     <!-- Orbitron for the HUD labels (question numbers, VS, the clock) and
-         Chakra Petch for the questions and answers themselves: squared-off and
-         technical, but open enough to read from the back of a room. Both fall
-         back to the system sans, so a blocked font costs looks, not legibility. -->
+         Exo 2 for the questions and answers themselves: rounded and futuristic,
+         and open enough to read from the back of a room. Both fall back to the
+         system sans, so a blocked font costs looks, not legibility. -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Orbitron:wght@600;800;900&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Exo+2:wght@500;600;700;800&family=Orbitron:wght@600;800;900&display=swap"
       rel="stylesheet"
     />
     <script src="https://cdn.tailwindcss.com"></script>
@@ -34,7 +34,7 @@
             },
             fontFamily: {
               hud: ["Orbitron", "Segoe UI", "system-ui", "sans-serif"],
-              cyber: ['"Chakra Petch"', "Segoe UI", "system-ui", "sans-serif"],
+              cyber: ['"Exo 2"', "Segoe UI", "system-ui", "sans-serif"],
             },
             animation: {
               "spin-slow": "spin 3s linear infinite",
@@ -136,60 +136,78 @@
       }
 
       /* ------------------------------------------------------------------
-       * Neon-noir: how a question and its answers are drawn, on the phones
-       * and on the big screen.
+       * Neon-noir, drawn like the Grid: how a question and its answers look on
+       * the phones and on the big screen.
        *
-       * Readability is the rule the look bends around. Text is near-white on
-       * near-black at full weight, glow sits on borders and accents rather
-       * than on body copy, and the scanlines are faint enough to disappear
-       * under a sentence.
+       * Everything is a rounded shape outlined in a line of light — a bright
+       * 2px edge, a soft glow outside it, a faint glow inside — on near-black.
+       * No cut corners, no hairlines. Neon blue and purple lead; every answer
+       * keeps its own colour so the room can call it by colour as well as by
+       * letter.
+       *
+       * Readability is the rule the look bends around: text is near-white on
+       * near-black at full weight, and glow sits on edges and accents, never
+       * on body copy.
        * ------------------------------------------------------------------ */
+      :root {
+        --grid-blue: #00e5ff;
+        --grid-purple: #9d4dff;
+        --grid-magenta: #ff2bd6;
+        --grid-ink: rgba(7, 8, 22, 0.94);
+      }
+
+      /* The floor of the Grid, faint, behind a whole screen. */
+      .tron-backdrop {
+        background-color: #070817;
+        background-image:
+          radial-gradient(ellipse 80% 55% at 50% -10%, rgba(157, 77, 255, 0.20), transparent 70%),
+          radial-gradient(ellipse 70% 50% at 50% 115%, rgba(0, 229, 255, 0.14), transparent 70%),
+          linear-gradient(rgba(0, 229, 255, 0.055) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(157, 77, 255, 0.055) 1px, transparent 1px);
+        background-size: 100% 100%, 100% 100%, 56px 56px, 56px 56px;
+        background-position: center, center, center top, center top;
+      }
+
       .cyber-panel {
         position: relative;
+        border-radius: 22px;
+        /* The fill, and under it a gradient that shows only in the border
+           ring: an edge that runs blue into purple into magenta. */
+        border: 2px solid transparent;
         background:
-          linear-gradient(180deg, rgba(14, 12, 32, 0.96), rgba(6, 6, 16, 0.98));
-        border: 1px solid rgba(0, 240, 255, 0.55);
+          linear-gradient(180deg, rgba(16, 14, 40, 0.97), rgba(7, 8, 22, 0.98)) padding-box,
+          linear-gradient(135deg, var(--grid-blue), var(--grid-purple) 55%, var(--grid-magenta)) border-box;
         box-shadow:
-          inset 0 0 0 1px rgba(0, 240, 255, 0.08),
-          inset 0 0 40px rgba(188, 19, 254, 0.12),
-          0 0 28px rgba(0, 240, 255, 0.18);
-        clip-path: polygon(
-          18px 0, 100% 0, 100% calc(100% - 18px),
-          calc(100% - 18px) 100%, 0 100%, 0 18px
-        );
+          0 0 0 1px rgba(0, 229, 255, 0.10),
+          0 0 22px rgba(0, 229, 255, 0.22),
+          0 0 46px rgba(157, 77, 255, 0.16),
+          inset 0 0 36px rgba(157, 77, 255, 0.12);
       }
+      /* A second, fainter trace just inside the edge — the doubled light line
+         the Grid draws its shapes with. */
+      .cyber-panel::before {
+        content: "";
+        position: absolute;
+        inset: 5px;
+        border-radius: 16px;
+        border: 1px solid rgba(0, 229, 255, 0.16);
+        pointer-events: none;
+      }
+      /* A soft sheen across the top, so the panel reads as lit glass. */
       .cyber-panel::after {
         content: "";
         position: absolute;
         inset: 0;
+        border-radius: 20px;
         pointer-events: none;
-        background: repeating-linear-gradient(
-          0deg,
-          rgba(255, 255, 255, 0.025) 0,
-          rgba(255, 255, 255, 0.025) 1px,
-          transparent 1px,
-          transparent 3px
-        );
-      }
-      /* The two cut corners, traced in neon so the clip reads as intended. */
-      .cyber-panel::before {
-        content: "";
-        position: absolute;
-        inset: 0;
-        pointer-events: none;
-        background:
-          linear-gradient(135deg, transparent 0 12.5px, #00f0ff 12.5px 15px, transparent 15px)
-            top left / 30px 30px no-repeat,
-          linear-gradient(315deg, transparent 0 12.5px, #ff2bd6 12.5px 15px, transparent 15px)
-            bottom right / 30px 30px no-repeat;
-        opacity: 0.9;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent 38%);
       }
       .cyber-question {
-        font-family: "Chakra Petch", "Segoe UI", system-ui, sans-serif;
-        font-weight: 700;
+        font-family: "Exo 2", "Segoe UI", system-ui, sans-serif;
+        font-weight: 800;
         color: #f8fafc;
         letter-spacing: 0.005em;
-        text-shadow: 0 0 18px rgba(0, 240, 255, 0.22);
+        text-shadow: 0 0 20px rgba(0, 229, 255, 0.25);
       }
       .cyber-hud {
         font-family: Orbitron, "Segoe UI", system-ui, sans-serif;
@@ -200,46 +218,57 @@
       /* One answer. `--accent` / `--accent-rgb` are set per option, so each
          choice keeps its own colour everywhere it appears. */
       .cyber-option {
-        --accent: #00f0ff;
-        --accent-rgb: 0, 240, 255;
+        --accent: #00e5ff;
+        --accent-rgb: 0, 229, 255;
         position: relative;
         display: flex;
         align-items: center;
         width: 100%;
         text-align: left;
         color: #f8fafc;
-        font-family: "Chakra Petch", "Segoe UI", system-ui, sans-serif;
+        font-family: "Exo 2", "Segoe UI", system-ui, sans-serif;
         font-weight: 700;
+        border-radius: 18px;
+        border: 2px solid rgba(var(--accent-rgb), 0.75);
         background:
-          linear-gradient(90deg, rgba(var(--accent-rgb), 0.14), rgba(8, 8, 20, 0.94) 38%);
-        border: 1px solid rgba(var(--accent-rgb), 0.55);
-        border-left: 5px solid var(--accent);
-        box-shadow: inset 0 0 18px rgba(var(--accent-rgb), 0.08);
-        clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 0 100%);
+          radial-gradient(120% 140% at 0% 50%, rgba(var(--accent-rgb), 0.20), transparent 55%),
+          var(--grid-ink);
+        box-shadow:
+          0 0 14px rgba(var(--accent-rgb), 0.28),
+          inset 0 0 20px rgba(var(--accent-rgb), 0.10);
         transition:
-          transform 120ms ease,
-          box-shadow 160ms ease,
-          background 160ms ease,
+          transform 140ms ease,
+          box-shadow 180ms ease,
+          background 180ms ease,
+          border-color 180ms ease,
           opacity 200ms ease,
           filter 200ms ease;
       }
       button.cyber-option:not(:disabled):hover {
-        transform: translateX(3px);
+        transform: translateY(-2px);
+        border-color: var(--accent);
         box-shadow:
-          inset 0 0 24px rgba(var(--accent-rgb), 0.18),
-          0 0 18px rgba(var(--accent-rgb), 0.35);
+          0 0 22px rgba(var(--accent-rgb), 0.5),
+          0 0 44px rgba(var(--accent-rgb), 0.18),
+          inset 0 0 26px rgba(var(--accent-rgb), 0.18);
       }
       button.cyber-option:not(:disabled):active {
         transform: scale(0.98);
       }
+      button.cyber-option:focus-visible {
+        outline: 3px solid rgba(var(--accent-rgb), 0.9);
+        outline-offset: 3px;
+      }
+      /* The letter: a glowing disc of the option's colour. */
       .cyber-option-key {
         font-family: Orbitron, "Segoe UI", system-ui, sans-serif;
         font-weight: 900;
-        color: var(--accent);
-        border: 2px solid var(--accent);
-        background: rgba(var(--accent-rgb), 0.1);
-        text-shadow: 0 0 8px rgba(var(--accent-rgb), 0.8);
-        box-shadow: 0 0 10px rgba(var(--accent-rgb), 0.35);
+        color: #05060f;
+        border-radius: 999px;
+        background: radial-gradient(circle at 35% 30%, #ffffff 0, var(--accent) 45%, rgba(var(--accent-rgb), 0.85) 100%);
+        box-shadow:
+          0 0 12px rgba(var(--accent-rgb), 0.75),
+          0 0 26px rgba(var(--accent-rgb), 0.3);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -248,50 +277,57 @@
       /* Locked in: the pick lights up, everything else steps back. No colour
          here ever means right or wrong — that is for the end of the match. */
       .cyber-option.is-picked {
-        background:
-          linear-gradient(90deg, rgba(var(--accent-rgb), 0.38), rgba(var(--accent-rgb), 0.12));
         border-color: var(--accent);
+        background:
+          radial-gradient(140% 160% at 0% 50%, rgba(var(--accent-rgb), 0.42), rgba(var(--accent-rgb), 0.12) 70%),
+          var(--grid-ink);
         box-shadow:
-          inset 0 0 26px rgba(var(--accent-rgb), 0.3),
-          0 0 24px rgba(var(--accent-rgb), 0.45);
+          0 0 26px rgba(var(--accent-rgb), 0.6),
+          0 0 60px rgba(var(--accent-rgb), 0.22),
+          inset 0 0 30px rgba(var(--accent-rgb), 0.3);
       }
       .cyber-option.is-muted {
         opacity: 0.32;
         filter: grayscale(0.7);
       }
 
+      /* A clock as a light cycle's trail: a rounded track and a glowing run. */
       .cyber-timer {
         position: relative;
         overflow: hidden;
-        background: rgba(8, 8, 20, 0.9);
-        border: 1px solid rgba(0, 240, 255, 0.35);
+        border-radius: 999px;
+        background: rgba(7, 8, 22, 0.92);
+        border: 2px solid rgba(0, 229, 255, 0.35);
+        box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.6), 0 0 12px rgba(0, 229, 255, 0.12);
       }
       .cyber-timer-fill {
         height: 100%;
-        background: linear-gradient(90deg, #bc13fe, #00f0ff);
-        box-shadow: 0 0 12px rgba(0, 240, 255, 0.8);
+        border-radius: 999px;
+        background: linear-gradient(90deg, var(--grid-purple), var(--grid-blue));
+        box-shadow: 0 0 14px rgba(0, 229, 255, 0.75);
         transition: width 1s linear;
       }
       .cyber-timer-fill.is-urgent {
-        background: linear-gradient(90deg, #ff2bd6, #ff3b3b);
-        box-shadow: 0 0 14px rgba(255, 59, 59, 0.9);
+        background: linear-gradient(90deg, var(--grid-magenta), #ff3b3b);
+        box-shadow: 0 0 16px rgba(255, 59, 59, 0.85);
       }
 
       /* A field a player types into, or a tile they drag. */
       .cyber-input {
-        font-family: "Chakra Petch", "Segoe UI", system-ui, sans-serif;
+        font-family: "Exo 2", "Segoe UI", system-ui, sans-serif;
         font-weight: 700;
         color: #f8fafc;
-        background: rgba(8, 8, 20, 0.94);
-        border: 1px solid rgba(0, 240, 255, 0.55);
-        box-shadow: inset 0 0 18px rgba(0, 240, 255, 0.08);
+        border-radius: 16px;
+        background: var(--grid-ink);
+        border: 2px solid rgba(0, 229, 255, 0.6);
+        box-shadow: 0 0 14px rgba(0, 229, 255, 0.18), inset 0 0 18px rgba(0, 229, 255, 0.08);
         outline: none;
       }
       .cyber-input:focus {
-        border-color: #00f0ff;
+        border-color: var(--grid-blue);
         box-shadow:
-          inset 0 0 18px rgba(0, 240, 255, 0.15),
-          0 0 18px rgba(0, 240, 255, 0.35);
+          0 0 22px rgba(0, 229, 255, 0.45),
+          inset 0 0 18px rgba(0, 229, 255, 0.15);
       }
 
       @keyframes cyber-flicker {
@@ -301,7 +337,23 @@
       .cyber-flicker {
         animation: cyber-flicker 2.8s infinite;
       }
+      /* The home screen's logo badge: a ring whose glow breathes slowly
+         between magenta and purple, so the mark inside stays at full strength
+         instead of fading with it. */
+      @keyframes logo-halo {
+        0%, 100% {
+          box-shadow: 0 0 22px rgba(255, 0, 255, 0.55), 0 0 60px rgba(157, 77, 255, 0.25);
+        }
+        50% {
+          box-shadow: 0 0 34px rgba(255, 0, 255, 0.85), 0 0 90px rgba(0, 229, 255, 0.30);
+        }
+      }
+      .logo-halo {
+        animation: logo-halo 2.8s ease-in-out infinite;
+        box-shadow: 0 0 26px rgba(255, 0, 255, 0.65), 0 0 70px rgba(157, 77, 255, 0.25);
+      }
       @media (prefers-reduced-motion: reduce) {
+        .logo-halo { animation: none; }
         .cyber-flicker { animation: none; }
         .cyber-option, .cyber-timer-fill { transition: none; }
       }
