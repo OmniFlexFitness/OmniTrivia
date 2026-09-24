@@ -627,7 +627,11 @@ const PlayerScreen: React.FC = () => {
         setHostSeenAt(Date.now());
       } else if (message.type === "host-heartbeat") {
         if (latchedHost.current && message.hostId !== latchedHost.current) return;
-        setHostSeenAt(message.at);
+        // When it got here, not the time the host stamped on it: that is the
+        // host's clock, and a phone or projector running a few seconds ahead
+        // of it would read every heartbeat as stale and show "no host" for
+        // the whole game.
+        setHostSeenAt(Date.now());
       }
     });
 

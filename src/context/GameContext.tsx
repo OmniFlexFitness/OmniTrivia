@@ -77,7 +77,7 @@ import {
   recordRoundPlayed,
 } from "../services/insights";
 import { buildSnapshot } from "../services/snapshot";
-import { clearSeat, readSeat, saveSeat } from "../services/seat";
+import { clearSeat, pinSeatToUrl, readSeat, saveSeat } from "../services/seat";
 import {
   applyHostState,
   captureHostState,
@@ -204,8 +204,13 @@ interface GameContextType extends GameState {
    * still to be played, which is what the wheel draws. This is where the
    * round's category is actually decided: the landed category is moved into
    * this round's slot and everything downstream reads it from there.
+   *
+   * `categoryId` is what the pointer is actually over. The host may respin as
+   * often as they like, and after the first landing the remainder is no longer
+   * in the order the wheel is still drawing, so a second landing is found by
+   * its id; the index is the fallback for a slice with no id to go on.
    */
-  revealCategory: (landedIndex: number) => void;
+  revealCategory: (landedIndex: number, categoryId?: string) => void;
   submitAnswer: (answer: Answer) => void;
   /**
    * Take the next question now instead of waiting out the rest of the reveal.
@@ -1817,6 +1822,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
             code: rejoinCode || undefined,
           }),
         );
+        // And named in the address, so that reload comes back through the
+        // seat rather than the start screen.
+        pinSeatToUrl(message.pin);
 
         finish({
           clientPin: message.pin,
@@ -1835,7 +1843,10 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     let timeout = window.setTimeout(
       () => {
         if (overtaken()) return;
-        if (params.silent) clearSeat();
+        // Over the network, silence is as likely a slow link as a closed room,
+        // and throwing the seat away would leave the join form empty for a
+        // player whose seat is still there. Kept, it comes back filled in.
+        if (params.silent && !remote) clearSeat();
         finish({
           joinError: params.silent
             ? null
@@ -2071,7 +2082,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
    * category was fixed when the game was generated and the spin was animated
    * to agree with it.
    */
-  const revealCategory = (landedIndex: number) => {
+  const revealCategory = (landedIndex: number, categoryId?: string) => {
     setState((prev) => {
       const from = Math.max(0, prev.currentRound - 1);
       const remaining = prev.roundsConfig.length - from;
@@ -2079,7 +2090,16 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         return { ...prev, wheelSpinning: false, categoryRevealed: true };
       }
 
-      const picked = from + Math.min(Math.max(landedIndex, 0), remaining - 1);
+      // A respin lands on a wheel drawn in the order the remainder had before
+      // the first landing swapped it, so the index can point at the wrong
+      // round by now. The id cannot.
+      const byId = categoryId
+        ? prev.roundsConfig.findIndex(
+            (round, index) => index >= from && round.category.id === categoryId,
+          )
+        : -1;
+      const picked =
+        byId >= 0 ? byId : from + Math.min(Math.max(landedIndex, 0), remaining - 1);
       const roundsConfig = [...prev.roundsConfig];
       [roundsConfig[from], roundsConfig[picked]] = [
         roundsConfig[picked],
@@ -2391,6 +2411,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     const wasHosting = stateRef.current.isHost;
 
     clearSeat();
+    // A player who left is done with that room; a reload should not walk
+    // them back to its join form.
+    if (!wasHosting) pinSeatToUrl(null);
 
     // Only the host tears the game down, and the check matters more than it
     // looks: a guest tab and the host window share this browser's storage, so

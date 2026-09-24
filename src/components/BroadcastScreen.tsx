@@ -69,8 +69,10 @@ const CountdownRing: React.FC<{
   const urgent = timeLeft <= 5;
 
   return (
-    <div className="relative w-48 h-48">
-      <svg className="w-full h-full -rotate-90" viewBox="0 0 180 180">
+    <div className="relative w-48 h-48 shrink-0">
+      {/* Unclipped, so the glow fades out on its own instead of stopping dead
+          at the edge of the drawing — the ring sits only 7 units inside it. */}
+      <svg className="w-full h-full -rotate-90 overflow-visible" viewBox="0 0 180 180" overflow="visible">
         <circle
           cx="90"
           cy="90"
@@ -91,7 +93,9 @@ const CountdownRing: React.FC<{
           strokeDashoffset={circumference * (1 - fraction)}
           style={{
             transition: "stroke-dashoffset 1s linear, stroke 0.3s ease",
-            filter: `drop-shadow(0 0 8px ${urgent ? "#ef4444" : "#00ffff"})`,
+            // A tight core and a wide, faint halo: a soft falloff rather
+            // than one heavy blur with a visible outer edge.
+            filter: `drop-shadow(0 0 4px ${urgent ? "#ef4444" : "#00ffff"}) drop-shadow(0 0 14px ${urgent ? "rgba(239,68,68,0.55)" : "rgba(0,255,255,0.5)"})`,
           }}
         />
       </svg>
@@ -722,7 +726,10 @@ const QuestionStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
       </div>
 
       {/* Clock and the field's progress */}
-      <div className="w-full lg:w-96 shrink-0 flex flex-col items-center gap-5 overflow-y-auto custom-scrollbar">
+      {/* The column scrolls, and a scrolling box clips whatever spills past
+          its edges — so the padding is room for the timer's glow to fade out
+          inside it rather than be sliced off along the top. */}
+      <div className="w-full lg:w-96 shrink-0 flex flex-col items-center gap-5 overflow-y-auto custom-scrollbar pt-8 px-2">
         {lockedIn ? (
           <div className="w-48 h-48 shrink-0 rounded-full border-4 border-[#00f0ff] flex flex-col items-center justify-center bg-[#00f0ff]/5 shadow-[0_0_40px_rgba(0,240,255,0.35)]">
             <Lock size={52} className="text-[#00f0ff]" />
@@ -1040,7 +1047,11 @@ const BroadcastScreen: React.FC = () => {
         setHostSeenAt(Date.now());
       } else if (message.type === "host-heartbeat") {
         if (!claim(message.hostId)) return;
-        setHostSeenAt(message.at);
+        // When it got here, not the time the host stamped on it: that is the
+        // host's clock, and a phone or projector running a few seconds ahead
+        // of it would read every heartbeat as stale and show "no host" for
+        // the whole game.
+        setHostSeenAt(Date.now());
       }
     });
 
