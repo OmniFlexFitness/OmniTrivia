@@ -127,6 +127,7 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
       "The game name is what the room sees on the big screen. The PIN is only the code players type to get in.",
       "GENERATE & REVIEW writes the questions with Claude; USE THE QUESTION BANK takes the premade set, which needs no API key and nothing written; IMPORT MY OWN takes a CSV or a Google Sheet.",
       "The host password is your way back in. If this window closes, reloads or the laptop dies, that password and the PIN take the running game back on any device — so write it down before you open the lobby. It is also what lets a tablet run the round as a remote.",
+      "Bots fill the lobby for a host testing alone. Switch them off for a real night — they can still be switched off in the lobby, and on round one's wheel before START ROUND.",
       "Loser's bracket turns the night into double elimination: a first loss drops a player into it rather than out. It needs roughly twice as many rounds to settle, and the lobby tells you exactly how many for the players who turn up.",
     ],
   },
@@ -196,7 +197,7 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
     points: [
       "Players join by scanning the QR code or typing the PIN.",
       "Open the broadcast display and drag it onto the projector before you start — it is the only screen the room should be looking at.",
-      "ADD BOT fills the room out so a bracket can be tested; the host is always seated as a player.",
+      "ADD BOT fills the room out so a bracket can be tested; the host is always seated as a player. Switch bots off (here, at setup, or on round one's wheel) for a room of real players only.",
       "START GAME closes the lobby and draws the first round's matchups at random.",
       "The loser's bracket can still be switched on or off here, up until START GAME. The panel says how many rounds the bracket needs for the players in the room.",
       "Hosting from more than one screen: CAST shows a link and QR code for putting the broadcast on any device, and REMOTE shows one for running the round from a tablet with the host password.",

@@ -36,6 +36,7 @@ import CategoryPoolManager from "./CategoryPoolManager";
 import InsightsPanel from "./InsightsPanel";
 import HostScreensPanel from "./HostScreensPanel";
 import BroadcastTextEditor from "./BroadcastTextEditor";
+import BotsToggle from "./BotsToggle";
 import {
   ArrowRight,
   BarChart3,
@@ -1035,6 +1036,9 @@ const HostControlScreen: React.FC = () => {
     loading,
     roomWarning,
     remotes,
+    botsEnabled,
+    setBotsEnabled,
+    botsSettingOpen,
   } = useGame();
 
   const [showPool, setShowPool] = React.useState(false);
@@ -1185,6 +1189,18 @@ const HostControlScreen: React.FC = () => {
                 <div className="bg-slate-800/40 border border-slate-700 rounded-2xl p-4">
                   <Wheel />
                 </div>
+                {/* The last moment bots can leave: the draw has been made
+                    but nothing has been answered, so it can be made again. */}
+                {botsSettingOpen && (
+                  <Panel title="Before round one">
+                    <BotsToggle
+                      enabled={botsEnabled}
+                      onChange={setBotsEnabled}
+                      botCount={players.filter((player) => player.isBot).length}
+                      stage="first-round"
+                    />
+                  </Panel>
+                )}
               </>
             )}
 

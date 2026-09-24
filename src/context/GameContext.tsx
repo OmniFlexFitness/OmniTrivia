@@ -95,6 +95,12 @@ import {
   suggestHostPassword,
 } from "../services/proof";
 import {
+  applyBotsSetting,
+  botsSettingOpen,
+  readBotsPreference,
+  saveBotsPreference,
+} from "../services/bots";
+import {
   maySpeakFor,
   resolveJoinRequest,
   verifiedRejoinCode,
@@ -180,6 +186,14 @@ interface GameContextType extends GameState {
    * is still alive in it.
    */
   setLosersBracket: (enabled: boolean) => void;
+  /**
+   * Allow bots in this game, or take them out. Open while setting up, in the
+   * lobby, and on round one's wheel before START ROUND — where turning them off
+   * also redraws the first round without them.
+   */
+  setBotsEnabled: (enabled: boolean) => void;
+  /** Whether bots can still be switched on or off. */
+  botsSettingOpen: boolean;
   clearJoinError: () => void;
   updateConfig: (rounds: number, questions: number) => void;
   /**
@@ -507,6 +521,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     broadcastRevealSecondsLeft: REVEAL_DURATION,
     autoAdvance: true,
     losersBracket: false,
+    // A host who turned bots off last time meant it for next time too.
+    botsEnabled: readBotsPreference(),
     hostAnsweringEnabled: true,
     wheelSpinning: false,
     categoryRevealed: false,
@@ -575,6 +591,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
   useEffect(() => {
     if (
       !state.isHost ||
+      !state.botsEnabled ||
       state.phase !== GamePhase.LOBBY ||
       state.players.length >= 3
     ) {
@@ -583,7 +600,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
 
     const botInterval = setInterval(() => addBot(), 3000);
     return () => clearInterval(botInterval);
-  }, [state.isHost, state.phase, state.players.length]);
+  }, [state.isHost, state.botsEnabled, state.phase, state.players.length]);
 
   /** Take one answer into whichever seat the player is playing from. */
   const recordAnswer = useCallback((playerId: string, answer: Answer) => {
@@ -1717,6 +1734,13 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
       return { ...prev, broadcastTitle: title, broadcastSubtitle: subtitle };
     });
 
+  const setBotsEnabled = (enabled: boolean) =>
+    setState((prev) => {
+      const next = applyBotsSetting(prev, enabled);
+      if (next !== prev) saveBotsPreference(enabled);
+      return next;
+    });
+
   const setLosersBracket = (enabled: boolean) =>
     setState((prev) =>
       prev.bracket.length > 0 && prev.phase !== GamePhase.LOBBY
@@ -2089,6 +2113,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const addBot = () => {
     setState((prev) => {
+      // Checked here as well as on the button: the lobby's own timer may
+      // already be counting down when the host switches bots off.
+      if (!prev.botsEnabled || prev.phase !== GamePhase.LOBBY) return prev;
       const currentBotCount = prev.players.filter((p) => p.isBot).length;
       if (currentBotCount >= BOT_NAMES.length) return prev;
 
@@ -2725,7 +2752,14 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         return null;
       case "add-bot":
         if (!is(GamePhase.LOBBY)) return "Bots can only join in the lobby.";
+        if (!current.botsEnabled) return "Bots are switched off for this game.";
         addBot();
+        return null;
+      case "set-bots":
+        if (!botsSettingOpen(current)) {
+          return "The first round has started — bots are fixed for this game.";
+        }
+        setBotsEnabled(command.enabled);
         return null;
       case "set-losers-bracket":
         if (!is(GamePhase.LOBBY)) return "The bracket is already drawn.";
@@ -2921,6 +2955,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         toggleHostAnswering,
         setBroadcastText,
         setLosersBracket,
+        setBotsEnabled,
+        botsSettingOpen: botsSettingOpen(state),
         clearJoinError,
         updateConfig,
         initImport,

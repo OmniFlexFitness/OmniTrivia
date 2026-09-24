@@ -819,6 +819,42 @@ const ConfirmBig: React.FC<{
  * Phase panels
  * ------------------------------------------------------------------ */
 
+/** Bots on or off, from the floor — up until round one is dealt. */
+const BotsSwitch: React.FC<{ snapshot: BroadcastSnapshot; send: Send }> = ({
+  snapshot,
+  send,
+}) => {
+  const bots = snapshot.players.filter((player) => player.isBot).length;
+  const enabled = snapshot.botsEnabled !== false;
+  return (
+    <button
+      onClick={() =>
+        send(
+          { kind: "set-bots", enabled: !enabled },
+          enabled ? "Bots off" : "Bots on",
+        )
+      }
+      className={`w-full flex items-center gap-3 rounded-xl border p-3 text-left ${
+        enabled ? "border-neon-blue/60 bg-neon-blue/10 text-neon-blue" : "border-slate-600 text-slate-300"
+      }`}
+    >
+      <Bot size={20} />
+      <span className="flex-1">
+        <span className="block font-bold">Bots {enabled ? "on" : "off"}</span>
+        <span className="block text-xs text-slate-400">
+          {snapshot.phase === GamePhase.LOBBY
+            ? enabled
+              ? `${bots} in the lobby — tap to remove them and stop more joining.`
+              : "Only real players will be drawn."
+            : enabled && bots > 0
+              ? `${bots} in round one's draw — tap to remove them and redraw.`
+              : "No bots in this game."}
+        </span>
+      </span>
+    </button>
+  );
+};
+
 const LobbyRemote: React.FC<{ snapshot: BroadcastSnapshot; send: Send }> = ({
   snapshot,
   send,
@@ -872,8 +908,16 @@ const LobbyRemote: React.FC<{ snapshot: BroadcastSnapshot; send: Send }> = ({
         </button>
       </Card>
 
+      <Card title="Bots">
+        <BotsSwitch snapshot={snapshot} send={send} />
+      </Card>
+
       <div className="grid grid-cols-2 gap-3">
-        <Big variant="secondary" onClick={() => send({ kind: "add-bot" }, "Add a bot")}>
+        <Big
+          variant="secondary"
+          disabled={!snapshot.botsEnabled}
+          onClick={() => send({ kind: "add-bot" }, "Add a bot")}
+        >
           <Bot size={18} /> ADD BOT
         </Big>
         <Big
@@ -942,6 +986,12 @@ const WheelRemote: React.FC<{ snapshot: BroadcastSnapshot; send: Send }> = ({
           </div>
         </div>
       </Card>
+
+      {snapshot.roundNumber === 1 && (
+        <Card title="Before round one">
+          <BotsSwitch snapshot={snapshot} send={send} />
+        </Card>
+      )}
 
       {round && (
         <Card title="This round's matchups">

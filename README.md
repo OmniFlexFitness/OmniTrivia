@@ -701,7 +701,12 @@ without the hash ever being readable, is in
    as a player automatically. The lobby shows the host password one last time
    (behind an eye toggle, because a laptop on a bar table gets read over
    shoulders). **OPEN BROADCAST DISPLAY** and move it to the big screen.
-   **EDIT MY PLAYER** renames your seat, **ADD BOT** adds opponents. The
+   **EDIT MY PLAYER** renames your seat, **ADD BOT** adds opponents.
+   **Bots** can be switched off here, on the setup screen, or on round one's
+   wheel before **START ROUND** — off removes every bot already seated (on the
+   wheel it redraws round one without them), stops the lobby seating more, and
+   hides ADD BOT. Once round one is dealt the setting is fixed. The choice is
+   remembered for the next game, and the remote has the same switch. The
    **loser's bracket** can still be switched here, with the number of rounds
    it needs for the players who turned up. **CAST & REMOTE** puts the
    broadcast on another device or the controls on your tablet.

@@ -344,6 +344,11 @@ export interface GameState {
    * grand final. Chosen at setup and fixed once the first round is drawn.
    */
   losersBracket: boolean;
+  /**
+   * Bots may sit in this game. Off, the lobby stops seating them and any
+   * already in are removed. Fixed once the first round is dealt.
+   */
+  botsEnabled: boolean;
   // The host plays along from their own screen for testing. Turning this off
   // takes them out of the answer count so a round does not wait on them.
   hostAnsweringEnabled: boolean;
@@ -565,6 +570,8 @@ export interface BroadcastSnapshot {
   totalRounds: number;
   /** The game runs a loser's bracket, so a first loss is not the end. */
   losersBracket: boolean;
+  /** Bots may sit in this game — for the remote's switch. */
+  botsEnabled: boolean;
   /**
    * The host's own seat is in the answer count. A host running the room from
    * a remote usually switches it off, and the remote needs to show which way
@@ -641,6 +648,7 @@ export type RemoteCommand =
   | { kind: "start-game" }
   | { kind: "add-bot" }
   | { kind: "set-losers-bracket"; enabled: boolean }
+  | { kind: "set-bots"; enabled: boolean }
   | { kind: "spin"; round: number }
   | { kind: "start-round"; round: number }
   | { kind: "pause-all"; paused: boolean }
