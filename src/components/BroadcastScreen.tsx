@@ -524,7 +524,7 @@ const RoundIntroStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
             className="w-[30vh] h-[30vh] shrink-0"
           />
           {settled ? (
-            <div className="cyber-question text-7xl text-white neon-text animate-bounce-short">
+            <div className="cyber-question text-7xl text-white neon-text neon-pop">
               {settled.icon} {settled.name}
             </div>
           ) : (
@@ -559,7 +559,7 @@ const RoundIntroStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
           </div>
         </div>
       ) : (
-        <div className="flex flex-col items-center gap-4 animate-bounce-short">
+        <div className="flex flex-col items-center gap-4 neon-pop">
           <div
             className={`w-40 h-40 rounded-full flex items-center justify-center text-8xl ${snapshot.category.color} shadow-[0_0_60px_rgba(255,255,255,0.25)]`}
           >
@@ -856,7 +856,7 @@ const RoundEndStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
   return (
     <div className="flex-1 flex flex-col gap-6 min-h-0 overflow-y-auto custom-scrollbar">
       <div className="text-center">
-        <h1 className="text-6xl font-black text-white neon-text">
+        <h1 className="text-6xl font-black text-white neon-text neon-room">
           ROUND {snapshot.roundNumber} COMPLETE
         </h1>
         {snapshot.category && (
@@ -961,7 +961,7 @@ const GameOverStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
             </div>
           </>
         ) : (
-          <h1 className="text-6xl font-black text-white neon-text">
+          <h1 className="text-6xl font-black text-white neon-text neon-room">
             FINAL STANDINGS
           </h1>
         )}

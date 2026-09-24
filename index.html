@@ -97,13 +97,31 @@
         font-size: 1rem;
         cursor: pointer;
       }
+      /* Neon for big headings. The letters stay sharp: no white halo hugging
+         them (that is what smeared their edges on the projector), just a
+         close cyan glow and a wide, faint purple bloom behind it. */
       .neon-text {
         text-shadow:
-          0 0 5px #fff,
-          0 0 10px #fff,
-          0 0 20px #00ffff,
-          0 0 30px #00ffff,
-          0 0 40px #00ffff;
+          0 0 2px rgba(255, 255, 255, 0.35),
+          0 0 12px rgba(0, 229, 255, 0.55),
+          0 0 28px rgba(0, 229, 255, 0.28),
+          0 0 52px rgba(157, 77, 255, 0.28);
+      }
+      /* Room for that glow to fade out. A heading at the top of a scrolling
+         column has its glow sliced off along the column's edge otherwise. */
+      .neon-room {
+        padding: 18px 28px;
+      }
+      /* A name that lands on the big screen pops in once and then holds
+         still. It used to bounce for as long as it was up, and large text in
+         constant motion reads as a smear from the back of a room. */
+      @keyframes neon-pop {
+        0% { opacity: 0; transform: scale(0.82); }
+        60% { opacity: 1; transform: scale(1.06); }
+        100% { opacity: 1; transform: scale(1); }
+      }
+      .neon-pop {
+        animation: neon-pop 520ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
       }
       .neon-box {
         box-shadow:
@@ -354,6 +372,7 @@
       }
       @media (prefers-reduced-motion: reduce) {
         .logo-halo { animation: none; }
+        .neon-pop { animation: none; }
         .cyber-flicker { animation: none; }
         .cyber-option, .cyber-timer-fill { transition: none; }
       }
