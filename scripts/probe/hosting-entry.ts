@@ -35,6 +35,8 @@ import {
   judgeRemoteHello,
   judgeRemoteMessage,
   liveRemotes,
+  pairingKeyFromHash,
+  passwordSpellings,
 } from "../../src/services/remoteControl";
 
 let failures = 0;
@@ -404,6 +406,65 @@ check(
   );
 }
 
+
+{
+  // Typed on a tablet, a suggested password arrives in lower case.
+  const pin = "7070";
+  const ipad = { uid: "uid-ipad" };
+  const proof = hostProof(pin, "L9YB4S");
+  const spellings = passwordSpellings("l9yb4s");
+  const [first, ...rest] = spellings.map((spelling) =>
+    remoteSignature(hostProof(pin, spelling), pin, ipad.uid, "remote-b"),
+  );
+  const hello = {
+    type: "remote-hello" as const,
+    pin,
+    controllerId: "remote-b",
+    label: "iPad",
+    signature: first,
+    alternates: rest,
+  };
+  check(
+    "a password typed in the wrong case still gets the remote in",
+    spellings.includes("L9YB4S") && judgeRemoteHello(proof, pin, hello, ipad) === "accept",
+  );
+  check(
+    "but a hello stuffed with guesses is not read past the first two alternates",
+    judgeRemoteHello(
+      proof,
+      pin,
+      {
+        ...hello,
+        signature: "0".repeat(64),
+        alternates: ["1".repeat(64), "2".repeat(64), first],
+      },
+      ipad,
+    ) === "reject",
+  );
+
+  const key = hostProof(pin, "L9YB4S");
+  check(
+    "a pairing QR's key is read from after the #, and nothing else is taken for one",
+    pairingKeyFromHash(`#key=${key}`) === key &&
+      pairingKeyFromHash("#key=not-a-key") === null &&
+      pairingKeyFromHash("") === null,
+  );
+  check(
+    "and a remote holding that key is let straight in",
+    judgeRemoteHello(
+      key,
+      pin,
+      {
+        type: "remote-hello",
+        pin,
+        controllerId: "remote-c",
+        label: "iPad",
+        signature: remoteSignature(key, pin, ipad.uid, "remote-c"),
+      },
+      ipad,
+    ) === "accept",
+  );
+}
 
 /* ------------------------------------------------------------------ *
  * 5. Rejoin codes the host can read back, and the big screen's words

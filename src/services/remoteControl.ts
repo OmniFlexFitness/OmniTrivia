@@ -45,6 +45,39 @@ export const REMOTE_TIMEOUT_MS = 12000;
 /** How often a remote checks in. */
 export const REMOTE_HEARTBEAT_MS = 4000;
 
+/** Other spellings of a typed password a hello may also be signed with. */
+const MAX_ALTERNATES = 2;
+
+/**
+ * The spellings of a typed password worth trying: as typed, then in capitals,
+ * then in lower case. A suggested password is capitals, and an iPad keyboard
+ * on a password field does not capitalise anything — so "l9yb4s" typed on the
+ * tablet is the same password the lobby shows as "L9YB4S".
+ */
+export const passwordSpellings = (password: string): string[] => {
+  const typed = password.trim();
+  return [...new Set([typed, typed.toUpperCase(), typed.toLowerCase()])].filter(Boolean);
+};
+
+/**
+ * The key a host's pairing QR carries, and the one thing the tablet needs.
+ *
+ * It is the host password's proof — the same credential a returning host
+ * proves — so it goes after the `#`, where a browser never sends it to any
+ * server, and the remote takes it out of the address bar as soon as it has
+ * read it.
+ */
+export const PAIRING_KEY_PARAM = "key";
+
+export const isPairingKey = (value: string | null | undefined): value is string =>
+  typeof value === "string" && /^[0-9a-f]{64}$/.test(value);
+
+/** Read the pairing key off a URL's fragment, if it carries one. */
+export const pairingKeyFromHash = (hash: string): string | null => {
+  const key = new URLSearchParams(hash.replace(/^#/, "")).get(PAIRING_KEY_PARAM);
+  return isPairingKey(key) ? key : null;
+};
+
 /** Long enough for a device name; short enough that nobody writes an essay. */
 const MAX_LABEL_LENGTH = 40;
 
@@ -89,7 +122,11 @@ export const judgeRemoteHello = (
   if (!proof || message.pin !== pin) return "ignore";
 
   const expected = remoteSignature(proof, pin, signerUid(meta), message.controllerId);
-  if (sameSignature(expected, message.signature)) return "accept";
+  const offered = [
+    message.signature,
+    ...(Array.isArray(message.alternates) ? message.alternates.slice(0, MAX_ALTERNATES) : []),
+  ];
+  if (offered.some((signature) => sameSignature(expected, signature))) return "accept";
   return meta ? "reject" : "ignore";
 };
 

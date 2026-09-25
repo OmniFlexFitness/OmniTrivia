@@ -118,6 +118,7 @@ import {
   judgeRemoteHello,
   judgeRemoteMessage,
   liveRemotes,
+  PAIRING_KEY_PARAM,
 } from "../services/remoteControl";
 import type { RemoteBinding, RemoteBindings } from "../services/remoteControl";
 import type { SeatBindings } from "../services/seats";
@@ -132,6 +133,7 @@ import {
   postMessage,
   publishSnapshot,
   registerRoom,
+  remoteUrl,
   releaseRoom,
   attachRoomChannel,
   detachRoomChannel,
@@ -155,6 +157,12 @@ interface GameContextType extends GameState {
    * the desk, the projector and the phones all see one spin, not two.
    */
   remoteSpinRequest: number;
+  /**
+   * The link a tablet opens to become this game's remote without typing the
+   * host password: the remote's address with the password's proof after the
+   * `#`. Null until there is a game to pair with.
+   */
+  remotePairingUrl: () => string | null;
   initHost: () => void;
   initJoin: () => void;
   generateGame: (rounds: number, questions: number) => Promise<void>;
@@ -353,6 +361,14 @@ const REMOTE_SAVE_INTERVAL_MS = 6000;
 const MAX_HOST_STATE_LENGTH = 786432;
 
 /** Shown when this window's room has been reclaimed somewhere else. */
+/**
+ * Shown when the live database will not take this game's password check. The
+ * game, the phones and the remote all still work; what does not is picking
+ * the game back up on another device, which is the one thing this is for.
+ */
+const RULES_OUTDATED_WARNING =
+  "The game database's security rules are out of date, so this game cannot be taken back on another device if this window is lost — and the remote will not show answers or rejoin codes. Publish them with `npm run rules:deploy`, or paste firebase/database.rules.json into Firebase console → Realtime Database → Rules (see MULTIPLAYER.md).";
+
 const DISPLACED_WARNING =
   "Another device has taken over hosting this game with the host password. This window is no longer running it — close it, or start a new game.";
 
@@ -1656,7 +1672,16 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     // rather than racing it.
     const password = stateRef.current.hostPassword.trim() || suggestHostPassword();
     hostProofRef.current = hostProof(pin, password);
-    void publishHostSecret(pin, hostProofRef.current);
+    void publishHostSecret(pin, hostProofRef.current).then((result) => {
+      // The host owns this room, so a refusal can only be rules that do not
+      // know about host passwords yet. Nothing else here would ever say so.
+      if (result !== "denied") return;
+      setState((prev) =>
+        prev.gamePin === pin && !prev.roomWarning
+          ? { ...prev, roomWarning: RULES_OUTDATED_WARNING }
+          : prev,
+      );
+    });
 
     setState((prev) => {
       // The host is always seated as a player so they can run the whole game
@@ -2943,6 +2968,10 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         broadcastConnected,
         remotes,
         remoteSpinRequest,
+        remotePairingUrl: () =>
+          state.isHost && state.gamePin && hostProofRef.current
+            ? `${remoteUrl(state.gamePin)}#${PAIRING_KEY_PARAM}=${hostProofRef.current}`
+            : null,
         initHost,
         initJoin,
         generateGame,

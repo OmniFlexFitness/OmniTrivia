@@ -762,6 +762,12 @@ export type BroadcastMessage =
       controllerId: string;
       label: string;
       signature: string;
+      /**
+       * The same signature made from other spellings of a typed password —
+       * upper and lower case — so a tablet keyboard that did not capitalise
+       * "L9YB4S" is not told the password is wrong. At most two.
+       */
+      alternates?: string[];
     }
   | { type: "remote-welcome"; pin: string; controllerId: string; hostId: string }
   /**
