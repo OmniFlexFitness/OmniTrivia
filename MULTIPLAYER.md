@@ -280,11 +280,14 @@ The remote is the part with a security story, because the room's bus is
 readable by every device in the room:
 
 1. The tablet derives `hostProof` from the PIN and the password locally.
+   Or it is handed the proof directly by the host's **pairing QR**, after the
+   `#` of the link, and never sees a password at all.
 2. It writes the proof to `/roomClaims/{pin}/{uid}` — the same check a
-   returning host makes, enforced by the rules, so a wrong password is refused
-   by the database even if the laptop is asleep. A right one also lets the
-   tablet read `/hostState`, which is where it gets the answers it shows
-   behind a tap.
+   returning host makes. That is **optional**: a claim that lands lets the
+   tablet read `/hostState`, which is where it gets the answers and rejoin
+   codes it shows behind a tap; a claim the database refuses is not treated
+   as a wrong password, because the rules may simply predate host passwords
+   (the live database's did).
 3. It sends a `remote-hello` carrying `HMAC-SHA256(proof, pin + its uid +
    its remote id)` — never the proof, which anyone reading the bus could
    replay into `/roomClaims`.
@@ -292,6 +295,12 @@ readable by every device in the room:
    stamped on the message. A match binds that uid; every later command is
    accepted only from it. The same hello sent from any other device is a
    signature for the wrong uid.
+
+> **If the host screen says the rules are out of date,** the live database is
+> running rules from before `/roomSecrets` and `/roomClaims` existed. The
+> game, the phones and the remote all still work. Taking a game back on
+> another device does not, and the remote shows no answers or codes, until
+> the rules in this repo are published (step 3).
 
 Commands name the value to set and the round they were pressed in, so a
 double tap or a tablet a beat behind cannot flip a setting back or skip a

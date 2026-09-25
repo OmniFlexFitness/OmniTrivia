@@ -6,7 +6,7 @@ import {
   castUrl,
   remoteUrl,
 } from "../services/broadcastBus";
-import { Check, Copy, KeyRound, Monitor, Tablet, Tv, X } from "lucide-react";
+import { Check, Copy, Eye, EyeOff, KeyRound, Monitor, Tablet, Tv, X } from "lucide-react";
 
 /**
  * Hosting from more than one screen.
@@ -21,7 +21,7 @@ import { Check, Copy, KeyRound, Monitor, Tablet, Tv, X } from "lucide-react";
  * minimised: a hidden tab's clock is slowed down by the browser).
  */
 
-const CopyLink: React.FC<{ url: string }> = ({ url }) => {
+const CopyLink: React.FC<{ url: string; label?: string }> = ({ url, label = "copy link" }) => {
   const [copied, setCopied] = useState(false);
 
   return (
@@ -38,7 +38,7 @@ const CopyLink: React.FC<{ url: string }> = ({ url }) => {
       className="flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-widest text-slate-400 hover:text-white"
     >
       {copied ? <Check size={12} className="text-neon-green" /> : <Copy size={12} />}
-      {copied ? "copied" : "copy link"}
+      {copied ? "copied" : label}
     </button>
   );
 };
@@ -65,6 +65,90 @@ const LinkCard: React.FC<{
     </div>
   </div>
 );
+
+/** How long the pairing QR stays up once shown. */
+const PAIRING_VISIBLE_SECONDS = 120;
+
+/**
+ * Pairing a tablet as the remote.
+ *
+ * The QR carries the host password's proof, so scanning it is all a tablet
+ * needs — nothing to type, and nothing that depends on the tablet's keyboard
+ * spelling the password the way the lobby shows it. That also makes it the
+ * host password in picture form, so it is hidden until asked for and puts
+ * itself away again, the way the password in the lobby does.
+ */
+const RemotePairingCard: React.FC<{ pin: string }> = ({ pin }) => {
+  const { remotePairingUrl } = useGame();
+  const [secondsLeft, setSecondsLeft] = useState(0);
+  const url = remotePairingUrl();
+
+  React.useEffect(() => {
+    if (secondsLeft <= 0) return;
+    const timer = setTimeout(() => setSecondsLeft((value) => value - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [secondsLeft]);
+
+  const shown = secondsLeft > 0 && url;
+
+  return (
+    <div className="bg-slate-900 border border-slate-700 rounded-2xl p-4 space-y-3">
+      <div className="flex items-center gap-2 font-bold text-white">
+        <Tablet size={18} className="text-neon-yellow" /> Remote for your tablet
+      </div>
+
+      <div className="flex gap-4 items-start">
+        <button
+          onClick={() => setSecondsLeft(shown ? 0 : PAIRING_VISIBLE_SECONDS)}
+          disabled={!url}
+          className="shrink-0 w-28 h-28 rounded-lg overflow-hidden border border-slate-600 flex items-center justify-center bg-slate-800 disabled:opacity-40"
+          title={shown ? "Hide the pairing code" : "Show the pairing code"}
+        >
+          {shown ? (
+            <span className="bg-white p-2 w-full h-full">
+              <QRCode value={url} style={{ width: "100%", height: "100%" }} />
+            </span>
+          ) : (
+            <span className="flex flex-col items-center gap-1 text-[10px] font-mono uppercase tracking-widest text-neon-yellow">
+              <Eye size={22} /> show QR
+            </span>
+          )}
+        </button>
+
+        <div className="min-w-0 space-y-2 text-sm text-slate-400">
+          <p>
+            Scan with your iPad's camera and it opens as the remote — no
+            password to type. Spin the wheel, pause a table, end the round and
+            start the next one from anywhere in the room.
+          </p>
+          <p className="flex items-start gap-1.5">
+            <KeyRound size={13} className="shrink-0 mt-0.5 text-neon-yellow" />
+            {shown
+              ? `This code is your host password in picture form. It hides itself in ${secondsLeft}s.`
+              : "It is your host password in picture form, so it stays hidden until you tap it."}
+          </p>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <span className="text-[11px] text-slate-500 break-all">
+          Or open {remoteUrl(pin)} and type the host password.
+        </span>
+        <span className="flex items-center gap-3">
+          {shown && (
+            <button
+              onClick={() => setSecondsLeft(0)}
+              className="flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-widest text-slate-400 hover:text-white"
+            >
+              <EyeOff size={12} /> hide
+            </button>
+          )}
+          {url && <CopyLink url={url} label="copy pairing link" />}
+        </span>
+      </div>
+    </div>
+  );
+};
 
 const HostScreensPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const { gamePin, remotes, broadcastConnected, openBroadcast } = useGame();
@@ -137,21 +221,7 @@ const HostScreensPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
               </p>
             </LinkCard>
 
-            <LinkCard
-              icon={<Tablet size={18} className="text-neon-yellow" />}
-              title="Remote for your tablet"
-              url={remoteUrl(gamePin)}
-            >
-              <p>
-                Scan with your iPad to run the round from the floor: spin the
-                wheel, pause a table, end the round, start the next one.
-              </p>
-              <p className="flex items-start gap-1.5">
-                <KeyRound size={13} className="shrink-0 mt-0.5 text-neon-yellow" />
-                It asks for the host password. Anyone who scans this without it
-                gets nothing.
-              </p>
-            </LinkCard>
+            <RemotePairingCard pin={gamePin} />
           </div>
         )}
 

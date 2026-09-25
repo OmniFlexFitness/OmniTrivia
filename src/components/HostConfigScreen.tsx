@@ -6,6 +6,7 @@ import CategoryPoolManager from './CategoryPoolManager';
 import { MIN_HOST_PASSWORD_LENGTH, suggestHostPassword } from '../services/proof';
 import { Settings, ArrowRight, KeyRound, Library, ListPlus, Loader2, RefreshCw, Upload, AlertTriangle } from 'lucide-react';
 import LosersBracketToggle from './LosersBracketToggle';
+import BotsToggle from './BotsToggle';
 
 const HostConfigScreen: React.FC = () => {
   const {
@@ -20,6 +21,8 @@ const HostConfigScreen: React.FC = () => {
     setHostPassword,
     losersBracket,
     setLosersBracket,
+    botsEnabled,
+    setBotsEnabled,
   } = useGame();
   const [rounds, setRounds] = useState(3);
   const [questions, setQuestions] = useState(5);
@@ -190,6 +193,11 @@ const HostConfigScreen: React.FC = () => {
             enabled={losersBracket}
             onChange={setLosersBracket}
           />
+
+          {/* Bots fill a lobby for a host testing alone. A real night does
+              not want them, and the place to say so is before the lobby
+              starts seating them. */}
+          <BotsToggle enabled={botsEnabled} onChange={setBotsEnabled} stage="setup" />
 
           <div className="pt-4 space-y-3">
             <Button onClick={handleGenerate} fullWidth variant="neon" disabled={passwordTooShort || loadingBank} className="flex items-center justify-center gap-2">

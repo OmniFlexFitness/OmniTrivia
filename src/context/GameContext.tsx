@@ -95,6 +95,12 @@ import {
   suggestHostPassword,
 } from "../services/proof";
 import {
+  applyBotsSetting,
+  botsSettingOpen,
+  readBotsPreference,
+  saveBotsPreference,
+} from "../services/bots";
+import {
   maySpeakFor,
   resolveJoinRequest,
   verifiedRejoinCode,
@@ -112,6 +118,7 @@ import {
   judgeRemoteHello,
   judgeRemoteMessage,
   liveRemotes,
+  PAIRING_KEY_PARAM,
 } from "../services/remoteControl";
 import type { RemoteBinding, RemoteBindings } from "../services/remoteControl";
 import type { SeatBindings } from "../services/seats";
@@ -126,6 +133,7 @@ import {
   postMessage,
   publishSnapshot,
   registerRoom,
+  remoteUrl,
   releaseRoom,
   attachRoomChannel,
   detachRoomChannel,
@@ -149,6 +157,12 @@ interface GameContextType extends GameState {
    * the desk, the projector and the phones all see one spin, not two.
    */
   remoteSpinRequest: number;
+  /**
+   * The link a tablet opens to become this game's remote without typing the
+   * host password: the remote's address with the password's proof after the
+   * `#`. Null until there is a game to pair with.
+   */
+  remotePairingUrl: () => string | null;
   initHost: () => void;
   initJoin: () => void;
   generateGame: (rounds: number, questions: number) => Promise<void>;
@@ -180,6 +194,14 @@ interface GameContextType extends GameState {
    * is still alive in it.
    */
   setLosersBracket: (enabled: boolean) => void;
+  /**
+   * Allow bots in this game, or take them out. Open while setting up, in the
+   * lobby, and on round one's wheel before START ROUND — where turning them off
+   * also redraws the first round without them.
+   */
+  setBotsEnabled: (enabled: boolean) => void;
+  /** Whether bots can still be switched on or off. */
+  botsSettingOpen: boolean;
   clearJoinError: () => void;
   updateConfig: (rounds: number, questions: number) => void;
   /**
@@ -339,6 +361,14 @@ const REMOTE_SAVE_INTERVAL_MS = 6000;
 const MAX_HOST_STATE_LENGTH = 786432;
 
 /** Shown when this window's room has been reclaimed somewhere else. */
+/**
+ * Shown when the live database will not take this game's password check. The
+ * game, the phones and the remote all still work; what does not is picking
+ * the game back up on another device, which is the one thing this is for.
+ */
+const RULES_OUTDATED_WARNING =
+  "The game database's security rules are out of date, so this game cannot be taken back on another device if this window is lost — and the remote will not show answers or rejoin codes. Publish them with `npm run rules:deploy`, or paste firebase/database.rules.json into Firebase console → Realtime Database → Rules (see MULTIPLAYER.md).";
+
 const DISPLACED_WARNING =
   "Another device has taken over hosting this game with the host password. This window is no longer running it — close it, or start a new game.";
 
@@ -507,6 +537,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     broadcastRevealSecondsLeft: REVEAL_DURATION,
     autoAdvance: true,
     losersBracket: false,
+    // A host who turned bots off last time meant it for next time too.
+    botsEnabled: readBotsPreference(),
     hostAnsweringEnabled: true,
     wheelSpinning: false,
     categoryRevealed: false,
@@ -575,6 +607,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
   useEffect(() => {
     if (
       !state.isHost ||
+      !state.botsEnabled ||
       state.phase !== GamePhase.LOBBY ||
       state.players.length >= 3
     ) {
@@ -583,7 +616,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
 
     const botInterval = setInterval(() => addBot(), 3000);
     return () => clearInterval(botInterval);
-  }, [state.isHost, state.phase, state.players.length]);
+  }, [state.isHost, state.botsEnabled, state.phase, state.players.length]);
 
   /** Take one answer into whichever seat the player is playing from. */
   const recordAnswer = useCallback((playerId: string, answer: Answer) => {
@@ -1639,7 +1672,16 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     // rather than racing it.
     const password = stateRef.current.hostPassword.trim() || suggestHostPassword();
     hostProofRef.current = hostProof(pin, password);
-    void publishHostSecret(pin, hostProofRef.current);
+    void publishHostSecret(pin, hostProofRef.current).then((result) => {
+      // The host owns this room, so a refusal can only be rules that do not
+      // know about host passwords yet. Nothing else here would ever say so.
+      if (result !== "denied") return;
+      setState((prev) =>
+        prev.gamePin === pin && !prev.roomWarning
+          ? { ...prev, roomWarning: RULES_OUTDATED_WARNING }
+          : prev,
+      );
+    });
 
     setState((prev) => {
       // The host is always seated as a player so they can run the whole game
@@ -1715,6 +1757,13 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
             DEFAULT_BROADCAST_SUBTITLE;
       saveBroadcastTextPreference({ title, subtitle });
       return { ...prev, broadcastTitle: title, broadcastSubtitle: subtitle };
+    });
+
+  const setBotsEnabled = (enabled: boolean) =>
+    setState((prev) => {
+      const next = applyBotsSetting(prev, enabled);
+      if (next !== prev) saveBotsPreference(enabled);
+      return next;
     });
 
   const setLosersBracket = (enabled: boolean) =>
@@ -2089,6 +2138,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const addBot = () => {
     setState((prev) => {
+      // Checked here as well as on the button: the lobby's own timer may
+      // already be counting down when the host switches bots off.
+      if (!prev.botsEnabled || prev.phase !== GamePhase.LOBBY) return prev;
       const currentBotCount = prev.players.filter((p) => p.isBot).length;
       if (currentBotCount >= BOT_NAMES.length) return prev;
 
@@ -2725,7 +2777,14 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         return null;
       case "add-bot":
         if (!is(GamePhase.LOBBY)) return "Bots can only join in the lobby.";
+        if (!current.botsEnabled) return "Bots are switched off for this game.";
         addBot();
+        return null;
+      case "set-bots":
+        if (!botsSettingOpen(current)) {
+          return "The first round has started — bots are fixed for this game.";
+        }
+        setBotsEnabled(command.enabled);
         return null;
       case "set-losers-bracket":
         if (!is(GamePhase.LOBBY)) return "The bracket is already drawn.";
@@ -2909,6 +2968,10 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         broadcastConnected,
         remotes,
         remoteSpinRequest,
+        remotePairingUrl: () =>
+          state.isHost && state.gamePin && hostProofRef.current
+            ? `${remoteUrl(state.gamePin)}#${PAIRING_KEY_PARAM}=${hostProofRef.current}`
+            : null,
         initHost,
         initJoin,
         generateGame,
@@ -2921,6 +2984,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         toggleHostAnswering,
         setBroadcastText,
         setLosersBracket,
+        setBotsEnabled,
+        botsSettingOpen: botsSettingOpen(state),
         clearJoinError,
         updateConfig,
         initImport,

@@ -31,6 +31,9 @@ import {
   LOCAL_UID,
   REMOTE_HEARTBEAT_MS,
   describeDevice,
+  isPairingKey,
+  pairingKeyFromHash,
+  passwordSpellings,
 } from "../services/remoteControl";
 import { parseHostEnvelope, readHostSession } from "../services/hostSession";
 import { buildReveal, seatsOf } from "../services/snapshot";
@@ -107,16 +110,27 @@ type Status =
 
 interface StoredRemote {
   pin: string;
-  proof: string;
+  /**
+   * The proofs this remote can sign with: one from a pairing QR, or one per
+   * spelling of a typed password. Which of them is the right one only the
+   * host window can say, and it says so by letting the remote in.
+   */
+  proofs: string[];
 }
 
 const readStored = (pin: string | null): StoredRemote | null => {
   try {
     const raw = window.sessionStorage.getItem(SESSION_KEY);
     if (!raw) return null;
-    const stored = JSON.parse(raw) as StoredRemote;
-    if (!stored?.pin || !stored.proof) return null;
-    return !pin || stored.pin === pin ? stored : null;
+    const stored = JSON.parse(raw) as Partial<StoredRemote> & { proof?: string };
+    // An earlier build kept a single proof.
+    const proofs = Array.isArray(stored?.proofs)
+      ? stored.proofs.filter(isPairingKey)
+      : isPairingKey(stored?.proof)
+        ? [stored.proof]
+        : [];
+    if (!stored?.pin || proofs.length === 0) return null;
+    return !pin || stored.pin === pin ? { pin: stored.pin, proofs } : null;
   } catch {
     return null;
   }
@@ -129,6 +143,32 @@ const writeStored = (stored: StoredRemote | null): void => {
   } catch {
     // No session storage: a reload asks for the password again.
   }
+};
+
+/**
+ * What this page was opened with: a pairing key from the host's QR code, or
+ * whatever this tab signed in with before a reload.
+ *
+ * A key read off the address is taken straight back out of it, so it does not
+ * sit in the address bar, in this tab's history, or in a link somebody copies
+ * from it.
+ */
+const initialRemote = (): StoredRemote | null => {
+  const pin = pinFromUrl();
+  try {
+    const key = pairingKeyFromHash(window.location.hash);
+    if (key && pin) {
+      const url = new URL(window.location.href);
+      url.hash = "";
+      window.history.replaceState(null, "", url.toString());
+      const paired = { pin, proofs: [key] };
+      writeStored(paired);
+      return paired;
+    }
+  } catch {
+    // An address this browser will not rewrite: fall back to what is stored.
+  }
+  return readStored(pin);
 };
 
 const newId = (prefix: string) =>
@@ -146,13 +186,10 @@ interface Feedback {
  * ------------------------------------------------------------------ */
 
 const useRemoteLink = () => {
-  const [pin, setPin] = useState<string | null>(pinFromUrl);
-  const [proof, setProof] = useState<string | null>(
-    () => readStored(pinFromUrl())?.proof ?? null,
-  );
-  const [status, setStatus] = useState<Status>(() =>
-    readStored(pinFromUrl()) ? "connecting" : "signin",
-  );
+  const [initial] = useState(initialRemote);
+  const [pin, setPin] = useState<string | null>(() => initial?.pin ?? pinFromUrl());
+  const [proofs, setProofs] = useState<string[] | null>(() => initial?.proofs ?? null);
+  const [status, setStatus] = useState<Status>(() => (initial ? "connecting" : "signin"));
   const [snapshot, setSnapshot] = useState<BroadcastSnapshot | null>(null);
   const [hostSeenAt, setHostSeenAt] = useState(0);
   const [now, setNow] = useState(Date.now());
@@ -160,7 +197,9 @@ const useRemoteLink = () => {
   const [answers, setAnswers] = useState<Map<string, Question>>(new Map());
   /** Each player's rejoin code, for the one who has lost theirs. */
   const [codes, setCodes] = useState<Map<string, string>>(new Map());
-  const [canReadGame, setCanReadGame] = useState(false);
+  /** The proof the database accepted, which is what reads the saved game. */
+  const [readProof, setReadProof] = useState<string | null>(null);
+  const canReadGame = readProof !== null;
 
   const controllerId = useRef(newId("remote"));
   const uidRef = useRef<string>(LOCAL_UID);
@@ -171,27 +210,32 @@ const useRemoteLink = () => {
   const ackTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
   const sendHello = useCallback(() => {
-    if (!pin || !proof) return;
+    if (!pin || !proofs?.length) return;
     const at = Date.now();
     // An "unbound" answer and a reclaimed room can both ask for one at once.
     if (at - lastHello.current < 1500) return;
     lastHello.current = at;
+    const [first, ...rest] = proofs.map((proof) =>
+      remoteSignature(proof, pin, uidRef.current, controllerId.current),
+    );
     postMessage({
       type: "remote-hello",
       pin,
       controllerId: controllerId.current,
       label: describeDevice(),
-      signature: remoteSignature(proof, pin, uidRef.current, controllerId.current),
+      signature: first,
+      alternates: rest.length ? rest : undefined,
     });
-  }, [pin, proof]);
+  }, [pin, proofs]);
 
   /* --- connecting, and proving the password --- */
   useEffect(() => {
-    if (!pin || !proof) return;
+    if (!pin || !proofs?.length) return;
     let cancelled = false;
 
     void (async () => {
       setStatus("connecting");
+      setReadProof(null);
       const remote = canReachOtherDevices();
 
       if (remote) {
@@ -201,39 +245,43 @@ const useRemoteLink = () => {
           setStatus(roomFailureReason() === "denied" ? "denied" : "unreachable");
           return;
         }
-
-        // The database checks the password before the host window is even
-        // asked: a wrong one is refused here, whether or not the laptop is
-        // awake. A right one also lets this device read the saved game — which
-        // is where the answers are, for a host reading them out on the floor.
-        const claim = await claimRoomAsHost(pin, proof);
-        if (cancelled) return;
-        if (claim === "denied") {
-          writeStored(null);
-          setStatus("wrong-password");
-          return;
-        }
-        if (claim === "missing") {
-          setStatus("no-game");
-          return;
-        }
-        setCanReadGame(claim === "ok");
         uidRef.current = (await deviceIdentity()) ?? LOCAL_UID;
+
+        // Proving the password to the database as well is what lets this
+        // device read the saved game — the answers, and every player's rejoin
+        // code. It is not what gets the remote in: the host window decides
+        // that, from the signed hello below. So a refusal here is not a wrong
+        // password. It is just as often a database whose rules predate this
+        // (the live site's did), and the remote works without it.
+        for (const proof of proofs) {
+          const claim = await claimRoomAsHost(pin, proof);
+          if (cancelled) return;
+          if (claim === "missing") {
+            setStatus("no-game");
+            return;
+          }
+          if (claim === "ok") {
+            setReadProof(proof);
+            break;
+          }
+          if (claim === "unreachable") break;
+        }
       } else {
         // No network: the only host this can reach is a window of this same
         // browser, which keeps its own copy of the game to check against.
         const local = readHostSession(pin);
-        if (local && local.proof !== proof) {
+        const matching = local ? proofs.find((proof) => proof === local.proof) : undefined;
+        if (local && !matching) {
           writeStored(null);
           setStatus("wrong-password");
           return;
         }
-        setCanReadGame(Boolean(local));
+        setReadProof(matching ?? null);
         uidRef.current = LOCAL_UID;
       }
 
       if (cancelled) return;
-      writeStored({ pin, proof });
+      writeStored({ pin, proofs });
       setStatus("waiting");
       lastHello.current = 0;
       sendHello();
@@ -242,14 +290,14 @@ const useRemoteLink = () => {
     return () => {
       cancelled = true;
     };
-  }, [pin, proof, sendHello]);
+  }, [pin, proofs, sendHello]);
 
   // Leaving the page leaves the room.
   useEffect(() => () => void detachRoomChannel(), []);
 
   /* --- listening --- */
   useEffect(() => {
-    if (!pin || !proof) return;
+    if (!pin || !proofs) return;
 
     return subscribeToMessages((message) => {
       switch (message.type) {
@@ -310,11 +358,11 @@ const useRemoteLink = () => {
           return;
       }
     });
-  }, [pin, proof, sendHello]);
+  }, [pin, proofs, sendHello]);
 
   /* --- staying in touch --- */
   useEffect(() => {
-    if (!pin || !proof) return;
+    if (!pin || !proofs) return;
 
     const beat = setInterval(() => {
       setNow(Date.now());
@@ -329,12 +377,12 @@ const useRemoteLink = () => {
     }, REMOTE_HEARTBEAT_MS);
 
     return () => clearInterval(beat);
-  }, [pin, proof, sendHello]);
+  }, [pin, proofs, sendHello]);
 
   /* --- the answer key, for reading out on the floor --- */
   const fetchedAt = useRef(0);
   const refreshAnswers = useCallback(async (minGapMs = 4000) => {
-    if (!pin || !proof || !canReadGame) return;
+    if (!pin || !readProof) return;
     if (Date.now() - fetchedAt.current < minGapMs) return;
     fetchedAt.current = Date.now();
 
@@ -355,7 +403,7 @@ const useRemoteLink = () => {
       if (player.rejoinCode) codeMap.set(player.id, player.rejoinCode);
     });
     setCodes(codeMap);
-  }, [pin, proof, canReadGame]);
+  }, [pin, readProof]);
 
   // Only when the snapshot names a question this remote cannot answer: the
   // saved game carries every round's questions, so one read usually covers
@@ -410,13 +458,13 @@ const useRemoteLink = () => {
   const signIn = (nextPin: string, password: string) => {
     pinViewToUrl(nextPin);
     setPin(nextPin);
-    setProof(hostProof(nextPin, password));
+    setProofs(passwordSpellings(password).map((spelling) => hostProof(nextPin, spelling)));
   };
 
   const signOut = () => {
     writeStored(null);
     void detachRoomChannel();
-    setProof(null);
+    setProofs(null);
     setSnapshot(null);
     setAnswers(new Map());
     setStatus("signin");
@@ -819,6 +867,42 @@ const ConfirmBig: React.FC<{
  * Phase panels
  * ------------------------------------------------------------------ */
 
+/** Bots on or off, from the floor — up until round one is dealt. */
+const BotsSwitch: React.FC<{ snapshot: BroadcastSnapshot; send: Send }> = ({
+  snapshot,
+  send,
+}) => {
+  const bots = snapshot.players.filter((player) => player.isBot).length;
+  const enabled = snapshot.botsEnabled !== false;
+  return (
+    <button
+      onClick={() =>
+        send(
+          { kind: "set-bots", enabled: !enabled },
+          enabled ? "Bots off" : "Bots on",
+        )
+      }
+      className={`w-full flex items-center gap-3 rounded-xl border p-3 text-left ${
+        enabled ? "border-neon-blue/60 bg-neon-blue/10 text-neon-blue" : "border-slate-600 text-slate-300"
+      }`}
+    >
+      <Bot size={20} />
+      <span className="flex-1">
+        <span className="block font-bold">Bots {enabled ? "on" : "off"}</span>
+        <span className="block text-xs text-slate-400">
+          {snapshot.phase === GamePhase.LOBBY
+            ? enabled
+              ? `${bots} in the lobby — tap to remove them and stop more joining.`
+              : "Only real players will be drawn."
+            : enabled && bots > 0
+              ? `${bots} in round one's draw — tap to remove them and redraw.`
+              : "No bots in this game."}
+        </span>
+      </span>
+    </button>
+  );
+};
+
 const LobbyRemote: React.FC<{ snapshot: BroadcastSnapshot; send: Send }> = ({
   snapshot,
   send,
@@ -872,8 +956,16 @@ const LobbyRemote: React.FC<{ snapshot: BroadcastSnapshot; send: Send }> = ({
         </button>
       </Card>
 
+      <Card title="Bots">
+        <BotsSwitch snapshot={snapshot} send={send} />
+      </Card>
+
       <div className="grid grid-cols-2 gap-3">
-        <Big variant="secondary" onClick={() => send({ kind: "add-bot" }, "Add a bot")}>
+        <Big
+          variant="secondary"
+          disabled={!snapshot.botsEnabled}
+          onClick={() => send({ kind: "add-bot" }, "Add a bot")}
+        >
           <Bot size={18} /> ADD BOT
         </Big>
         <Big
@@ -942,6 +1034,12 @@ const WheelRemote: React.FC<{ snapshot: BroadcastSnapshot; send: Send }> = ({
           </div>
         </div>
       </Card>
+
+      {snapshot.roundNumber === 1 && (
+        <Card title="Before round one">
+          <BotsSwitch snapshot={snapshot} send={send} />
+        </Card>
+      )}
 
       {round && (
         <Card title="This round's matchups">

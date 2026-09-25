@@ -6,12 +6,13 @@ import AvatarDisplay from './AvatarDisplay';
 import JoinCode from './JoinCode';
 import Instructions from './Instructions';
 import LosersBracketToggle from './LosersBracketToggle';
+import BotsToggle from './BotsToggle';
 import HostScreensPanel from './HostScreensPanel';
 import BroadcastTextEditor from './BroadcastTextEditor';
 import { Users, Zap, Settings, UserPlus, PlayCircle, Monitor, KeyRound, Eye, EyeOff, Tablet } from 'lucide-react';
 
 const LobbyScreen: React.FC = () => {
-  const { players, startGame, isHost, totalRounds, questionsPerRound, gamePin, gameName, hostPassword, addBot, hostJoinAsPlayer, currentPlayerId, openBroadcast, broadcastConnected, roomWarning, losersBracket, setLosersBracket, remotes } = useGame();
+  const { players, startGame, isHost, totalRounds, questionsPerRound, gamePin, gameName, hostPassword, addBot, hostJoinAsPlayer, currentPlayerId, openBroadcast, broadcastConnected, roomWarning, losersBracket, setLosersBracket, remotes, botsEnabled, setBotsEnabled } = useGame();
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [showScreens, setShowScreens] = useState(false);
   // Codes are hidden until asked for, for the same reason the password is:
@@ -186,6 +187,14 @@ const LobbyScreen: React.FC = () => {
                   players={players.length}
                   rounds={totalRounds}
                 />
+                <div className="mt-3">
+                  <BotsToggle
+                    enabled={botsEnabled}
+                    onChange={setBotsEnabled}
+                    botCount={players.filter((p) => p.isBot).length}
+                    stage="lobby"
+                  />
+                </div>
               </div>
             ) : (
               losersBracket && (
@@ -263,15 +272,17 @@ const LobbyScreen: React.FC = () => {
                 EDIT MY PLAYER
               </Button>
               
-              <Button 
-                onClick={addBot} 
-                fullWidth 
-                variant="secondary"
-                className="flex items-center justify-center gap-3 border-slate-600 hover:border-white"
-              >
-                <UserPlus size={20} />
-                ADD BOT
-              </Button>
+              {botsEnabled && (
+                <Button
+                  onClick={addBot}
+                  fullWidth
+                  variant="secondary"
+                  className="flex items-center justify-center gap-3 border-slate-600 hover:border-white"
+                >
+                  <UserPlus size={20} />
+                  ADD BOT
+                </Button>
+              )}
               
               <Button 
                 onClick={startGame} 

@@ -5,7 +5,8 @@
  * what ships. Run it with `node scripts/check-hosting.mjs`.
  */
 import "./dom-stub";
-import { BracketRound, Player } from "../../src/types";
+import { BracketRound, GamePhase, GameState, Player } from "../../src/types";
+import { applyBotsSetting, botsSettingOpen } from "../../src/services/bots";
 import {
   activePlayerIds,
   buildFirstRound,
@@ -34,6 +35,8 @@ import {
   judgeRemoteHello,
   judgeRemoteMessage,
   liveRemotes,
+  pairingKeyFromHash,
+  passwordSpellings,
 } from "../../src/services/remoteControl";
 
 let failures = 0;
@@ -404,6 +407,65 @@ check(
 }
 
 
+{
+  // Typed on a tablet, a suggested password arrives in lower case.
+  const pin = "7070";
+  const ipad = { uid: "uid-ipad" };
+  const proof = hostProof(pin, "L9YB4S");
+  const spellings = passwordSpellings("l9yb4s");
+  const [first, ...rest] = spellings.map((spelling) =>
+    remoteSignature(hostProof(pin, spelling), pin, ipad.uid, "remote-b"),
+  );
+  const hello = {
+    type: "remote-hello" as const,
+    pin,
+    controllerId: "remote-b",
+    label: "iPad",
+    signature: first,
+    alternates: rest,
+  };
+  check(
+    "a password typed in the wrong case still gets the remote in",
+    spellings.includes("L9YB4S") && judgeRemoteHello(proof, pin, hello, ipad) === "accept",
+  );
+  check(
+    "but a hello stuffed with guesses is not read past the first two alternates",
+    judgeRemoteHello(
+      proof,
+      pin,
+      {
+        ...hello,
+        signature: "0".repeat(64),
+        alternates: ["1".repeat(64), "2".repeat(64), first],
+      },
+      ipad,
+    ) === "reject",
+  );
+
+  const key = hostProof(pin, "L9YB4S");
+  check(
+    "a pairing QR's key is read from after the #, and nothing else is taken for one",
+    pairingKeyFromHash(`#key=${key}`) === key &&
+      pairingKeyFromHash("#key=not-a-key") === null &&
+      pairingKeyFromHash("") === null,
+  );
+  check(
+    "and a remote holding that key is let straight in",
+    judgeRemoteHello(
+      key,
+      pin,
+      {
+        type: "remote-hello",
+        pin,
+        controllerId: "remote-c",
+        label: "iPad",
+        signature: remoteSignature(key, pin, ipad.uid, "remote-c"),
+      },
+      ipad,
+    ) === "accept",
+  );
+}
+
 /* ------------------------------------------------------------------ *
  * 5. Rejoin codes the host can read back, and the big screen's words
  * ------------------------------------------------------------------ */
@@ -444,6 +506,76 @@ check(
     "and says whatever the host sets instead, date filled in",
     renderBroadcastText("Kava Night {date}", DEFAULT_BROADCAST_SUBTITLE, day) ===
       `Kava Night ${today}`,
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * 6. Bots, on and off, up to the first round
+ * ------------------------------------------------------------------ */
+
+{
+  const humans = makePlayers(3);
+  const bots: Player[] = makePlayers(2).map((p, i) => ({
+    ...p,
+    id: `bot-${i}`,
+    name: `Bot ${i}`,
+    isBot: true,
+  }));
+  const game = (phase: GamePhase, currentRound = 0): GameState =>
+    ({
+      phase,
+      currentRound,
+      players: [...humans, ...bots],
+      bracket: currentRound ? [buildFirstRound([...humans, ...bots])] : [],
+      botsEnabled: true,
+    }) as unknown as GameState;
+
+  const setup = applyBotsSetting(game(GamePhase.HOST_CONFIG), false);
+  check(
+    "bots can be switched off while the game is still being set up",
+    setup.botsEnabled === false,
+  );
+
+  const lobby = applyBotsSetting(game(GamePhase.LOBBY), false);
+  check(
+    "switching them off in the lobby takes every bot out and keeps every person",
+    lobby.botsEnabled === false &&
+      lobby.players.length === 3 &&
+      lobby.players.every((p) => !p.isBot),
+  );
+  check(
+    "switching them back on seats nobody by itself",
+    applyBotsSetting(lobby, true).botsEnabled === true &&
+      applyBotsSetting(lobby, true).players.length === 3,
+  );
+
+  const wheel = applyBotsSetting(game(GamePhase.CATEGORY_SELECT, 1), false);
+  const drawn = activePlayerIds(wheel.bracket[0]);
+  check(
+    "on round one's wheel, switching them off redraws the round without them",
+    wheel.bracket.length === 1 &&
+      drawn.length === 3 &&
+      humans.every((p) => drawn.includes(p.id)) &&
+      !drawn.some((id) => id.startsWith("bot-")),
+    drawn.join(", "),
+  );
+
+  const alone = applyBotsSetting(
+    { ...game(GamePhase.CATEGORY_SELECT, 1), players: [humans[0], ...bots] } as GameState,
+    false,
+  );
+  check(
+    "a lone player left once the bots go has no bracket to be drawn into",
+    alone.bracket.length === 0 && alone.players.length === 1,
+  );
+
+  const playing = game(GamePhase.PLAYING, 1);
+  const secondWheel = game(GamePhase.CATEGORY_SELECT, 2);
+  check(
+    "once round one is dealt, the setting is fixed",
+    !botsSettingOpen(playing) &&
+      applyBotsSetting(playing, false) === playing &&
+      applyBotsSetting(secondWheel, false) === secondWheel,
   );
 }
 

@@ -440,6 +440,7 @@ export const buildSnapshot = (
     roundNumber: state.currentRound,
     totalRounds: state.totalRounds,
     losersBracket: state.losersBracket,
+    botsEnabled: state.botsEnabled,
     hostAnswering: state.hostAnsweringEnabled,
     category,
     wheelSpinning: state.wheelSpinning,

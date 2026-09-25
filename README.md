@@ -559,9 +559,14 @@ the header of the control screen — has a link and a QR code for each:
   camera can open `?view=broadcast` on its own and type the PIN. It
   reconnects by itself if its Wi-Fi drops, and a reload comes back to the
   same game.
-- **Remote for your tablet** (`?view=remote&pin=1234`). Scan it with an iPad
-  and type the **host password**, and the round runs from wherever you are
-  standing: add bots and start the game, turn the loser's bracket on or off
+- **Remote for your tablet.** Tap **show QR** and scan it with the iPad's
+  camera: it opens as the remote, already paired — nothing to type. (The QR
+  carries the host password's proof after the `#`, which a browser never
+  sends to a server, and the remote wipes it from the address bar on arrival.
+  It is the password in picture form, so it stays hidden until tapped and
+  hides itself again after two minutes.) Without the QR, open
+  `?view=remote&pin=1234` and type the host password — in any letter case.
+  Either way the round runs from wherever you are standing: add bots and start the game, turn the loser's bracket on or off
   in the lobby, **spin** the wheel (the laptop's wheel spins, lands and
   decides, exactly as if you had pressed it there), **start the round**,
   pause / +10s / close one table or every table, **move the room on**, **end
@@ -575,14 +580,18 @@ hands on its buttons, not a second host — so keep its window open and not
 minimised (a hidden tab's timers are slowed down by the browser). The header
 shows which remotes are linked. Ending the game for good stays on the laptop.
 
-**How the remote proves it is you.** The password never leaves the tablet.
-It becomes the same proof a returning host uses, and the tablet signs a
-hello with it (HMAC-SHA256) bound to its own signed-in identity. The host
-window checks the signature, binds that identity, and from then on accepts
-commands only from it — the database stamps every message with the sender's
-real identity, so a hello or a command copied off the room's bus and sent
-from another device is refused. Nothing needed changing in
-`firebase/database.rules.json`: the existing rules already carry all of it.
+**How the remote proves it is you.** The tablet holds the same proof a
+returning host uses — from the QR, or derived from the typed password — and
+signs a hello with it (HMAC-SHA256) bound to its own signed-in identity. The
+host window checks the signature, binds that identity, and from then on
+accepts commands only from it — the database stamps every message with the
+sender's real identity, so a hello or a command copied off the room's bus and
+sent from another device is refused. **The host window is the only judge**,
+so the remote works whatever rules the database is running. Current rules
+add one thing on top: the tablet can also prove the password to the database
+and read the saved game, which is how it shows answers and rejoin codes. On
+older rules those two stay on the laptop, and the host screen says the rules
+need publishing.
 
 > Without multiplayer, the broadcast and the remote still work — as windows
 > of **the same browser on the same machine**, over `BroadcastChannel`.
@@ -701,7 +710,12 @@ without the hash ever being readable, is in
    as a player automatically. The lobby shows the host password one last time
    (behind an eye toggle, because a laptop on a bar table gets read over
    shoulders). **OPEN BROADCAST DISPLAY** and move it to the big screen.
-   **EDIT MY PLAYER** renames your seat, **ADD BOT** adds opponents. The
+   **EDIT MY PLAYER** renames your seat, **ADD BOT** adds opponents.
+   **Bots** can be switched off here, on the setup screen, or on round one's
+   wheel before **START ROUND** — off removes every bot already seated (on the
+   wheel it redraws round one without them), stops the lobby seating more, and
+   hides ADD BOT. Once round one is dealt the setting is fixed. The choice is
+   remembered for the next game, and the remote has the same switch. The
    **loser's bracket** can still be switched here, with the number of rounds
    it needs for the players who turned up. **CAST & REMOTE** puts the
    broadcast on another device or the controls on your tablet.
