@@ -275,12 +275,17 @@ export const buildRoundLanes = (state: GameState): MatchupLane[] => {
             ? [matchup.playerAId, matchup.playerBId]
             : [matchup.playerAId],
         })),
-        ...redemptionRoster(round, state.players).map((playerId, index) => ({
-          id: `r${state.currentRound}-x${index + 1}`,
-          matchupId: null,
-          playerIds: [playerId],
-          redemption: true,
-        })),
+        // Only for players actually answering: a host who is running the room
+        // rather than playing it gets no table, rather than an empty one that
+        // the desk and the projector would count as a table in play.
+        ...redemptionRoster(round, state.players)
+          .filter((playerId) => answering.has(playerId))
+          .map((playerId, index) => ({
+            id: `r${state.currentRound}-x${index + 1}`,
+            matchupId: null,
+            playerIds: [playerId],
+            redemption: true,
+          })),
       ]
     : [
         {

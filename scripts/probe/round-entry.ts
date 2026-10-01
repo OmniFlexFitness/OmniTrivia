@@ -858,6 +858,16 @@ check(
     stopRoundInPlace(rest).lanes.every((lane) => laneStatus(lane) === LaneStatus.DONE),
   );
 
+  const hostOut: GameState = {
+    ...roundTwo,
+    players: knockedOut.map((p) => (p.id === "p4" ? { ...p, isHost: true } : p)),
+    hostAnsweringEnabled: false,
+  };
+  check(
+    "a knocked-out host with answering off gets no table at all, not an empty one",
+    buildRoundLanes(hostOut).every((lane) => !lane.playerIds.includes("p4")),
+  );
+
   const noBracket = { ...baseState(), bracket: [] };
   check(
     "a game with no bracket has no Redemption Table",
