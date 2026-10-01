@@ -33,6 +33,7 @@ import CategoryLikeButton from "./CategoryLikeButton";
 import CategoryVotePanel from "./CategoryVotePanel";
 import SpectatorWheel from "./SpectatorWheel";
 import VersusIntro, { VersusStrip } from "./VersusIntro";
+import PrizePodium from "./PrizePodium";
 import { QuestionPanel } from "./CyberQuestion";
 import Button from "./Button";
 import {
@@ -124,6 +125,16 @@ const MyMatchup: React.FC<{
       {/* What is riding on it. In a game with a loser's bracket the same
           matchup card means three different things, and a player should not
           find out which from the results screen. */}
+      {/* A comeback, called out on both phones in it: the player who earned
+          it, and the player who was owed a bye and drew them instead. */}
+      {matchup?.wildcardId && (
+        <div className="text-xs font-bold text-neon-yellow mb-2">
+          {matchup.wildcardId === playerId
+            ? "WILDCARD — your round on the Redemption Table got you back in. One shot: make it count."
+            : "Your opponent is back in as a wildcard from the Redemption Table."}
+        </div>
+      )}
+
       {matchup && snapshot.losersBracket && opponent && (
         <div className="text-xs text-slate-400 mb-2">
           {sideOf(matchup) === "final"
@@ -135,9 +146,13 @@ const MyMatchup: React.FC<{
       )}
 
       {!matchup ? (
-        <div className="text-sm text-slate-400">
-          Not in this one — you are out of the bracket, watching from the
-          leaderboard.
+        <div className="text-sm text-slate-300 space-y-1">
+          <div className="font-bold text-orange-300">Redemption Table</div>
+          <div className="text-slate-400">
+            Out of the bracket, not out of the game. Play the round on your
+            own — every point counts towards the redemption prize, and the
+            best round here takes the next wildcard back in.
+          </div>
         </div>
       ) : opponent ? (
         <div className="flex items-center justify-center gap-3">
@@ -290,9 +305,12 @@ const RoundIntro: React.FC<{
       )}
 
       <p className="text-slate-500 text-sm text-center max-w-sm">
-        You play this round against one opponent, at your own pace. Answer fast
-        — every second left on your clock is worth points. You find out how you
-        did when your match is over.
+        {pairing
+          ? "You play this round against one opponent, at your own pace."
+          : "You play this round on the Redemption Table — same questions, no opponent."}{" "}
+        Answer fast — every second left on your clock is worth points — and
+        the last question counts double. You find out how you did when your
+        match is over.
       </p>
 
       {announced && children}
@@ -323,6 +341,28 @@ const OpponentStrip: React.FC<{
     seat?.status === LaneStatus.DONE
       ? "done"
       : `Q${Math.min((seat?.completed ?? 0) + 1, total)}/${total}`;
+
+  if (lane.redemption) {
+    const me = snapshot.players.find((p) => p.id === playerId);
+    return (
+      <div className="cyber-panel flex items-center justify-between gap-3 px-4 py-3 mb-4 border border-orange-400/40">
+        <div className="min-w-0">
+          <div className="cyber-hud text-[10px] text-orange-300">Redemption table</div>
+          <div className="text-xs text-slate-400">
+            Best round here takes the next wildcard back in
+          </div>
+        </div>
+        <div className="text-right shrink-0">
+          <div className="font-mono font-bold text-orange-300">
+            {me?.redemptionScore ?? 0}
+          </div>
+          <div className="cyber-hud text-[9px] text-slate-500 tracking-normal">
+            {where(mySeat)}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="cyber-panel flex items-center justify-between gap-3 px-4 py-3 mb-4">
@@ -410,6 +450,45 @@ const MatchResult: React.FC<{
   const opponentSeat = seatsOf(lane).find((candidate) => candidate.playerId === opponentId);
   const theirs = opponentSeat?.roundPoints ?? opponent?.roundScore ?? 0;
   const theirCorrect = (opponentSeat?.results ?? []).filter((r) => r.correct).length;
+
+  if (lane.redemption) {
+    const me = snapshot.players.find((p) => p.id === playerId);
+    return (
+      <div className="py-4 space-y-5">
+        <div className="text-center">
+          <div className="cyber-hud text-[11px] text-slate-500">Redemption round complete</div>
+          <div className="cyber-question text-3xl mt-1 text-orange-300">+{mine} redemption</div>
+          <div className="text-xs text-slate-400 mt-1">
+            {correct}/{results.length} correct
+            {me ? ` · ${me.redemptionScore ?? 0} redemption points tonight` : ""}
+          </div>
+        </div>
+
+        <div>
+          <div className="cyber-hud text-[10px] text-slate-500 mb-2 text-center">
+            Your answers
+          </div>
+          <div className="flex flex-wrap justify-center gap-2">
+            {results.map((result, index) => (
+              <ResultChip
+                key={index}
+                index={index}
+                answered={result.answered}
+                correct={result.correct}
+                points={result.points}
+              />
+            ))}
+          </div>
+        </div>
+
+        <p className="text-center text-sm text-slate-400">
+          {me?.wildcardUsed
+            ? "You have had your wildcard this game — every point still counts towards the redemption prize."
+            : "If the next round has an odd seat, the best round on the Redemption Table takes it as a wildcard."}
+        </p>
+      </div>
+    );
+  }
 
   // Matchups are settled on this round's points; a tie falls to total score,
   // which is decided on the desk when the round closes.
@@ -948,6 +1027,15 @@ const PlayerScreen: React.FC = () => {
               />
             )}
 
+            {snapshot.phase === GamePhase.GAME_OVER && (
+              <PrizePodium
+                players={snapshot.players}
+                bracket={snapshot.bracket ?? []}
+                championId={snapshot.championId}
+                className="my-4"
+              />
+            )}
+
             {/* The pairings for the round after this one are drawn the moment
                 this one is settled, so the wait between rounds can at least
                 say who you are playing next. */}
@@ -988,6 +1076,16 @@ const PlayerScreen: React.FC = () => {
                     <span className="flex-1 truncate font-bold text-white">
                       {player.name}
                     </span>
+                    {player.eliminated && (
+                      <span className="font-mono text-[10px] uppercase tracking-widest text-orange-300">
+                        R {player.redemptionScore ?? 0}
+                      </span>
+                    )}
+                    {!player.eliminated && player.wildcardUsed && (
+                      <span className="font-mono text-[10px] uppercase tracking-widest text-neon-yellow">
+                        wildcard
+                      </span>
+                    )}
                     <span className="font-mono font-bold text-neon-pink">
                       {player.score}
                     </span>

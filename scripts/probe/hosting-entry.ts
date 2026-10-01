@@ -10,6 +10,8 @@ import { applyBotsSetting, botsSettingOpen } from "../../src/services/bots";
 import {
   activePlayerIds,
   buildFirstRound,
+  byeCounts,
+  podium,
   rankStanding,
   roundsToDecide,
   settleRound,
@@ -329,6 +331,301 @@ check(
     roundsToDecide(2, false) === 1 &&
     roundsToDecide(1, true) === 0,
 );
+
+/* ------------------------------------------------------------------ *
+ * 3a. Wildcards: the Redemption Table fills the bracket's odd seat
+ * ------------------------------------------------------------------ */
+
+interface WildNight extends Played {
+  /** Round number -> the wildcards that round's draw pulled back in. */
+  wildcardsByRound: Map<number, string[]>;
+  /** Draws that had an odd side of 3+ and an eligible pool, but no wildcard. */
+  missedWildcards: number;
+}
+
+/**
+ * Play a night the way the app now plays it: everybody scores every round —
+ * the bracket in their matchups, everybody else on the Redemption Table — and
+ * every draw is made with wildcards on. Some players blank a round on purpose,
+ * so the "nobody comes back on zero" rule is exercised.
+ */
+const playWildNight = (
+  count: number,
+  losersBracket: boolean,
+  maxRounds: number,
+  seed: number,
+): WildNight => {
+  const random = rng(seed);
+  let players = makePlayers(count).map((p) => ({ ...p, redemptionScore: 0 }));
+  let rounds: BracketRound[] = [buildFirstRound(players)];
+  let championId: string | null = null;
+  let roundNumber = 1;
+  const wildcardsByRound = new Map<number, string[]>();
+  let missedWildcards = 0;
+
+  while (roundNumber <= maxRounds) {
+    const current = rounds[roundNumber - 1];
+    if (!current) break;
+
+    players = players.map((p) => {
+      const points = Math.floor(random() * 4) * 100;
+      return {
+        ...p,
+        roundScore: points,
+        score: p.score + points,
+        redemptionScore: (p.redemptionScore ?? 0) + (p.eliminated ? points : 0),
+      };
+    });
+
+    const outcome = settleRound(current, players, {
+      losersBracket,
+      playedRounds: rounds.slice(0, roundNumber - 1),
+      hasMoreRounds: roundNumber < maxRounds,
+      wildcards: true,
+    });
+
+    rounds = [...rounds.slice(0, roundNumber - 1), outcome.round];
+    if (outcome.nextRound) rounds.push(outcome.nextRound);
+    if (outcome.wildcardIds.length) {
+      wildcardsByRound.set(roundNumber + 1, outcome.wildcardIds);
+    }
+
+    // A draw that handed out a bye on a side where a wildcard was owed, with
+    // somebody eligible to take it, is a wildcard the room was denied.
+    const out = new Set([
+      ...players.filter((p) => p.eliminated).map((p) => p.id),
+      ...outcome.eliminatedIds,
+    ]);
+    const eligible = players.some(
+      (p) => out.has(p.id) && !p.wildcardUsed && p.roundScore > 0,
+    );
+    const wildSide = losersBracket ? "losers" : "winners";
+    const byeOnWildSide = outcome.nextRound?.matchups.some(
+      (m) => m.playerBId === null && sideOf(m) === wildSide,
+    );
+    const sideSize = outcome.nextRound
+      ? activePlayerIds({
+          ...outcome.nextRound,
+          matchups: outcome.nextRound.matchups.filter((m) => sideOf(m) === wildSide),
+        }).length
+      : 0;
+    if (byeOnWildSide && eligible && sideSize >= 3) missedWildcards += 1;
+
+    const knocked = new Set(outcome.eliminatedIds);
+    const dropped = new Set(outcome.losersIds);
+    const wild = new Set(outcome.wildcardIds);
+    players = players.map((p) =>
+      wild.has(p.id)
+        ? { ...p, eliminated: false, losersBracket, wildcardUsed: true }
+        : knocked.has(p.id)
+          ? { ...p, eliminated: true, losersBracket: false }
+          : dropped.has(p.id)
+            ? { ...p, losersBracket: true }
+            : p,
+    );
+
+    championId = outcome.championId;
+    if (championId || !outcome.nextRound) break;
+    roundNumber += 1;
+  }
+
+  return {
+    rounds,
+    players,
+    championId,
+    roundsPlayed: roundNumber,
+    wildcardsByRound,
+    missedWildcards,
+  };
+};
+
+{
+  let decidedOnTime = true;
+  let anyWildcard = false;
+  let onceEach = true;
+  let facesTheByeOwed = true;
+  let rightSide = true;
+  let neverDenied = true;
+  let onceEachRound = true;
+  let wildDetail = "";
+
+  for (const losersBracket of [false, true]) {
+    for (let count = 3; count <= 16; count++) {
+      for (let seed = 1; seed <= 25; seed++) {
+        const night = playWildNight(count, losersBracket, 99, seed * 131 + count);
+        const expected = roundsToDecide(count, losersBracket);
+
+        if (!night.championId || night.roundsPlayed !== expected) {
+          decidedOnTime = false;
+          wildDetail ||= `${count} players${losersBracket ? " (LB)" : ""}: ${night.roundsPlayed} rounds, promised ${expected}`;
+        }
+        if (night.missedWildcards > 0) {
+          neverDenied = false;
+          wildDetail ||= `${count} players${losersBracket ? " (LB)" : ""}, seed ${seed}: a bye went out with a wildcard owed`;
+        }
+
+        const seen = new Set<string>();
+        night.wildcardsByRound.forEach((ids, round) => {
+          anyWildcard = true;
+          for (const id of ids) {
+            if (seen.has(id)) onceEach = false;
+            seen.add(id);
+            const matchup = night.rounds[round - 1]?.matchups.find(
+              (m) => m.wildcardId === id,
+            );
+            if (!matchup || matchup.playerBId !== id) facesTheByeOwed = false;
+            if (matchup && sideOf(matchup) !== (losersBracket ? "losers" : "winners")) {
+              rightSide = false;
+            }
+          }
+        });
+        night.rounds.forEach((round) => {
+          const ids = activePlayerIds(round);
+          if (new Set(ids).size !== ids.length) onceEachRound = false;
+        });
+      }
+    }
+  }
+
+  check(
+    "with wildcards on, every bracket still takes exactly the rounds the lobby promises",
+    decidedOnTime,
+    wildDetail,
+  );
+  check("wildcards actually get drawn", anyWildcard);
+  check("an odd seat never goes to a bye while somebody on the table has earned it", neverDenied, wildDetail);
+  check("nobody comes back as a wildcard twice in one game", onceEach);
+  check("a wildcard takes the bye's seat, against the player who was owed it", facesTheByeOwed);
+  check(
+    "single elimination brings a wildcard back into the bracket; double elimination only into the loser's side",
+    rightSide,
+  );
+  check("nobody is drawn twice in one round, wildcards included", onceEachRound);
+}
+
+{
+  // Five players, single elimination: round one leaves three winners and
+  // two knocked out. The better knocked-out round comes back in.
+  const players = makePlayers(5);
+  const round1: BracketRound = {
+    roundNumber: 1,
+    matchups: [
+      { id: "r1-m1", roundNumber: 1, bracket: "winners", playerAId: "p1", playerBId: "p2", winnerId: null, scoreA: null, scoreB: null, tiebreak: null },
+      { id: "r1-m2", roundNumber: 1, bracket: "winners", playerAId: "p3", playerBId: "p4", winnerId: null, scoreA: null, scoreB: null, tiebreak: null },
+      { id: "r1-m3", roundNumber: 1, bracket: "winners", playerAId: "p5", playerBId: null, winnerId: null, scoreA: null, scoreB: null, tiebreak: null },
+    ],
+    resolved: false,
+  };
+  const scores: Record<string, number> = { p1: 500, p2: 300, p3: 600, p4: 450, p5: 200 };
+  const scored = players.map((p) => ({ ...p, roundScore: scores[p.id], score: scores[p.id] }));
+  const outcome = settleRound(round1, scored, {
+    losersBracket: false,
+    playedRounds: [],
+    hasMoreRounds: true,
+    wildcards: true,
+  });
+  const wildMatch = outcome.nextRound?.matchups.find((m) => m.wildcardId);
+
+  check(
+    "the best round among the knocked-out players takes the wildcard",
+    outcome.wildcardIds.join() === "p4" && outcome.eliminatedIds.includes("p4"),
+    `wildcards: ${outcome.wildcardIds.join() || "none"}`,
+  );
+  check(
+    "and round two has no bye in it",
+    outcome.nextRound?.matchups.every((m) => m.playerBId !== null) === true &&
+      wildMatch?.playerBId === "p4",
+    outcome.nextRound?.matchups.map((m) => `${m.playerAId}-${m.playerBId ?? "bye"}`).join(", "),
+  );
+  check(
+    "a wildcard counts as a bye for whoever drew it, so the soft draw rotates",
+    byeCounts([outcome.nextRound!]).get(wildMatch?.playerAId ?? "") === 1,
+  );
+
+  const blanked = settleRound(
+    round1,
+    scored.map((p) => (p.id === "p2" || p.id === "p4" ? { ...p, roundScore: 0 } : p)),
+    { losersBracket: false, playedRounds: [], hasMoreRounds: true, wildcards: true },
+  );
+  check(
+    "nobody comes back on a round of zero — the bye stands",
+    blanked.wildcardIds.length === 0 &&
+      blanked.nextRound?.matchups.some((m) => m.playerBId === null) === true,
+  );
+
+  const offByDefault = settleRound(round1, scored, {
+    losersBracket: false,
+    playedRounds: [],
+    hasMoreRounds: true,
+  });
+  check(
+    "without the option, a bye is a bye",
+    offByDefault.wildcardIds.length === 0 &&
+      offByDefault.nextRound?.matchups.some((m) => m.playerBId === null) === true,
+  );
+
+  const hostOut = settleRound(
+    round1,
+    scored.map((p) => (p.id === "p4" ? { ...p, isHost: true } : p)),
+    {
+      losersBracket: false,
+      playedRounds: [],
+      hasMoreRounds: true,
+      wildcards: true,
+      canWildcard: (p) => !p.isHost,
+    },
+  );
+  check(
+    "a player the host rules out is passed over for the next best",
+    hostOut.wildcardIds.join() === "p2",
+    `wildcards: ${hostOut.wildcardIds.join() || "none"}`,
+  );
+}
+
+{
+  // The podium: a decided bracket, a redemption leader, and one prize each.
+  const night = playWildNight(8, false, 99, 4242);
+  const places = podium(night.players, night.rounds, night.championId);
+  const last = night.rounds[night.rounds.length - 1];
+  const final = last.matchups.find((m) => m.winnerId === night.championId && m.playerBId);
+  const finalLoser = final
+    ? final.playerAId === night.championId
+      ? final.playerBId
+      : final.playerAId
+    : null;
+
+  check(
+    "the runner-up is whoever the champion beat in the last round",
+    places.championId === night.championId && places.runnerUpId === finalLoser,
+    `champion ${places.championId}, runner-up ${places.runnerUpId}, final loser ${finalLoser}`,
+  );
+  const best = Math.max(
+    ...night.players
+      .filter((p) => p.id !== places.championId && p.id !== places.runnerUpId)
+      .map((p) => p.redemptionScore ?? 0),
+  );
+  check(
+    "the redemption prize goes to the most redemption points off the podium",
+    places.redemptionId !== null &&
+      places.redemptionId !== places.championId &&
+      places.redemptionId !== places.runnerUpId &&
+      night.players.find((p) => p.id === places.redemptionId)?.redemptionScore === best,
+    `${places.redemptionId} on ${best}`,
+  );
+
+  const ranOut = makePlayers(4).map((p, i) => ({
+    ...p,
+    score: [100, 400, 300, 200][i],
+    eliminated: i === 0,
+    redemptionScore: i === 0 ? 100 : 0,
+  }));
+  const ranOutPlaces = podium(ranOut, [buildFirstRound(ranOut)], "p2");
+  check(
+    "when the rounds run out, the runner-up is the next player still standing",
+    ranOutPlaces.runnerUpId === "p3" && ranOutPlaces.redemptionId === "p1",
+    `${ranOutPlaces.runnerUpId}, redemption ${ranOutPlaces.redemptionId}`,
+  );
+}
 
 /* ------------------------------------------------------------------ *
  * 4. The host's remote: who gets the controls

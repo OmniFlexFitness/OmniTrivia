@@ -10,7 +10,7 @@ import {
   RevealReason,
 } from "../types";
 import { REVEAL_DURATION, TIMER_DURATION } from "../constants";
-import { answeringRoster, rosterForRound } from "./bracket";
+import { answeringRoster, redemptionRoster, rosterForRound } from "./bracket";
 import { isAnswerCorrect } from "./scoring";
 
 /**
@@ -29,7 +29,8 @@ import { isAnswerCorrect } from "./scoring";
  * person they are playing is still on the first.
  *
  * Why the two players in a matchup are not kept in step: points are 100 for a
- * correct answer plus 10 for every second left on the clock, so answering fast
+ * correct answer plus 10 for every second left on the clock (doubled on the
+ * round's last question), so answering fast
  * is already worth something, and making the fast answerer sit and wait for
  * their opponent spends the very thing they just earned. They are compared on
  * the points they finish the round with, not on the pace they got there at.
@@ -41,6 +42,28 @@ import { isAnswerCorrect } from "./scoring";
 
 const CORRECT_BASE_POINTS = 100;
 const TIME_BONUS_PER_SECOND = 10;
+/** What the last question of a round is worth, against an ordinary one. */
+export const FINAL_QUESTION_MULTIPLIER = 2;
+
+/**
+ * Points multiplier for one question of a round.
+ *
+ * The last question of every round counts double — the base and the time
+ * bonus both. It is the round's comeback: a player who is three answers
+ * behind is never more than one great answer from back in it, and because
+ * scores are hidden until a match is over, nobody in a match can be sure they
+ * are safe, or sure they are beaten, until it is. Both players get the same
+ * question at the same value, so it is the deficit that shrinks, not the
+ * fairness. A one-question round has nothing to come back from, so it is
+ * worth what it is worth.
+ */
+export const questionMultiplier = (
+  questionIndex: number,
+  questionCount: number,
+): number =>
+  questionCount > 1 && questionIndex === questionCount - 1
+    ? FINAL_QUESTION_MULTIPLIER
+    : 1;
 
 /* ------------------------------------------------------------------ *
  * Reading a match
@@ -219,7 +242,13 @@ const freshSeat = (playerId: string, playable: boolean, questionCount: number): 
 
 /**
  * One match per matchup for the round about to start, each with a seat per
- * player who is actually answering.
+ * player who is actually answering — and a seat on the Redemption Table for
+ * everybody already out of the bracket.
+ *
+ * A Redemption Table seat is a match of one: same questions, same clock,
+ * nobody across the table. One each rather than one shared table, so a
+ * player's results land the moment *they* finish rather than when the slowest
+ * person who also lost does.
  *
  * A game too small to have a bracket has nobody to be matched against, so it
  * gets a single match holding everyone — still one seat each, so a solo room
@@ -232,14 +261,27 @@ export const buildRoundLanes = (state: GameState): MatchupLane[] => {
   );
   const questionCount = state.questionsQueue.length;
 
-  const pairings = round
-    ? round.matchups.map((matchup) => ({
-        id: matchup.id,
-        matchupId: matchup.id,
-        playerIds: matchup.playerBId
-          ? [matchup.playerAId, matchup.playerBId]
-          : [matchup.playerAId],
-      }))
+  const pairings: {
+    id: string;
+    matchupId: string | null;
+    playerIds: string[];
+    redemption?: boolean;
+  }[] = round
+    ? [
+        ...round.matchups.map((matchup) => ({
+          id: matchup.id,
+          matchupId: matchup.id,
+          playerIds: matchup.playerBId
+            ? [matchup.playerAId, matchup.playerBId]
+            : [matchup.playerAId],
+        })),
+        ...redemptionRoster(round, state.players).map((playerId, index) => ({
+          id: `r${state.currentRound}-x${index + 1}`,
+          matchupId: null,
+          playerIds: [playerId],
+          redemption: true,
+        })),
+      ]
     : [
         {
           id: `r${state.currentRound}-open`,
@@ -248,12 +290,13 @@ export const buildRoundLanes = (state: GameState): MatchupLane[] => {
         },
       ];
 
-  return pairings.map(({ id, matchupId, playerIds }) => {
+  return pairings.map(({ id, matchupId, playerIds, redemption }) => {
     const answeringIds = playerIds.filter((playerId) => answering.has(playerId));
 
     return {
       id,
       matchupId,
+      ...(redemption ? { redemption: true } : {}),
       playerIds,
       answeringIds,
       seats: answeringIds.map((playerId) =>
@@ -296,12 +339,17 @@ export const closeSeatQuestion = (
 
   // Points land here, when the question closes — whether by an answer, the
   // clock or the host — so every way out of a question scores the same way.
+  // On the Redemption Table they count twice over: towards the night's total,
+  // like anybody's, and towards the redemption prize.
   const players = state.players.map((player) =>
     player.id === playerId
       ? {
           ...player,
           score: player.score + points,
           roundScore: player.roundScore + points,
+          redemptionScore: lane.redemption
+            ? (player.redemptionScore ?? 0) + points
+            : player.redemptionScore,
           lastAnswerCorrect: isCorrect,
           streak: isCorrect ? player.streak + 1 : 0,
         }
@@ -415,12 +463,17 @@ export const recordLaneAnswer = (
   if (existing.some((record) => record.playerId === playerId)) return state;
 
   const isCorrect = isAnswerCorrect(question, answer);
+  const multiplier = questionMultiplier(
+    seat.questionIndex,
+    state.questionsQueue.length,
+  );
   const record: AnswerRecord = {
     playerId,
     answer,
     isCorrect,
     points: isCorrect
-      ? CORRECT_BASE_POINTS + seat.timeLeft * TIME_BONUS_PER_SECOND
+      ? (CORRECT_BASE_POINTS + seat.timeLeft * TIME_BONUS_PER_SECOND) *
+        multiplier
       : 0,
     timeLeft: seat.timeLeft,
   };

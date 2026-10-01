@@ -55,6 +55,8 @@ interface SeatProps {
   isWinner: boolean;
   isDecided: boolean;
   isBye: boolean;
+  /** Pulled back in from the Redemption Table to fill this seat. */
+  isWildcard?: boolean;
   size: "sm" | "lg";
 }
 
@@ -64,6 +66,7 @@ const Seat: React.FC<SeatProps> = ({
   isWinner,
   isDecided,
   isBye,
+  isWildcard = false,
   size,
 }) => {
   const large = size === "lg";
@@ -100,6 +103,14 @@ const Seat: React.FC<SeatProps> = ({
         }`}
       >
         {player?.name ?? "Unknown"}
+        {isWildcard && (
+          <span
+            className={`ml-2 font-mono uppercase tracking-widest text-neon-yellow ${large ? "text-xs" : "text-[9px]"}`}
+            title="Back in from the Redemption Table"
+          >
+            wildcard
+          </span>
+        )}
       </div>
       {score !== null && (
         <div
@@ -167,6 +178,7 @@ export const MatchupCard: React.FC<{
         isWinner={matchup.winnerId === matchup.playerBId}
         isDecided={isDecided}
         isBye={matchup.playerBId === null}
+        isWildcard={Boolean(matchup.wildcardId) && matchup.wildcardId === matchup.playerBId}
         size={size}
       />
       {matchup.tiebreak && matchup.tiebreak !== "Bye" && (

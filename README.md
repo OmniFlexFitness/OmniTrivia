@@ -22,8 +22,10 @@ exactly as they are defined here, and so does the code.
 | **Round** | One spin of the wheel. The wheel picks a category — really picks it, from the ones not yet played — then every player still in the bracket is paired off. A round has one category and one set of questions. |
 | **Matchup** | One pairing for one round: you against one other player. Round one is drawn at random; from then on the bracket decides who you face, because it pairs the players who won. |
 | **Match** | A matchup actually being played — the round's questions, answered by the two people in it. A round has one match per matchup, and every match runs at its own pace. |
-| **Bracket** | Single elimination by default. The higher round score in a matchup advances; the other player is out. The odd player out each round gets a **bye** and advances unopposed — and a bye goes to whoever has had the fewest so far, so the same person cannot keep drawing them. |
+| **Bracket** | Single elimination by default. The higher round score in a matchup advances; the other player is out of the bracket — not out of the game. When the field is odd, the spare seat goes to a **wildcard** from the Redemption Table, or, if nobody there has earned one, to a **bye**. Either way it lands on whoever has had the fewest so far, so the same person cannot keep drawing it. |
 | **Loser's bracket** | Optional double elimination, switched on at setup or in the lobby. A first loss drops a player into the loser's bracket instead of out; a loss there ends their night. Both sides play in every round, on the same category, and the last player on each side meets in a one-match **grand final**. |
+| **Redemption Table** | Where a player knocked out of the bracket keeps playing: every round, same spin, same category, same questions, their own seat and nobody across from them. Points banked there are their **redemption score** — it decides the redemption prize, and they count towards the night's total too. |
+| **Wildcard** | The bracket's odd seat, handed to the best round on the Redemption Table instead of a free bye. One per player per game, never on a round of zero. In a loser's-bracket game it comes back into the loser's bracket only. |
 | **Remote** | A tablet or phone running the round for the host — spin, start, pause, +10s, close, end the round, next round — once it has the PIN and the host password. The host's window still runs the game; the remote drives it. |
 | **Category pool** | The host's own standing list of categories. The end-of-round vote draws its options from it. It is separate from the questions a game happens to be loaded with. |
 | **Rejoin code** | Four digits dealt to a player when they join — random, and theirs to change before they confirm. Their name and that code get them back into the same seat — score, streak and place in the bracket — from any phone, at any point in the game. |
@@ -41,12 +43,15 @@ exactly as they are defined here, and so does the code.
    alongside them.
 4. At the end of a round, every matchup is settled on that round's points. The
    winners are paired into next round's matchups; the losers are out of the
-   bracket but stay on the leaderboard.
+   bracket, stay on the leaderboard, and move to the **Redemption Table**,
+   where they keep playing every round.
    **Only round one is drawn at random.** After that the bracket decides it:
    the winner of the first matchup meets the winner of the second, and so on.
-   When the field is an odd size somebody takes a bye, and it goes to whoever
+   When the field is an odd size somebody is owed a bye, and it goes to whoever
    has had the fewest byes — otherwise it lands on the same player every round,
-   because a bye winner is always last in the list of who advanced.
+   because a bye winner is always last in the list of who advanced. A
+   **wildcard** from the Redemption Table then takes the seat opposite them, if
+   anybody there has earned one.
 5. The game ends when one player is left standing, or when the rounds run out —
    whichever comes first. If the rounds run out first, the highest score among
    the players still in it takes the night — with anybody still unbeaten ranked
@@ -80,7 +85,53 @@ before **START GAME**) and the night becomes double elimination:
 `npm run check-hosting` plays several hundred simulated nights from 2 to 16
 players and asserts that nobody goes out on one loss (except the grand
 final's loser), the champion has lost at most once, and every bracket is
-decided in exactly the number of rounds the lobby promises.
+decided in exactly the number of rounds the lobby promises. It plays several
+hundred more with wildcards on, and asserts the round count still holds, no
+odd seat goes to a bye while somebody has earned it, and nobody comes back
+twice.
+
+### Comebacks: nobody is out of the night
+
+A bracket is brutal on a bar room: lose round one and, before, you had
+nothing to do for the rest of the night. Three rules keep everybody playing,
+and the in-app rules, the big screen and every phone all say so.
+
+**The Redemption Table.** Knocked out of the bracket is not knocked out of the
+game. From the next round on you get a seat of your own — same spin, same
+category, same questions, your own clock, nobody drawn against you — and every
+point you bank there goes on your **redemption score** (and on your total). It
+is deliberately rubber-banded: the earlier you went out, the more rounds you
+have to build it. The round waits for the table like any other table; the
+host's END ROUND NOW stops it with everyone else.
+
+**Wildcards instead of byes.** When a side of the bracket has an odd field of
+three or more, the spare seat used to be a free pass. Now it goes to the best
+round on the Redemption Table — including anybody knocked out that very round,
+because everybody played the same questions so the scores compare like for
+like. Ties fall to redemption score, then total, then the draw.
+
+- One wildcard per player per game, and never on a round of zero, so a phone
+  left on a table is not dealt back in.
+- The wildcard plays whoever was owed the bye, and that still counts as their
+  bye for rotation — so the soft draw moves around like a bye always has.
+- With a loser's bracket, wildcards come back into the **loser's bracket**
+  only. The winners' side is everybody nobody has beaten.
+- A bye left by the "waiting" rule (a side down to its last player while the
+  other catches up) stays a bye.
+- The field the next round leaves is (n + 1) / 2 either way, so the number of
+  rounds the lobby promises does not change.
+
+**The last question of every round counts double** — base and time bonus
+both. Scores are hidden until a match is over, so nobody in a match can be
+sure they are safe or sure they are beaten until that last answer is in. Both
+players get the same question at the same value: the deficit shrinks, not the
+fairness. A one-question round has no double question.
+
+**Three places are called at the end:** the champion, the runner-up (whoever
+the champion beat last, or the next player standing if the rounds ran out),
+and the **redemption winner** — the most redemption points by anybody not
+already on the podium. See [PRIZES.md](PRIZES.md) for how to split a prize pot
+across them, and across two games in one night.
 
 ### Nobody waits for anybody
 
@@ -111,6 +162,7 @@ the side is where the room watches somebody pull three questions clear.
 
 - **100** for a correct answer.
 - **+10** for every second still on your own clock when you lock it in.
+- **×2** on the last question of every round.
 - Each round is scored on its own. Every matchup starts level at zero, so only
   the round you are in decides it.
 - A tie in a matchup is settled on total score, then on the draw. Never on a

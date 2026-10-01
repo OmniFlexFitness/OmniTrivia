@@ -26,6 +26,7 @@ import {
 } from "../services/broadcastBus";
 import { seatsOf } from "../services/snapshot";
 import AvatarDisplay from "./AvatarDisplay";
+import PrizePodium from "./PrizePodium";
 import BracketView, { MatchupCard, SideTag } from "./BracketView";
 import { sideOf } from "../services/bracket";
 import {
@@ -153,7 +154,7 @@ const RoomProgress: React.FC<{
             </span>
           </div>
           <div className="cyber-hud text-[10px] text-slate-500 mt-2">
-            matchups through it
+            tables through it
           </div>
         </div>
         <div className="text-right">
@@ -244,8 +245,15 @@ const LaneRace: React.FC<{
         {ordered.map((lane) => (
           <div
             key={lane.id}
-            className="space-y-1.5 border-l-2 border-slate-800 pl-2"
+            className={`space-y-1.5 border-l-2 pl-2 ${
+              lane.redemption ? "border-orange-400/50" : "border-slate-800"
+            }`}
           >
+            {lane.redemption && (
+              <div className="cyber-hud text-[9px] text-orange-300">
+                Redemption table
+              </div>
+            )}
             {seatsOf(lane).map((seat) => {
               const player = playerOf(seat.playerId);
               const done = seat.status === LaneStatus.DONE;
@@ -350,6 +358,11 @@ const MatchupStrip: React.FC<{
                   >
                     {nameOf(matchup.playerBId)}
                   </span>
+                  {matchup.wildcardId === matchup.playerBId && (
+                    <span className="cyber-hud text-[10px] text-[#f5ff3b]">
+                      wildcard
+                    </span>
+                  )}
                   <AvatarDisplay
                     avatar={b?.avatar ?? "❔"}
                     color={b?.avatarColor}
@@ -367,6 +380,13 @@ const MatchupStrip: React.FC<{
     </div>
   );
 };
+
+/**
+ * The four terms the wall has room for: how a round works, why nobody is on
+ * the same question, and why being knocked out is not the end of anybody's
+ * night — that last part is what keeps a room that is losing still playing.
+ */
+const WALL_TERMS = ["Round", "Match", "Redemption Table", "Wildcard"];
 
 /**
  * The rules, on the wall.
@@ -392,6 +412,14 @@ const RoomRules: React.FC<{ compact?: boolean }> = ({ compact = false }) => {
           <span className="text-neon-green font-bold">Answer fast</span> for more
           points
         </span>
+        <span>
+          <span className="text-neon-yellow font-bold">Last question</span>{" "}
+          counts double
+        </span>
+        <span>
+          <span className="text-orange-300 font-bold">Knocked out?</span> Keep
+          playing for redemption
+        </span>
       </div>
     );
   }
@@ -402,7 +430,9 @@ const RoomRules: React.FC<{ compact?: boolean }> = ({ compact = false }) => {
         How this works
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-3">
-        {GLOSSARY.slice(0, 4).map((entry) => (
+        {WALL_TERMS.map((term) => GLOSSARY.find((entry) => entry.term === term))
+          .filter((entry): entry is (typeof GLOSSARY)[number] => Boolean(entry))
+          .map((entry) => (
           <div key={entry.term} className="flex gap-3">
             <span className="text-neon-pink font-black shrink-0 w-24 text-right">
               {entry.term}
@@ -803,7 +833,7 @@ const QuestionStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
         ) : (
           <div className="cyber-hud text-center text-sm text-slate-500">
             {waiting > 0
-              ? `Moves on when the last ${waiting === 1 ? "match is" : `${waiting} matches are`} through it`
+              ? `Moves on when the last ${waiting === 1 ? "table is" : `${waiting} tables are`} through it`
               : "Everyone is through — moving on"}
           </div>
         )}
@@ -913,8 +943,13 @@ const StandingsList: React.FC<{
           <div className="flex-1 text-2xl font-bold text-white truncate">
             {player.name}
             {player.eliminated && (
-              <span className="ml-3 text-xs font-mono uppercase tracking-widest text-red-500">
-                out
+              <span className="ml-3 text-xs font-mono uppercase tracking-widest text-orange-300">
+                redemption · {player.redemptionScore ?? 0}
+              </span>
+            )}
+            {!player.eliminated && player.wildcardUsed && (
+              <span className="ml-3 text-xs font-mono uppercase tracking-widest text-[#f5ff3b]">
+                wildcard
               </span>
             )}
             {!player.eliminated && player.losersBracket && (
@@ -1056,6 +1091,15 @@ const GameOverStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
           </h1>
         )}
       </div>
+
+      <PrizePodium
+        players={snapshot.players}
+        bracket={snapshot.bracket}
+        championId={snapshot.championId}
+        size="room"
+        hideChampion={Boolean(champion)}
+        className="w-full max-w-4xl mx-auto"
+      />
 
       <LikedStrip snapshot={snapshot} />
 

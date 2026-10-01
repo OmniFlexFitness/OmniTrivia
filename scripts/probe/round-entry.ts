@@ -21,10 +21,12 @@ import {
 } from "../../src/types";
 import { REVEAL_DURATION, TIMER_DURATION } from "../../src/constants";
 import {
+  FINAL_QUESTION_MULTIPLIER,
   advancePlayerNow,
   buildRoundLanes,
   closeLaneQuestion,
   laneStatus,
+  questionMultiplier,
   recordLaneAnswer,
   roundIsComplete,
   seatForPlayer,
@@ -727,6 +729,141 @@ check(
   "a round left with nothing playable is dropped, and the rest renumbered",
   pruned.length === 2 && pruned.map((round) => round.roundNumber).join(",") === "1,2",
 );
+
+
+/* ------------------------------------------------------------------ *
+ * 10. Comebacks: the last question counts double
+ * ------------------------------------------------------------------ */
+
+{
+  // Ada answers every question the instant it lands, so each one is worth
+  // the same before the multiplier — the last one should be worth exactly
+  // the multiplier's times more.
+  let double = baseState();
+  const banked: number[] = [];
+  for (let i = 0; i < questions.length; i++) {
+    const before = double.players.find((p) => p.id === "p1")!.roundScore;
+    double = recordLaneAnswer(double, "p1", 0);
+    banked.push(double.players.find((p) => p.id === "p1")!.roundScore - before);
+    double = advancePlayerNow(double, "p1");
+  }
+
+  check(
+    "the last question of a round is worth double, base and time bonus both",
+    banked[banked.length - 1] === banked[0] * FINAL_QUESTION_MULTIPLIER &&
+      banked.slice(0, -1).every((points) => points === banked[0]),
+    banked.join(", "),
+  );
+  check(
+    "a one-question round has no double question",
+    questionMultiplier(0, 1) === 1 && questionMultiplier(4, 5) === 2 && questionMultiplier(3, 5) === 1,
+  );
+  check(
+    "a wrong answer on the double question is still worth nothing",
+    (() => {
+      let wrong = baseState();
+      for (let i = 0; i < questions.length - 1; i++) {
+        wrong = advancePlayerNow(recordLaneAnswer(wrong, "p2", 0), "p2");
+      }
+      const before = wrong.players.find((p) => p.id === "p2")!.roundScore;
+      wrong = recordLaneAnswer(wrong, "p2", 1);
+      return wrong.players.find((p) => p.id === "p2")!.roundScore === before;
+    })(),
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * 11. The Redemption Table: knocked out is not sat out
+ * ------------------------------------------------------------------ */
+
+{
+  // Round two of a night where Di went out in round one: Ada plays Bo, Cy has
+  // the bye, and Di should still have a seat — on the Redemption Table.
+  const knockedOut = players.map((p) =>
+    p.id === "p4" ? { ...p, eliminated: true, redemptionScore: 0 } : p,
+  );
+  const roundTwo: GameState = {
+    ...baseState(),
+    players: knockedOut,
+    currentRound: 2,
+    bracket: [
+      { ...baseState().bracket[0], resolved: true },
+      {
+        roundNumber: 2,
+        matchups: [
+          { id: "r2-m1", roundNumber: 2, playerAId: "p1", playerBId: "p2", winnerId: null, scoreA: null, scoreB: null, tiebreak: null },
+          { id: "r2-m2", roundNumber: 2, playerAId: "p3", playerBId: null, winnerId: null, scoreA: null, scoreB: null, tiebreak: null },
+        ],
+        resolved: false,
+      },
+    ],
+  };
+  let redemption: GameState = { ...roundTwo, lanes: buildRoundLanes(roundTwo) };
+  const table = redemption.lanes.find((lane) => lane.playerIds.includes("p4"));
+
+  check(
+    "a knocked-out player is dealt a seat of their own on the Redemption Table",
+    Boolean(table?.redemption) &&
+      table?.matchupId === null &&
+      table?.seats.length === 1 &&
+      table?.seats[0].status === LaneStatus.ANSWERING,
+    `lanes: ${redemption.lanes.map((lane) => `${lane.id}${lane.redemption ? "*" : ""}`).join(", ")}`,
+  );
+  check(
+    "players still in the bracket are not put on it",
+    redemption.lanes.filter((lane) => lane.redemption).length === 1,
+  );
+
+  redemption = recordLaneAnswer(redemption, "p4", 0);
+  const di = redemption.players.find((p) => p.id === "p4")!;
+  check(
+    "a point banked on the table counts towards the total and the redemption score",
+    di.roundScore > 0 && di.score === di.roundScore && di.redemptionScore === di.roundScore,
+    `score ${di.score}, redemption ${di.redemptionScore}`,
+  );
+  const ada = redemption.players.find((p) => p.id === "p1")!;
+  redemption = recordLaneAnswer(redemption, "p1", 0);
+  check(
+    "a point banked in the bracket does not touch the redemption score",
+    (redemption.players.find((p) => p.id === "p1")!.redemptionScore ?? 0) ===
+      (ada.redemptionScore ?? 0),
+  );
+
+  const published = buildSnapshot(redemption, "host-probe");
+  check(
+    "the table is published as a redemption lane, and its points held back mid-round",
+    published.lanes.some((lane) => lane.redemption && lane.playerIds.includes("p4")) &&
+      published.players.find((p) => p.id === "p4")?.redemptionScore === 0,
+    `room sees ${published.players.find((p) => p.id === "p4")?.redemptionScore}`,
+  );
+
+  // Everyone in the bracket finishes; the round still waits on the table.
+  let rest = redemption;
+  for (const id of ["p1", "p2", "p3"]) {
+    for (let i = 0; i < questions.length; i++) {
+      rest = advancePlayerNow(rest, id);
+      rest = recordLaneAnswer(rest, id, 0);
+    }
+    rest = advancePlayerNow(rest, id);
+  }
+  check(
+    "the round waits for the Redemption Table like any other table",
+    rest.lanes
+      .filter((lane) => !lane.redemption)
+      .every((lane) => laneStatus(lane) === LaneStatus.DONE) &&
+      !roundIsComplete(rest),
+  );
+  check(
+    "and ending it early stops the table with everyone else",
+    stopRoundInPlace(rest).lanes.every((lane) => laneStatus(lane) === LaneStatus.DONE),
+  );
+
+  const noBracket = { ...baseState(), bracket: [] };
+  check(
+    "a game with no bracket has no Redemption Table",
+    buildRoundLanes(noBracket).every((lane) => !lane.redemption),
+  );
+}
 
 console.log(
   failures === 0

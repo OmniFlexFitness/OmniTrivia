@@ -29,19 +29,33 @@ const shuffle = <T,>(items: T[]): T[] => {
 const isBye = (matchup: Matchup): boolean => matchup.playerBId === null;
 
 /**
+ * Was this matchup a bye that a wildcard filled? The player who was owed the
+ * bye is always `playerAId`; the wildcard is always `playerBId`.
+ */
+const isWildcardMatchup = (matchup: Matchup): boolean =>
+  Boolean(matchup.wildcardId);
+
+/**
  * How many byes each player has already been handed this game.
  *
  * Read from the bracket itself rather than tracked alongside it: the bracket
  * is the record of what happened, and a second copy of that record is a second
  * thing to keep in step.
+ *
+ * A bye that a wildcard filled still counts against the player who was owed
+ * it. Drawing the wildcard is the soft end of the bracket — somebody who has
+ * already been knocked out once — so it has to rotate exactly the way a bye
+ * does, or the same player meets the comeback every round.
  */
 export const byeCounts = (rounds: BracketRound[]): Map<string, number> => {
   const counts = new Map<string, number>();
 
   rounds.forEach((round) =>
-    round.matchups.filter(isBye).forEach((matchup) => {
-      counts.set(matchup.playerAId, (counts.get(matchup.playerAId) ?? 0) + 1);
-    }),
+    round.matchups
+      .filter((matchup) => isBye(matchup) || isWildcardMatchup(matchup))
+      .forEach((matchup) => {
+        counts.set(matchup.playerAId, (counts.get(matchup.playerAId) ?? 0) + 1);
+      }),
   );
 
   return counts;
@@ -186,7 +200,31 @@ export const rosterForRound = (
     : players.filter((p) => !p.eliminated).map((p) => p.id);
 
 /**
- * Who this question is actually waiting on.
+ * The Redemption Table: everybody out of the bracket, still playing.
+ *
+ * A player who is knocked out keeps answering every round — the same spin,
+ * the same category, the same questions — on their own seat with nobody
+ * drawn against them. What they bank there is their redemption score, and the
+ * best of them each round can be pulled back into the bracket as a wildcard.
+ * Without it, losing round one meant watching the rest of the night from a
+ * phone with nothing on it.
+ *
+ * Only a game with a bracket has one: a solo game has nobody to knock out.
+ */
+export const redemptionRoster = (
+  round: BracketRound | undefined,
+  players: Player[],
+): string[] => {
+  if (!round) return [];
+  const inBracket = new Set(activePlayerIds(round));
+  return players
+    .filter((player) => player.eliminated && !inBracket.has(player.id))
+    .map((player) => player.id);
+};
+
+/**
+ * Who this question is actually waiting on: the bracket's players and the
+ * Redemption Table's.
  *
  * The host always holds a seat so they can test the game from their own
  * screen, but a host who has switched answering off is running the show, not
@@ -199,7 +237,10 @@ export const answeringRoster = (
   players: Player[],
   hostAnswering: boolean,
 ): string[] => {
-  const roster = rosterForRound(round, players);
+  const roster = [
+    ...rosterForRound(round, players),
+    ...redemptionRoster(round, players),
+  ];
   if (hostAnswering) return roster;
 
   const hostPlayerId = players.find((p) => p.isHost)?.id;
@@ -291,6 +332,12 @@ export interface RoundOutcome {
   eliminatedIds: string[];
   /** Set once the bracket has one player left in it. */
   championId: string | null;
+  /**
+   * Knocked-out players the next round pulls back in as wildcards. They may
+   * also be in `eliminatedIds` — a player can be knocked out and drawn back in
+   * by the same round — and this list wins: they are back in the bracket.
+   */
+  wildcardIds: string[];
   /** The next round's draw, or null when the bracket is decided or out of rounds. */
   nextRound: BracketRound | null;
 }
@@ -316,6 +363,69 @@ const interleave = (survivors: string[], dropped: string[]): string[] => {
 };
 
 /**
+ * Who comes back in as a wildcard, if anybody.
+ *
+ * A wildcard fills what would otherwise be a bye: an odd field of three or
+ * more on one side of the bracket. The pool is everybody out of the bracket
+ * once this round is settled — the Redemption Table and anybody this round
+ * has just knocked out — because every one of them played this round's
+ * questions, so this round's points compare them like for like. Best round
+ * wins it; then the redemption score, then the total, then the draw.
+ *
+ * Nobody comes back on zero: a phone left on the table does not get dealt
+ * back into the bracket. And nobody comes back twice in one game.
+ */
+const drawWildcard = (
+  players: Player[],
+  outIds: Set<string>,
+  drawOrder: string[],
+  canWildcard: (player: Player) => boolean,
+): string | null => {
+  const seed = new Map(drawOrder.map((id, index) => [id, index]));
+  const seedOf = (id: string) => seed.get(id) ?? Number.MAX_SAFE_INTEGER;
+
+  const pool = players
+    .filter(
+      (player) =>
+        outIds.has(player.id) &&
+        !player.wildcardUsed &&
+        player.roundScore > 0 &&
+        canWildcard(player),
+    )
+    .sort(
+      (a, b) =>
+        b.roundScore - a.roundScore ||
+        (b.redemptionScore ?? 0) - (a.redemptionScore ?? 0) ||
+        b.score - a.score ||
+        seedOf(a.id) - seedOf(b.id),
+    );
+
+  return pool[0]?.id ?? null;
+};
+
+/**
+ * Pair one side of the bracket, with the wildcard (if there is one) taking the
+ * seat the bye would have had — against whoever was owed it.
+ */
+const pairSide = (
+  roundNumber: number,
+  ids: string[],
+  history: BracketRound[],
+  side: BracketSide,
+  wildcardId: string | null,
+): Matchup[] => {
+  const order = withByeLast(ids, history);
+  if (!wildcardId) return pair(roundNumber, order, side);
+
+  return pair(roundNumber, [...order, wildcardId], side).map((matchup) =>
+    matchup.playerBId === wildcardId ? { ...matchup, wildcardId } : matchup,
+  );
+};
+
+/** A side that would hand out a genuine bye: odd, and more than a lone player. */
+const owesBye = (ids: string[]): boolean => ids.length >= 3 && ids.length % 2 === 1;
+
+/**
  * Decide a round and draw the next one.
  *
  * Without a loser's bracket this is exactly the single-elimination game it
@@ -339,6 +449,20 @@ export const settleRound = (
     playedRounds: BracketRound[];
     /** False when this was the last round the game has questions for. */
     hasMoreRounds: boolean;
+    /**
+     * Fill byes with a wildcard from the Redemption Table. Off, a bye is a bye,
+     * exactly as it always was.
+     *
+     * Without a loser's bracket the wildcard comes back into the bracket
+     * proper. With one it comes back into the loser's bracket only: the
+     * winners' side is everybody nobody has beaten, and somebody who has been
+     * knocked out does not belong in it. Either way the size of the field the
+     * next round leaves is the same as with a bye — (n + 1) / 2 — so the
+     * number of rounds the lobby promises does not move.
+     */
+    wildcards?: boolean;
+    /** Who may be drawn as a wildcard — a host who is not answering may not. */
+    canWildcard?: (player: Player) => boolean;
   },
 ): RoundOutcome => {
   const { round: resolved } = resolveRound(round, players);
@@ -384,10 +508,38 @@ export const settleRound = (
   const history = [...options.playedRounds, resolved];
   const roundNumber = round.roundNumber + 1;
   let nextRound: BracketRound | null = null;
+  const wildcardIds: string[] = [];
+
+  // Everybody out of the bracket once this round is settled.
+  const outIds = new Set([
+    ...players.filter((player) => player.eliminated).map((player) => player.id),
+    ...eliminatedIds,
+  ]);
+  const wildcardFor = (ids: string[]): string | null => {
+    if (!options.wildcards || !owesBye(ids)) return null;
+    const id = drawWildcard(
+      players,
+      outIds,
+      history[0] ? activePlayerIds(history[0]) : players.map((p) => p.id),
+      options.canWildcard ?? (() => true),
+    );
+    if (id) wildcardIds.push(id);
+    return id;
+  };
 
   if (!championId && options.hasMoreRounds) {
     if (!options.losersBracket) {
-      nextRound = buildNextRound(roundNumber, winnersIds, history);
+      nextRound = {
+        roundNumber,
+        matchups: pairSide(
+          roundNumber,
+          winnersIds,
+          history,
+          "winners",
+          wildcardFor(winnersIds),
+        ),
+        resolved: false,
+      };
     } else if (winnersIds.length === 1 && losersIds.length === 1) {
       nextRound = {
         roundNumber,
@@ -398,8 +550,14 @@ export const settleRound = (
       nextRound = {
         roundNumber,
         matchups: [
-          ...pair(roundNumber, withByeLast(winnersIds, history), "winners"),
-          ...pair(roundNumber, withByeLast(losersIds, history), "losers"),
+          ...pairSide(roundNumber, winnersIds, history, "winners", null),
+          ...pairSide(
+            roundNumber,
+            losersIds,
+            history,
+            "losers",
+            wildcardFor(losersIds),
+          ),
         ],
         resolved: false,
       };
@@ -412,6 +570,7 @@ export const settleRound = (
     losersIds,
     eliminatedIds,
     championId,
+    wildcardIds,
     nextRound,
   };
 };
@@ -447,6 +606,18 @@ export const roundsToDecide = (
 };
 
 /**
+ * Just enough of a player to rank them — a host-side `Player` and a published
+ * `PublicPlayer` both fit, so every screen ranks the night the same way.
+ */
+export interface StandingLike {
+  id: string;
+  score: number;
+  eliminated?: boolean;
+  losersBracket?: boolean;
+  redemptionScore?: number;
+}
+
+/**
  * Order the players still standing, for a night whose rounds ran out before
  * the bracket decided it.
  *
@@ -454,10 +625,10 @@ export const roundsToDecide = (
  * whatever their totals — the bracket is the competition and the score is the
  * tiebreak. Then the score, then the draw.
  */
-export const rankStanding = (
-  players: Player[],
+export const rankStanding = <T extends StandingLike>(
+  players: T[],
   drawOrder: string[],
-): Player[] => {
+): T[] => {
   const seed = new Map(drawOrder.map((id, index) => [id, index]));
   const seedOf = (id: string) => seed.get(id) ?? Number.MAX_SAFE_INTEGER;
 
@@ -467,4 +638,84 @@ export const rankStanding = (
       b.score - a.score ||
       seedOf(a.id) - seedOf(b.id),
   );
+};
+
+/** Who takes each prize the app tracks. Null where nobody qualifies. */
+export interface Podium {
+  championId: string | null;
+  runnerUpId: string | null;
+  /** Most redemption points, among players not already on the podium. */
+  redemptionId: string | null;
+}
+
+/**
+ * The night's prize places, worked out the same way on every screen.
+ *
+ * - **Runner-up**: when the bracket decided the night, whoever the champion
+ *   beat last — the grand final's loser, or the last matchup of a single
+ *   elimination bracket. When the rounds ran out first, the next player in
+ *   the same order the champion was picked in.
+ * - **Redemption**: the most points banked on the Redemption Table. The
+ *   champion and runner-up are not eligible — a comeback that went all the
+ *   way to the podium has already been paid — so it always goes to somebody
+ *   the bracket let down.
+ */
+export const podium = <T extends StandingLike>(
+  players: T[],
+  rounds: BracketRound[],
+  championId: string | null,
+): Podium => {
+  const present = new Set(players.map((p) => p.id));
+  const drawOrder = rounds[0]
+    ? activePlayerIds(rounds[0])
+    : players.map((p) => p.id);
+  const seed = new Map(drawOrder.map((id, index) => [id, index]));
+  const seedOf = (id: string) => seed.get(id) ?? Number.MAX_SAFE_INTEGER;
+
+  let runnerUpId: string | null = null;
+  if (championId) {
+    const others = players.filter((p) => p.id !== championId);
+    const standing = others.filter((p) => !p.eliminated);
+
+    if (standing.length > 0) {
+      runnerUpId = rankStanding(standing, drawOrder)[0]?.id ?? null;
+    } else {
+      for (let i = rounds.length - 1; i >= 0 && !runnerUpId; i--) {
+        const beaten = rounds[i].matchups.find(
+          (m) => m.winnerId === championId && m.playerBId !== null,
+        );
+        if (!beaten) continue;
+        const loser =
+          beaten.playerAId === championId ? beaten.playerBId : beaten.playerAId;
+        if (loser && present.has(loser)) runnerUpId = loser;
+      }
+    }
+
+    // Whoever the champion beat has left the room: the best total left in it.
+    if (!runnerUpId && others.length > 0) {
+      runnerUpId = [...others].sort(
+        (a, b) => b.score - a.score || seedOf(a.id) - seedOf(b.id),
+      )[0].id;
+    }
+  }
+
+  const redemption = players
+    .filter(
+      (p) =>
+        p.id !== championId &&
+        p.id !== runnerUpId &&
+        (p.redemptionScore ?? 0) > 0,
+    )
+    .sort(
+      (a, b) =>
+        (b.redemptionScore ?? 0) - (a.redemptionScore ?? 0) ||
+        b.score - a.score ||
+        seedOf(a.id) - seedOf(b.id),
+    );
+
+  return {
+    championId,
+    runnerUpId,
+    redemptionId: redemption[0]?.id ?? null,
+  };
 };

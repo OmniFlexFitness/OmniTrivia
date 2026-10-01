@@ -406,6 +406,11 @@ const finishRound = (prev: GameState): GameState => {
     losersBracket: prev.losersBracket,
     playedRounds: prev.bracket.slice(0, roundIndex),
     hasMoreRounds: prev.currentRound < prev.totalRounds,
+    // A bye is a dead seat in a room of people who came to play; the best
+    // round on the Redemption Table takes it instead.
+    wildcards: true,
+    // A host running the room rather than playing it is not dealt back in.
+    canWildcard: (player) => !player.isHost || prev.hostAnsweringEnabled,
   });
 
   const bracket = [...prev.bracket];
@@ -414,12 +419,22 @@ const finishRound = (prev: GameState): GameState => {
 
   const out = new Set(outcome.eliminatedIds);
   const dropped = new Set(outcome.losersIds);
+  const wildcards = new Set(outcome.wildcardIds);
   const players = prev.players.map((player) =>
-    out.has(player.id)
-      ? { ...player, eliminated: true, losersBracket: false }
-      : dropped.has(player.id)
-        ? { ...player, losersBracket: true }
-        : player,
+    // Checked first: a wildcard may have been knocked out by this very round.
+    // Back in a loser's bracket game means back in the loser's bracket.
+    wildcards.has(player.id)
+      ? {
+          ...player,
+          eliminated: false,
+          losersBracket: prev.losersBracket,
+          wildcardUsed: true,
+        }
+      : out.has(player.id)
+        ? { ...player, eliminated: true, losersBracket: false }
+        : dropped.has(player.id)
+          ? { ...player, losersBracket: true }
+          : player,
   );
 
   // One survivor means the bracket is decided and the game is over, even if
@@ -2169,8 +2184,10 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
       const players = prev.players.map((p) => ({
         ...p,
         roundScore: 0,
+        redemptionScore: 0,
         eliminated: false,
         losersBracket: false,
+        wildcardUsed: false,
         lastAnswerCorrect: undefined,
       }));
 
@@ -2636,9 +2653,11 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         ...p,
         score: 0,
         roundScore: 0,
+        redemptionScore: 0,
         streak: 0,
         eliminated: false,
         losersBracket: false,
+        wildcardUsed: false,
         lastAnswerCorrect: undefined,
       })),
     }));

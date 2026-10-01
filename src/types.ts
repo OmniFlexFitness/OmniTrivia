@@ -83,6 +83,19 @@ export interface Player {
    * the host opened with a loser's bracket; a second loss is `eliminated`.
    */
   losersBracket?: boolean;
+  /**
+   * Points banked on the Redemption Table — every round played after being
+   * knocked out of the bracket. Kept apart from `score` (which they are also
+   * added to) because it is what the redemption prize is decided on, and
+   * because the wildcard draw reads it as a tiebreak.
+   */
+  redemptionScore?: number;
+  /**
+   * This player has already come back into the bracket as a wildcard. One
+   * comeback a game, so the redemption table cannot hand the same person a
+   * revolving door back in.
+   */
+  wildcardUsed?: boolean;
 }
 
 export interface Question {
@@ -144,6 +157,12 @@ export interface Matchup {
   scoreB: number | null;
   /** Set when the matchup did not come down to round points alone. */
   tiebreak: string | null;
+  /**
+   * The player pulled back into the bracket from the Redemption Table to fill
+   * what would have been a bye. Always `playerBId` when set; absent on every
+   * ordinary matchup and on anything written before wildcards existed.
+   */
+  wildcardId?: string | null;
 }
 
 export interface BracketRound {
@@ -211,6 +230,12 @@ export interface MatchupLane {
   id: string;
   /** The bracket matchup this match plays out. Null when there is no bracket. */
   matchupId: string | null;
+  /**
+   * A seat on the Redemption Table: one player who is out of the bracket,
+   * playing the same round's questions on their own for redemption points and
+   * a shot at a wildcard. Not a matchup — nobody is drawn against them.
+   */
+  redemption?: boolean;
   /** Both sides of the pairing — who the match is *about*. */
   playerIds: string[];
   /**
@@ -422,6 +447,8 @@ export interface PublicPlayer {
   isHost?: boolean;
   eliminated?: boolean;
   losersBracket?: boolean;
+  redemptionScore?: number;
+  wildcardUsed?: boolean;
 }
 
 /**
@@ -514,6 +541,8 @@ export interface PublicSeat {
 export interface PublicLane {
   id: string;
   matchupId: string | null;
+  /** A Redemption Table seat rather than a matchup. */
+  redemption?: boolean;
   playerIds: string[];
   answeringIds: string[];
   /** The match as a whole: ANSWERING until every seat in it is through. */
