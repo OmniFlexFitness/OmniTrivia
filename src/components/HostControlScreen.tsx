@@ -28,6 +28,7 @@ import BracketView, { SideTag } from "./BracketView";
 import { matchupById, sideOf } from "../services/bracket";
 import QuestionCard from "./QuestionCard";
 import { QuestionPanel } from "./CyberQuestion";
+import PrizePodium from "./PrizePodium";
 import Wheel from "./Wheel";
 import Instructions from "./Instructions";
 import CategoryLikeButton from "./CategoryLikeButton";
@@ -96,16 +97,18 @@ const Panel: React.FC<{
  * How far the host's own seat has got.
  *
  * A host who is also playing must not read an answer off their own desk before
- * they have been through the question themselves. Once they are knocked out,
- * or have switched answering off, they are running the game rather than
- * playing it and the whole reading copy comes back.
+ * they have been through the question themselves. Being knocked out does not
+ * change that — they are still answering, on the Redemption Table — so it is
+ * only once they have no seat at all (answering switched off, or a round they
+ * are not in) that they are running the game rather than playing it and the
+ * whole reading copy comes back.
  */
 const useHostProgress = (): number | null => {
   const { players, currentPlayerId, lanes, questionsQueue, hostAnsweringEnabled } =
     useGame();
 
   const hostPlayer = players.find((p) => p.id === currentPlayerId);
-  if (!hostPlayer || hostPlayer.eliminated || !hostAnsweringEnabled) return null;
+  if (!hostPlayer || !hostAnsweringEnabled) return null;
 
   const lane = laneForPlayer(lanes, hostPlayer.id);
   const seat = lane ? seatFor(lane, hostPlayer.id) : undefined;
@@ -326,8 +329,13 @@ const LaneCard: React.FC<{ lane: MatchupLane }> = ({ lane }) => {
       <div className="flex items-center justify-between gap-2">
         <span className="flex items-center gap-2 text-[11px] font-mono uppercase tracking-widest text-slate-500">
           {matchup && <SideTag side={sideOf(matchup)} />}
-          {lane.playerIds.length < 2 ? "bye" : "matchup"} · {completed}/
-          {questionsQueue.length} both through
+          {lane.redemption
+            ? "redemption table"
+            : lane.playerIds.length < 2
+              ? "bye"
+              : "matchup"}{" "}
+          · {completed}/{questionsQueue.length}{" "}
+          {lane.seats.length > 1 ? "both through" : "through"}
         </span>
         {status === LaneStatus.DONE && (
           <span className="flex items-center gap-1 px-2 py-1 rounded-full bg-slate-700/60 text-slate-300 text-[10px] font-mono uppercase tracking-widest">
@@ -827,6 +835,16 @@ const GameOverControls: React.FC<{ onShowInsights: () => void }> = ({
         </div>
       </div>
 
+      {/* Every prize the night tracks, so the host reads the winners off the
+          same screen the room is looking at. */}
+      <PrizePodium
+        players={players}
+        bracket={bracket}
+        championId={championId}
+        size="desk"
+        hideChampion
+      />
+
       <Panel title="What the room wants next">
         <BallotPanel />
       </Panel>
@@ -901,7 +919,7 @@ const HostPlayerPane: React.FC = () => {
   const status = () => {
     if (!hostAnsweringEnabled)
       return "Answering is off — nothing in the round waits on you.";
-    if (hostPlayer.eliminated) return "You are out of the bracket.";
+    if (hostPlayer.eliminated && !lane) return "You are out of the bracket.";
     if (!lane) return "You are not in this round.";
     // Switching answering back on mid-round does not deal a seat: the round is
     // already in flight and dropping someone into it halfway would hand them a
@@ -948,7 +966,13 @@ const HostPlayerPane: React.FC = () => {
         <div className="flex-1 min-w-0">
           <div className="font-bold text-white truncate">{hostPlayer.name}</div>
           <div className="text-xs text-slate-400 truncate">
-            {opponent ? `vs ${opponent.name}` : lane ? "Bye" : "No matchup"}
+            {opponent
+              ? `vs ${opponent.name}`
+              : lane?.redemption
+                ? "Redemption table — no opponent"
+                : lane
+                  ? "Bye"
+                  : "No matchup"}
           </div>
         </div>
         <div className="text-right">
@@ -1001,7 +1025,11 @@ const HostPlayerPane: React.FC = () => {
                 framing it — a player's phone does this, and the host's own seat
                 was the one place that did not, so the host answered four
                 lettered buttons with nothing to answer. */}
-            <QuestionPanel text={question.text} />
+            <QuestionPanel
+              text={question.text}
+              number={seat.questionIndex + 1}
+              total={questionsQueue.length}
+            />
 
             <QuestionCard
               key={`${question.id}-${seat.questionIndex}`}
@@ -1287,6 +1315,22 @@ const HostControlScreen: React.FC = () => {
                         title="Lost once — in the loser's bracket"
                       >
                         LB
+                      </span>
+                    )}
+                    {player.wildcardUsed && !player.eliminated && (
+                      <span
+                        className="px-1.5 rounded border border-neon-yellow/60 text-[9px] font-mono uppercase tracking-widest text-neon-yellow"
+                        title="Back in from the Redemption Table"
+                      >
+                        WC
+                      </span>
+                    )}
+                    {player.eliminated && (
+                      <span
+                        className="font-mono text-[10px] text-orange-300"
+                        title="Redemption points — banked since being knocked out"
+                      >
+                        R {player.redemptionScore ?? 0}
                       </span>
                     )}
                     <span className="font-mono text-neon-green text-xs">

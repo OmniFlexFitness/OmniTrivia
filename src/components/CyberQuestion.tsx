@@ -1,4 +1,5 @@
 import React from "react";
+import { FINAL_QUESTION_MULTIPLIER, questionMultiplier } from "../services/lanes";
 
 /**
  * The neon-noir pieces a question is drawn with, on every screen that shows
@@ -67,9 +68,17 @@ export const QuestionPanel: React.FC<{
   className?: string;
 }> = ({ text, number, total, category, size = "phone", className = "" }) => {
   const pad = (value: number) => String(value).padStart(2, "0");
+  // The round's last question is worth double, and saying so on the question
+  // itself is the whole point of it: a player who thinks the match is gone
+  // has to know, right then, that it is not.
+  const doubled =
+    number !== undefined &&
+    total !== undefined &&
+    questionMultiplier(number - 1, total) > 1;
 
   return (
     <div className={`cyber-panel ${PAD[size]} ${className}`}>
+      {doubled && <DoublePointsBadge size={size} className="mb-3" />}
       {(number !== undefined || category) && (
         <div
           className={`cyber-hud flex items-center justify-between gap-3 mb-3 ${
@@ -93,6 +102,24 @@ export const QuestionPanel: React.FC<{
     </div>
   );
 };
+
+/**
+ * "Final question — double points", in the app's hottest yellow. Shown on the
+ * question panel wherever the question is numbered, and on any screen that
+ * wants to flag the last question of a round on its own.
+ */
+export const DoublePointsBadge: React.FC<{
+  size?: PanelSize;
+  className?: string;
+}> = ({ size = "phone", className = "" }) => (
+  <div
+    className={`flex items-center justify-center gap-2 border border-[#f5ff3b] bg-[#f5ff3b]/10 text-[#f5ff3b] shadow-[0_0_18px_rgba(245,255,59,0.35)] cyber-hud ${
+      size === "room" ? "text-lg py-2" : "text-[11px] py-1.5"
+    } ${className}`}
+  >
+    Final question · ×{FINAL_QUESTION_MULTIPLIER} points
+  </div>
+);
 
 /**
  * A player's own clock, as a bar with the seconds beside it. Turns hot in the

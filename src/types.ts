@@ -83,6 +83,19 @@ export interface Player {
    * the host opened with a loser's bracket; a second loss is `eliminated`.
    */
   losersBracket?: boolean;
+  /**
+   * Points banked on the Redemption Table — every round played after being
+   * knocked out of the bracket. Kept apart from `score` (which they are also
+   * added to) because it is what the redemption prize is decided on, and
+   * because the wildcard draw reads it as a tiebreak.
+   */
+  redemptionScore?: number;
+  /**
+   * This player has already come back into the bracket as a wildcard. One
+   * comeback a game, so the redemption table cannot hand the same person a
+   * revolving door back in.
+   */
+  wildcardUsed?: boolean;
 }
 
 export interface Question {
@@ -117,8 +130,25 @@ export interface AnswerRecord {
  * "winners" is everybody who has not lost yet — and the whole bracket when the
  * game has no loser's bracket. "losers" is everybody who has lost exactly once.
  * "final" is the one matchup between the last player standing on each side.
+ * "qualifying" is a round before the bracket: everybody plays, nobody goes
+ * out, and the totals it builds are what the bracket is seeded on.
  */
-export type BracketSide = "winners" | "losers" | "final";
+export type BracketSide = "qualifying" | "winners" | "losers" | "final";
+
+/**
+ * Where a best-of final stands. Carried on every game of the series, as it
+ * stood *before* that game was played, so a settled game still shows the
+ * series score it was played at.
+ */
+export interface FinalSeries {
+  /** Games in the series — the first to more than half takes it. */
+  bestOf: number;
+  /** Which game of the series this matchup is, 1-based. */
+  game: number;
+  /** Games won by `playerAId` / `playerBId` before this one. */
+  winsA: number;
+  winsB: number;
+}
 
 /**
  * One head-to-head pairing for a single round. `playerBId` is null for the odd
@@ -144,6 +174,25 @@ export interface Matchup {
   scoreB: number | null;
   /** Set when the matchup did not come down to round points alone. */
   tiebreak: string | null;
+  /**
+   * The player pulled back into the bracket from the Redemption Table to fill
+   * what would have been a bye. Always `playerBId` when set; absent on every
+   * ordinary matchup and on anything written before wildcards existed.
+   */
+  wildcardId?: string | null;
+  /**
+   * Points added to the winner's total for beating their opponent: their
+   * round score times (WIN_MULTIPLIER - 1). Set when the matchup resolves.
+   */
+  winBonus?: number;
+  /**
+   * Each player's standing when the matchup was drawn — 1 is the highest
+   * total. Absent on a random draw, where nobody has a score to rank by.
+   */
+  seedA?: number;
+  seedB?: number | null;
+  /** Set on every game of a best-of final. */
+  series?: FinalSeries;
 }
 
 export interface BracketRound {
@@ -211,6 +260,12 @@ export interface MatchupLane {
   id: string;
   /** The bracket matchup this match plays out. Null when there is no bracket. */
   matchupId: string | null;
+  /**
+   * A seat on the Redemption Table: one player who is out of the bracket,
+   * playing the same round's questions on their own for redemption points and
+   * a shot at a wildcard. Not a matchup — nobody is drawn against them.
+   */
+  redemption?: boolean;
   /** Both sides of the pairing — who the match is *about*. */
   playerIds: string[];
   /**
@@ -345,6 +400,13 @@ export interface GameState {
    */
   losersBracket: boolean;
   /**
+   * Rounds played before the bracket: nobody is knocked out, beating your
+   * opponent is worth WIN_MULTIPLIER times the round's points, and the totals
+   * they build seed the bracket. Zero is the old game — elimination from
+   * round one. Fixed once the first round is drawn.
+   */
+  qualifyingRounds: number;
+  /**
    * Bots may sit in this game. Off, the lobby stops seating them and any
    * already in are removed. Fixed once the first round is dealt.
    */
@@ -422,6 +484,8 @@ export interface PublicPlayer {
   isHost?: boolean;
   eliminated?: boolean;
   losersBracket?: boolean;
+  redemptionScore?: number;
+  wildcardUsed?: boolean;
 }
 
 /**
@@ -514,6 +578,8 @@ export interface PublicSeat {
 export interface PublicLane {
   id: string;
   matchupId: string | null;
+  /** A Redemption Table seat rather than a matchup. */
+  redemption?: boolean;
   playerIds: string[];
   answeringIds: string[];
   /** The match as a whole: ANSWERING until every seat in it is through. */
@@ -570,6 +636,8 @@ export interface BroadcastSnapshot {
   totalRounds: number;
   /** The game runs a loser's bracket, so a first loss is not the end. */
   losersBracket: boolean;
+  /** Rounds before the bracket, where nobody goes out. */
+  qualifyingRounds: number;
   /** Bots may sit in this game — for the remote's switch. */
   botsEnabled: boolean;
   /**
@@ -648,6 +716,7 @@ export type RemoteCommand =
   | { kind: "start-game" }
   | { kind: "add-bot" }
   | { kind: "set-losers-bracket"; enabled: boolean }
+  | { kind: "set-qualifying-rounds"; rounds: number }
   | { kind: "set-bots"; enabled: boolean }
   | { kind: "spin"; round: number }
   | { kind: "start-round"; round: number }

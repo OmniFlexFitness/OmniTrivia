@@ -39,6 +39,9 @@ import { parseHostEnvelope, readHostSession } from "../services/hostSession";
 import { buildReveal, seatsOf } from "../services/snapshot";
 import { matchupById, roundsToDecide, sideOf } from "../services/bracket";
 import AvatarDisplay from "./AvatarDisplay";
+import PrizePodium from "./PrizePodium";
+import QualifyingRoundsControl from "./QualifyingRoundsControl";
+import { FINAL_BEST_OF } from "../constants";
 import BracketView, { MatchupCard, SideTag } from "./BracketView";
 import CategoryVotePanel from "./CategoryVotePanel";
 import SpectatorWheel from "./SpectatorWheel";
@@ -696,7 +699,11 @@ const LaneRemote: React.FC<{
       <div className="flex items-center justify-between gap-2 text-[10px] font-mono uppercase tracking-widest text-slate-500">
         <span className="flex items-center gap-2">
           {matchup && <SideTag side={sideOf(matchup)} />}
-          {lane.playerIds.length < 2 ? "bye" : "matchup"}
+          {lane.redemption
+            ? "redemption table"
+            : lane.playerIds.length < 2
+              ? "bye"
+              : "matchup"}
         </span>
         {done && (
           <span className="flex items-center gap-1 text-slate-400">
@@ -814,8 +821,15 @@ const Standings: React.FC<{
               LB
             </span>
           )}
+          {player.wildcardUsed && !player.eliminated && (
+            <span className="px-1.5 rounded border border-neon-yellow/60 text-[9px] font-mono uppercase text-neon-yellow">
+              WC
+            </span>
+          )}
           {player.eliminated && (
-            <span className="text-[9px] font-mono uppercase text-red-400">out</span>
+            <span className="text-[9px] font-mono uppercase text-orange-300">
+              R {player.redemptionScore ?? 0}
+            </span>
           )}
           <span className="font-mono font-bold text-neon-pink">{player.score}</span>
         </div>
@@ -907,7 +921,14 @@ const LobbyRemote: React.FC<{ snapshot: BroadcastSnapshot; send: Send }> = ({
   snapshot,
   send,
 }) => {
-  const needed = roundsToDecide(snapshot.players.length, snapshot.losersBracket);
+  // Older hosts publish no qualifying count; they were elimination from round one.
+  const qualifying = snapshot.qualifyingRounds ?? 0;
+  const needed = roundsToDecide(
+    snapshot.players.length,
+    snapshot.losersBracket,
+    qualifying,
+    FINAL_BEST_OF,
+  );
 
   return (
     <div className="space-y-4">
@@ -954,6 +975,17 @@ const LobbyRemote: React.FC<{ snapshot: BroadcastSnapshot; send: Send }> = ({
             </span>
           </span>
         </button>
+        <div className="mt-3">
+          <QualifyingRoundsControl
+            rounds={qualifying}
+            onChange={(rounds) =>
+              send(
+                { kind: "set-qualifying-rounds", rounds },
+                `${rounds} qualifying round${rounds === 1 ? "" : "s"}`,
+              )
+            }
+          />
+        </div>
       </Card>
 
       <Card title="Bots">
@@ -1232,6 +1264,13 @@ const GameOverRemote: React.FC<{ snapshot: BroadcastSnapshot; send: Send }> = ({
         <div className="text-center space-y-2">
           <Crown size={36} className="mx-auto text-yellow-400" />
           <div className="text-3xl font-black text-white">{champion?.name ?? "No one"}</div>
+          <PrizePodium
+            players={snapshot.players}
+            bracket={snapshot.bracket}
+            championId={snapshot.championId}
+            hideChampion
+            className="pt-2 text-left"
+          />
           <div className="text-xs text-slate-500">
             Ending the game for good — closing the room — is done from the host's
             own window.

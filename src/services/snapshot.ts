@@ -216,6 +216,13 @@ const toPublicPlayer = (player: Player, midMatch: boolean): PublicPlayer => ({
   isHost: player.isHost,
   eliminated: player.eliminated,
   losersBracket: player.losersBracket,
+  // Held back the same way as the total: during a round, everybody who is
+  // eliminated is on the Redemption Table, and every point they bank there
+  // lands on this number too.
+  redemptionScore:
+    (player.redemptionScore ?? 0) -
+    (midMatch && player.eliminated ? player.roundScore : 0),
+  wildcardUsed: player.wildcardUsed,
 });
 
 /**
@@ -289,6 +296,7 @@ const toPublicLane = (lane: MatchupLane, state: GameState): PublicLane => {
   return {
     id: lane.id,
     matchupId: lane.matchupId,
+    ...(lane.redemption ? { redemption: true } : {}),
     playerIds: lane.playerIds,
     answeringIds: lane.answeringIds,
     status: laneStatus(lane),
@@ -440,6 +448,7 @@ export const buildSnapshot = (
     roundNumber: state.currentRound,
     totalRounds: state.totalRounds,
     losersBracket: state.losersBracket,
+    qualifyingRounds: state.qualifyingRounds,
     botsEnabled: state.botsEnabled,
     hostAnswering: state.hostAnsweringEnabled,
     category,

@@ -6,6 +6,7 @@ import CategoryPoolManager from './CategoryPoolManager';
 import { MIN_HOST_PASSWORD_LENGTH, suggestHostPassword } from '../services/proof';
 import { Settings, ArrowRight, KeyRound, Library, ListPlus, Loader2, RefreshCw, Upload, AlertTriangle } from 'lucide-react';
 import LosersBracketToggle from './LosersBracketToggle';
+import QualifyingRoundsControl from "./QualifyingRoundsControl";
 import BotsToggle from './BotsToggle';
 
 const HostConfigScreen: React.FC = () => {
@@ -21,10 +22,14 @@ const HostConfigScreen: React.FC = () => {
     setHostPassword,
     losersBracket,
     setLosersBracket,
+    qualifyingRounds,
+    setQualifyingRounds,
     botsEnabled,
     setBotsEnabled,
   } = useGame();
-  const [rounds, setRounds] = useState(3);
+  // Seven covers two qualifying rounds, a seeded bracket for eight and a
+  // best-of-3 final; the lobby says exactly how many the room needs.
+  const [rounds, setRounds] = useState(7);
   const [questions, setQuestions] = useState(5);
   const [showPool, setShowPool] = useState(false);
   // The bank is fetched over the network, so this screen owns a spinner of its
@@ -157,7 +162,7 @@ const HostConfigScreen: React.FC = () => {
               <input 
                 type="range" 
                 min="1" 
-                max="10" 
+                max="15" 
                 value={rounds} 
                 onChange={(e) => setRounds(parseInt(e.target.value))}
                 className="flex-1 h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-neon-pink"
@@ -189,9 +194,15 @@ const HostConfigScreen: React.FC = () => {
           {/* The shape of the bracket, not of the questions — but it decides
               how many rounds the night needs, so it belongs beside the two
               sliders that say how many there are. */}
+          <QualifyingRoundsControl
+            rounds={qualifyingRounds}
+            onChange={setQualifyingRounds}
+          />
+
           <LosersBracketToggle
             enabled={losersBracket}
             onChange={setLosersBracket}
+            qualifying={qualifyingRounds}
           />
 
           {/* Bots fill a lobby for a host testing alone. A real night does

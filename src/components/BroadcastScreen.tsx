@@ -26,8 +26,10 @@ import {
 } from "../services/broadcastBus";
 import { seatsOf } from "../services/snapshot";
 import AvatarDisplay from "./AvatarDisplay";
+import PrizePodium from "./PrizePodium";
 import BracketView, { MatchupCard, SideTag } from "./BracketView";
-import { sideOf } from "../services/bracket";
+import { seriesScore, sideOf } from "../services/bracket";
+import { WIN_MULTIPLIER } from "../constants";
 import {
   DEFAULT_BROADCAST_SUBTITLE,
   DEFAULT_BROADCAST_TITLE,
@@ -153,7 +155,7 @@ const RoomProgress: React.FC<{
             </span>
           </div>
           <div className="cyber-hud text-[10px] text-slate-500 mt-2">
-            matchups through it
+            tables through it
           </div>
         </div>
         <div className="text-right">
@@ -244,8 +246,15 @@ const LaneRace: React.FC<{
         {ordered.map((lane) => (
           <div
             key={lane.id}
-            className="space-y-1.5 border-l-2 border-slate-800 pl-2"
+            className={`space-y-1.5 border-l-2 pl-2 ${
+              lane.redemption ? "border-orange-400/50" : "border-slate-800"
+            }`}
           >
+            {lane.redemption && (
+              <div className="cyber-hud text-[9px] text-orange-300">
+                Redemption table
+              </div>
+            )}
             {seatsOf(lane).map((seat) => {
               const player = playerOf(seat.playerId);
               const done = seat.status === LaneStatus.DONE;
@@ -296,6 +305,26 @@ const LaneRace: React.FC<{
   );
 };
 
+/**
+ * What kind of round a draw is, for a heading: qualifying, the seeded
+ * bracket, or a game of the final series.
+ */
+const roundKind = (matchups: Matchup[] | null | undefined): string | null => {
+  const first = matchups?.[0];
+  if (!first) return null;
+  if (sideOf(first) === "qualifying") {
+    return `Qualifying — nobody goes out · wins count ×${WIN_MULTIPLIER}`;
+  }
+  if (first.series) {
+    const score = seriesScore(first);
+    return score && first.winnerId
+      ? `Grand final · game ${score.game} of ${score.bestOf} · series ${score.winsA}–${score.winsB}`
+      : `Grand final · game ${first.series.game} of ${first.series.bestOf} · series ${first.series.winsA}–${first.series.winsB}`;
+  }
+  if (first.seedA) return "The bracket — seeded on total score";
+  return null;
+};
+
 /** The pairing strip: who each player is up against this round. */
 const MatchupStrip: React.FC<{
   matchups: Matchup[];
@@ -340,6 +369,9 @@ const MatchupStrip: React.FC<{
               <span
                 className={`font-bold ${matchup.winnerId === matchup.playerAId ? "text-green-400" : "text-white"}`}
               >
+                {matchup.seedA ? (
+                  <span className="mr-1 font-mono text-slate-500">#{matchup.seedA}</span>
+                ) : null}
                 {nameOf(matchup.playerAId)}
               </span>
               <Swords size={14} className="text-neon-pink" />
@@ -348,8 +380,16 @@ const MatchupStrip: React.FC<{
                   <span
                     className={`font-bold ${matchup.winnerId === matchup.playerBId ? "text-green-400" : "text-white"}`}
                   >
+                    {matchup.seedB ? (
+                      <span className="mr-1 font-mono text-slate-500">#{matchup.seedB}</span>
+                    ) : null}
                     {nameOf(matchup.playerBId)}
                   </span>
+                  {matchup.wildcardId === matchup.playerBId && (
+                    <span className="cyber-hud text-[10px] text-[#f5ff3b]">
+                      wildcard
+                    </span>
+                  )}
                   <AvatarDisplay
                     avatar={b?.avatar ?? "❔"}
                     color={b?.avatarColor}
@@ -367,6 +407,13 @@ const MatchupStrip: React.FC<{
     </div>
   );
 };
+
+/**
+ * The four terms the wall has room for — the shape of the night, start to
+ * finish: qualifying rounds nobody goes out of, a bracket seeded on what they
+ * built, a Redemption Table for anybody knocked out, and a best-of-3 final.
+ */
+const WALL_TERMS = ["Qualifying round", "Seeding", "Redemption Table", "Final series"];
 
 /**
  * The rules, on the wall.
@@ -392,6 +439,18 @@ const RoomRules: React.FC<{ compact?: boolean }> = ({ compact = false }) => {
           <span className="text-neon-green font-bold">Answer fast</span> for more
           points
         </span>
+        <span>
+          <span className="text-cyan-300 font-bold">Win</span> and your round
+          counts ×{WIN_MULTIPLIER}
+        </span>
+        <span>
+          <span className="text-neon-yellow font-bold">Last question</span>{" "}
+          counts double
+        </span>
+        <span>
+          <span className="text-orange-300 font-bold">Knocked out?</span> Keep
+          playing for redemption
+        </span>
       </div>
     );
   }
@@ -402,7 +461,9 @@ const RoomRules: React.FC<{ compact?: boolean }> = ({ compact = false }) => {
         How this works
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-3">
-        {GLOSSARY.slice(0, 4).map((entry) => (
+        {WALL_TERMS.map((term) => GLOSSARY.find((entry) => entry.term === term))
+          .filter((entry): entry is (typeof GLOSSARY)[number] => Boolean(entry))
+          .map((entry) => (
           <div key={entry.term} className="flex gap-3">
             <span className="text-neon-pink font-black shrink-0 w-24 text-right">
               {entry.term}
@@ -414,7 +475,7 @@ const RoomRules: React.FC<{ compact?: boolean }> = ({ compact = false }) => {
         ))}
       </div>
       <div className="mt-5 pt-4 border-t border-slate-800 flex flex-wrap justify-center gap-x-8 gap-y-2 text-slate-400">
-        {SCORING_RULES.slice(0, 3).map((rule) => (
+        {SCORING_RULES.slice(0, 4).map((rule) => (
           <span key={rule} className="text-base">
             <span className="text-neon-green">▸</span> {rule}
           </span>
@@ -659,7 +720,7 @@ const RoundIntroStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
         <MatchupStrip
           matchups={bracketRound.matchups}
           players={snapshot.players}
-          title="This round's head-to-heads"
+          title={roundKind(bracketRound?.matchups) ?? "This round's head-to-heads"}
         />
       )}
 
@@ -803,7 +864,7 @@ const QuestionStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
         ) : (
           <div className="cyber-hud text-center text-sm text-slate-500">
             {waiting > 0
-              ? `Moves on when the last ${waiting === 1 ? "match is" : `${waiting} matches are`} through it`
+              ? `Moves on when the last ${waiting === 1 ? "table is" : `${waiting} tables are`} through it`
               : "Everyone is through — moving on"}
           </div>
         )}
@@ -913,8 +974,13 @@ const StandingsList: React.FC<{
           <div className="flex-1 text-2xl font-bold text-white truncate">
             {player.name}
             {player.eliminated && (
-              <span className="ml-3 text-xs font-mono uppercase tracking-widest text-red-500">
-                out
+              <span className="ml-3 text-xs font-mono uppercase tracking-widest text-orange-300">
+                redemption · {player.redemptionScore ?? 0}
+              </span>
+            )}
+            {!player.eliminated && player.wildcardUsed && (
+              <span className="ml-3 text-xs font-mono uppercase tracking-widest text-[#f5ff3b]">
+                wildcard
               </span>
             )}
             {!player.eliminated && player.losersBracket && (
@@ -948,6 +1014,11 @@ const RoundEndStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
         <h1 className="text-6xl font-black text-white neon-text neon-room">
           ROUND {snapshot.roundNumber} COMPLETE
         </h1>
+        {roundKind(round?.matchups) && (
+          <div className="text-lg font-mono uppercase tracking-[0.25em] text-cyan-300 mt-3">
+            {roundKind(round?.matchups)}
+          </div>
+        )}
         {snapshot.category && (
           <div className="text-2xl text-slate-400 mt-2">
             {snapshot.category.icon} {snapshot.category.name}
@@ -978,7 +1049,9 @@ const RoundEndStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
 
         <div>
           <div className="text-center text-xs font-mono uppercase tracking-[0.3em] text-slate-500 mb-3">
-            Standings
+            {round?.matchups.some((m) => sideOf(m) === "qualifying")
+              ? "Standings — the bracket is seeded on these"
+              : "Standings"}
           </div>
           <StandingsList players={snapshot.players} showRoundScore />
         </div>
@@ -999,7 +1072,7 @@ const RoundEndStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
           <MatchupStrip
             matchups={snapshot.nextRoundMatchups}
             players={snapshot.players}
-            title={`Advancing to round ${snapshot.roundNumber + 1}`}
+            title={`Round ${snapshot.roundNumber + 1} · ${roundKind(snapshot.nextRoundMatchups) ?? "advancing"}`}
           />
         </div>
       )}
@@ -1056,6 +1129,15 @@ const GameOverStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
           </h1>
         )}
       </div>
+
+      <PrizePodium
+        players={snapshot.players}
+        bracket={snapshot.bracket}
+        championId={snapshot.championId}
+        size="room"
+        hideChampion={Boolean(champion)}
+        className="w-full max-w-4xl mx-auto"
+      />
 
       <LikedStrip snapshot={snapshot} />
 

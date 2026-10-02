@@ -40,6 +40,19 @@ export const BOT_NAMES = [
 ];
 
 export const TIMER_DURATION = 15; // seconds per question
+
+/**
+ * Beat your opponent and that round's points count this many times over on
+ * your total. It is what makes the running total mean something: it rewards
+ * winning matchups, not just answering, and it is what the bracket is seeded
+ * on after the qualifying rounds.
+ */
+export const WIN_MULTIPLIER = 1.5;
+/** Games in the final — first to more than half takes the night. */
+export const FINAL_BEST_OF = 3;
+/** Rounds before the bracket, unless the host chooses otherwise. */
+export const DEFAULT_QUALIFYING_ROUNDS = 2;
+export const MAX_QUALIFYING_ROUNDS = 5;
 // How long a finished question holds before moving on — on a player's phone
 // ("locked in", with a button to skip it) and on the big screen ("everyone is
 // locked in"). No answer is shown in either place; answers wait for the end of
