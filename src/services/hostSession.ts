@@ -66,6 +66,7 @@ export type PersistedHostState = Pick<
   | "broadcastRevealSecondsLeft"
   | "autoAdvance"
   | "losersBracket"
+  | "qualifyingRounds"
   | "botsEnabled"
   | "hostAnsweringEnabled"
   | "wheelSpinning"
@@ -145,6 +146,7 @@ export const captureHostState = (state: GameState): PersistedHostState => ({
   broadcastRevealSecondsLeft: state.broadcastRevealSecondsLeft,
   autoAdvance: state.autoAdvance,
   losersBracket: state.losersBracket,
+  qualifyingRounds: state.qualifyingRounds,
   botsEnabled: state.botsEnabled,
   hostAnsweringEnabled: state.hostAnsweringEnabled,
   wheelSpinning: state.wheelSpinning,
@@ -206,6 +208,10 @@ export const applyHostState = (
   ...state,
   // A game saved before the loser's bracket existed was single elimination.
   losersBracket: state.losersBracket === true,
+  // A game saved before qualifying rounds existed was elimination from round
+  // one, and its bracket was drawn that way.
+  qualifyingRounds:
+    typeof state.qualifyingRounds === "number" ? state.qualifyingRounds : 0,
   // Games saved before bots could be turned off always allowed them.
   botsEnabled: state.botsEnabled !== false,
   // And one saved before the big screen's text was the host's to set keeps

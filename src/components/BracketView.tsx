@@ -1,8 +1,8 @@
 import React from "react";
 import { BracketRound, BracketSide, Matchup, PublicPlayer } from "../types";
-import { SIDE_LABELS, sideOf } from "../services/bracket";
+import { SIDE_LABELS, seriesScore, sideOf } from "../services/bracket";
 import AvatarDisplay from "./AvatarDisplay";
-import { Crown, ShieldAlert, Swords, Trophy } from "lucide-react";
+import { Crown, ListOrdered, ShieldAlert, Swords, Trophy } from "lucide-react";
 
 /**
  * The head-to-head bracket, drawn one column per round.
@@ -31,10 +31,18 @@ export const SideTag: React.FC<{ side: BracketSide; size?: "sm" | "lg" }> = ({
       } ${
         side === "final"
           ? "border-yellow-400/70 text-yellow-300 bg-yellow-400/10"
-          : "border-orange-400/60 text-orange-300 bg-orange-500/10"
+          : side === "qualifying"
+            ? "border-cyan-400/60 text-cyan-300 bg-cyan-400/10"
+            : "border-orange-400/60 text-orange-300 bg-orange-500/10"
       }`}
     >
-      {side === "final" ? <Trophy size={large ? 12 : 10} /> : <ShieldAlert size={large ? 12 : 10} />}
+      {side === "final" ? (
+        <Trophy size={large ? 12 : 10} />
+      ) : side === "qualifying" ? (
+        <ListOrdered size={large ? 12 : 10} />
+      ) : (
+        <ShieldAlert size={large ? 12 : 10} />
+      )}
       {SIDE_LABELS[side]}
     </span>
   );
@@ -57,6 +65,8 @@ interface SeatProps {
   isBye: boolean;
   /** Pulled back in from the Redemption Table to fill this seat. */
   isWildcard?: boolean;
+  /** Standing when drawn: 1 is the highest total. */
+  seed?: number | null;
   size: "sm" | "lg";
 }
 
@@ -67,6 +77,7 @@ const Seat: React.FC<SeatProps> = ({
   isDecided,
   isBye,
   isWildcard = false,
+  seed,
   size,
 }) => {
   const large = size === "lg";
@@ -102,6 +113,14 @@ const Seat: React.FC<SeatProps> = ({
           isDecided && isWinner ? "text-green-300" : "text-white"
         }`}
       >
+        {seed ? (
+          <span
+            className={`mr-1.5 font-mono text-slate-500 ${large ? "text-sm" : "text-[10px]"}`}
+            title="Seed — standing on total score when this was drawn"
+          >
+            #{seed}
+          </span>
+        ) : null}
         {player?.name ?? "Unknown"}
         {isWildcard && (
           <span
@@ -125,6 +144,40 @@ const Seat: React.FC<SeatProps> = ({
         <Crown size={large ? 22 : 16} className="text-yellow-400 shrink-0" />
       )}
     </div>
+  );
+};
+
+/**
+ * What a matchup carries beyond its two scores: the series it is a game of,
+ * and the win bonus it paid.
+ */
+export const MatchupFootnotes: React.FC<{
+  matchup: Matchup;
+  players: PublicPlayer[];
+  size?: "sm" | "lg";
+}> = ({ matchup, players, size = "sm" }) => {
+  const series = seriesScore(matchup);
+  const winner = players.find((p) => p.id === matchup.winnerId);
+  const text = size === "lg" ? "text-xs" : "text-[10px]";
+
+  return (
+    <>
+      {series && (
+        <div className={`pt-1 text-center font-mono uppercase tracking-wide text-yellow-300 ${text}`}>
+          Game {series.game} of {series.bestOf}
+          {matchup.winnerId
+            ? ` · series ${series.winsA}–${series.winsB}`
+            : series.game > 1
+              ? ` · series ${series.winsA}–${series.winsB}`
+              : " · first to 2"}
+        </div>
+      )}
+      {matchup.winBonus && winner ? (
+        <div className={`pt-1 text-center font-mono uppercase tracking-wide text-neon-green ${text}`}>
+          {winner.name} +{matchup.winBonus} win bonus
+        </div>
+      ) : null}
+    </>
   );
 };
 
@@ -167,6 +220,7 @@ export const MatchupCard: React.FC<{
         isWinner={matchup.winnerId === matchup.playerAId}
         isDecided={isDecided}
         isBye={false}
+        seed={matchup.seedA}
         size={size}
       />
       <div className="flex items-center justify-center gap-2 text-[10px] font-mono uppercase tracking-widest text-slate-600">
@@ -179,8 +233,10 @@ export const MatchupCard: React.FC<{
         isDecided={isDecided}
         isBye={matchup.playerBId === null}
         isWildcard={Boolean(matchup.wildcardId) && matchup.wildcardId === matchup.playerBId}
+        seed={matchup.seedB}
         size={size}
       />
+      <MatchupFootnotes matchup={matchup} players={players} size={size} />
       {matchup.tiebreak && matchup.tiebreak !== "Bye" && (
         <div className="pt-1 text-center text-[10px] font-mono uppercase tracking-wide text-neon-yellow">
           {matchup.tiebreak}
@@ -209,7 +265,7 @@ const BracketView: React.FC<BracketViewProps> = ({
     );
   }
 
-  const sides: BracketSide[] = ["winners", "losers", "final"];
+  const sides: BracketSide[] = ["qualifying", "winners", "losers", "final"];
   const present = sides.filter((side) =>
     bracket.some((round) => round.matchups.some((m) => sideOf(m) === side)),
   );

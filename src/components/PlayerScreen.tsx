@@ -18,7 +18,8 @@ import { useGame } from "../context/GameContext";
 import { seatsOf } from "../services/snapshot";
 import { readSeat } from "../services/seat";
 import { SideTag } from "./BracketView";
-import { matchupById, sideOf } from "../services/bracket";
+import { matchupById, seriesScore, sideOf, winBonusFor } from "../services/bracket";
+import { WIN_MULTIPLIER } from "../constants";
 import {
   postMessage,
   readStoredSnapshot,
@@ -135,14 +136,13 @@ const MyMatchup: React.FC<{
         </div>
       )}
 
-      {matchup && snapshot.losersBracket && opponent && (
-        <div className="text-xs text-slate-400 mb-2">
-          {sideOf(matchup) === "final"
-            ? "Win this and you take the night."
-            : sideOf(matchup) === "losers"
-              ? "You have lost once — lose this and you're out."
-              : "Lose this and you drop to the loser's bracket, still in it."}
-        </div>
+      {matchup && (
+        <StakesLine
+          matchup={matchup}
+          playerId={playerId}
+          losersBracket={snapshot.losersBracket}
+          hasOpponent={Boolean(opponent)}
+        />
       )}
 
       {!matchup ? (
@@ -173,6 +173,61 @@ const MyMatchup: React.FC<{
           Bye — you go through without playing anyone.
         </div>
       )}
+    </div>
+  );
+};
+
+/**
+ * What is riding on a matchup, in one line: a qualifying round nobody goes
+ * out of, a seeded bracket game, a game of the final series.
+ */
+const StakesLine: React.FC<{
+  matchup: Matchup;
+  playerId: string;
+  losersBracket: boolean;
+  hasOpponent: boolean;
+}> = ({ matchup, playerId, losersBracket, hasOpponent }) => {
+  const side = sideOf(matchup);
+  const mySeed = matchup.playerAId === playerId ? matchup.seedA : matchup.seedB;
+  const theirSeed = matchup.playerAId === playerId ? matchup.seedB : matchup.seedA;
+  const series = seriesScore(matchup);
+  const mine = series
+    ? matchup.playerAId === playerId
+      ? series.winsA
+      : series.winsB
+    : 0;
+  const theirs = series
+    ? matchup.playerAId === playerId
+      ? series.winsB
+      : series.winsA
+    : 0;
+
+  const line =
+    side === "qualifying"
+      ? hasOpponent
+        ? `Qualifying — nobody goes out. Beat them and this round's points count ×${WIN_MULTIPLIER} on your total, which is what the bracket is seeded on.`
+        : `Qualifying bye — play the round on your own; it counts as a win, so your points count ×${WIN_MULTIPLIER}.`
+      : side === "final"
+        ? series
+          ? `Grand final · game ${series.game} of ${series.bestOf} · series ${mine}–${theirs}. First to ${Math.floor(series.bestOf / 2) + 1} takes the night.`
+          : "Win this and you take the night."
+        : side === "losers"
+          ? "You have lost once — lose this and you're out."
+          : losersBracket
+            ? "Lose this and you drop to the loser's bracket, still in it."
+            : hasOpponent
+              ? "Bracket — lose this and you go to the Redemption Table."
+              : "";
+
+  return (
+    <div className="text-xs text-slate-400 mb-2 space-y-1">
+      {mySeed ? (
+        <div className="font-mono uppercase tracking-widest text-cyan-300">
+          You are seed #{mySeed}
+          {theirSeed ? ` · they are #${theirSeed}` : ""}
+        </div>
+      ) : null}
+      {line && <div>{line}</div>}
     </div>
   );
 };
@@ -497,22 +552,42 @@ const MatchResult: React.FC<{
   // A first loss is not the end when there is a loser's bracket to fall into,
   // and saying "you lose" without that would send a player home early.
   const losing =
-    snapshot.losersBracket && side === "winners"
-      ? "You lose — down to the loser's bracket"
-      : "You lose the match";
+    side === "qualifying"
+      ? "You lose this one — nobody goes out in qualifying"
+      : side === "final" && matchup?.series
+        ? `You lose game ${matchup.series.game}`
+        : snapshot.losersBracket && side === "winners"
+          ? "You lose — down to the loser's bracket"
+          : "You lose the match";
+  const winning =
+    side === "final" && matchup?.series
+      ? `You win game ${matchup.series.game}`
+      : "You win the match";
   const verdict = !opponent
-    ? { text: "Bye — you advance", tone: "text-[#39ff88]" }
+    ? side === "qualifying"
+      ? { text: "Bye — counts as a win", tone: "text-[#39ff88]" }
+      : { text: "Bye — you advance", tone: "text-[#39ff88]" }
     : mine > theirs
-      ? { text: "You win the match", tone: "text-[#39ff88]" }
+      ? { text: winning, tone: "text-[#39ff88]" }
       : mine < theirs
         ? { text: losing, tone: "text-[#ff3b5c]" }
         : { text: "Dead level — settled on total score", tone: "text-[#f5ff3b]" };
+  // The bonus is paid when the round settles; until then, say what it will be.
+  const bonus =
+    (opponent && mine > theirs) || (!opponent && side === "qualifying")
+      ? winBonusFor(mine)
+      : 0;
 
   return (
     <div className="py-4 space-y-5">
       <div className="text-center">
         <div className="cyber-hud text-[11px] text-slate-500">Match complete</div>
         <div className={`cyber-question text-3xl mt-1 ${verdict.tone}`}>{verdict.text}</div>
+        {bonus > 0 && (
+          <div className="cyber-hud text-xs text-[#39ff88] mt-2">
+            +{bonus} win bonus (×{WIN_MULTIPLIER}) on your total
+          </div>
+        )}
       </div>
 
       <div className="cyber-panel grid grid-cols-[1fr_auto_1fr] items-center gap-3 px-4 py-4">

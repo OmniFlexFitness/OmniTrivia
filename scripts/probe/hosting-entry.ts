@@ -12,6 +12,9 @@ import {
   buildFirstRound,
   byeCounts,
   podium,
+  seriesScore,
+  winBonusFor,
+  winsNeeded,
   rankStanding,
   roundsToDecide,
   settleRound,
@@ -624,6 +627,313 @@ const playWildNight = (
     "when the rounds run out, the runner-up is the next player still standing",
     ranOutPlaces.runnerUpId === "p3" && ranOutPlaces.redemptionId === "p1",
     `${ranOutPlaces.runnerUpId}, redemption ${ranOutPlaces.redemptionId}`,
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * 3b. Qualifying rounds, the win bonus, seeding and a best-of-3 final
+ * ------------------------------------------------------------------ */
+
+interface SeededNight extends Played {
+  qualifying: number;
+  /** Players knocked out (eliminated) during qualifying — should be none. */
+  outDuringQualifying: number;
+  /** Bonus bookkeeping that did not add up. */
+  badBonuses: number;
+  /** First bracket rounds that were not drawn highest-total-against-lowest. */
+  badSeeding: number;
+}
+
+/** A night as the app now plays it: qualifying, then a seeded bracket. */
+const playSeededNight = (
+  count: number,
+  losersBracket: boolean,
+  qualifying: number,
+  maxRounds: number,
+  seed: number,
+): SeededNight => {
+  const random = rng(seed);
+  let players = makePlayers(count).map((p) => ({ ...p, redemptionScore: 0 }));
+  let rounds: BracketRound[] = [
+    buildFirstRound(players, { qualifying: qualifying > 0, losersBracket, finalBestOf: 3 }),
+  ];
+  let championId: string | null = null;
+  let roundNumber = 1;
+  let outDuringQualifying = 0;
+  let badBonuses = 0;
+  let badSeeding = 0;
+
+  while (roundNumber <= maxRounds) {
+    const current = rounds[roundNumber - 1];
+    if (!current) break;
+
+    players = players.map((p) => {
+      const points = Math.floor(random() * 6) * 100;
+      return {
+        ...p,
+        roundScore: points,
+        score: p.score + points,
+        redemptionScore: (p.redemptionScore ?? 0) + (p.eliminated ? points : 0),
+      };
+    });
+
+    const outcome = settleRound(current, players, {
+      losersBracket,
+      playedRounds: rounds.slice(0, roundNumber - 1),
+      hasMoreRounds: roundNumber < maxRounds,
+      wildcards: true,
+      qualifyingRounds: qualifying,
+      seeded: true,
+      finalBestOf: 3,
+    });
+
+    // Every decided matchup with an opponent pays its winner half their
+    // round again; nothing else pays anything.
+    outcome.round.matchups.forEach((m) => {
+      const winner = players.find((p) => p.id === m.winnerId);
+      const expected =
+        winner && (m.playerBId || sideOf(m) === "qualifying")
+          ? winBonusFor(winner.roundScore)
+          : 0;
+      if ((m.winBonus ?? 0) !== expected) badBonuses += 1;
+    });
+
+    if (roundNumber <= qualifying && outcome.eliminatedIds.length > 0) {
+      outDuringQualifying += outcome.eliminatedIds.length;
+    }
+
+    players = players.map((p) =>
+      outcome.bonuses[p.id] ? { ...p, score: p.score + outcome.bonuses[p.id] } : p,
+    );
+
+    // The first bracket round: highest total meets lowest.
+    if (roundNumber === qualifying && outcome.nextRound) {
+      const ranked = [...players].sort(
+        (a, b) =>
+          b.score - a.score ||
+          activePlayerIds(rounds[0]).indexOf(a.id) - activePlayerIds(rounds[0]).indexOf(b.id),
+      );
+      const seedOf = (id: string | null) =>
+        id ? ranked.findIndex((p) => p.id === id) + 1 : 0;
+      const n = ranked.length;
+      outcome.nextRound.matchups.forEach((m) => {
+        if (!m.playerBId) {
+          if (seedOf(m.playerAId) !== 1) badSeeding += 1;
+          return;
+        }
+        if (sideOf(m) === "final") return;
+        const top = n % 2 === 1 ? 1 : 0;
+        if (seedOf(m.playerAId) + seedOf(m.playerBId) !== n + 1 + top) badSeeding += 1;
+        if (m.seedA !== seedOf(m.playerAId)) badSeeding += 1;
+      });
+    }
+
+    rounds = [...rounds.slice(0, roundNumber - 1), outcome.round];
+    if (outcome.nextRound) rounds.push(outcome.nextRound);
+
+    const knocked = new Set(outcome.eliminatedIds);
+    const dropped = new Set(outcome.losersIds);
+    const wild = new Set(outcome.wildcardIds);
+    players = players.map((p) =>
+      wild.has(p.id)
+        ? { ...p, eliminated: false, losersBracket, wildcardUsed: true }
+        : knocked.has(p.id)
+          ? { ...p, eliminated: true, losersBracket: false }
+          : dropped.has(p.id)
+            ? { ...p, losersBracket: true }
+            : p,
+    );
+
+    championId = outcome.championId;
+    if (championId || !outcome.nextRound) break;
+    roundNumber += 1;
+  }
+
+  return {
+    rounds,
+    players,
+    championId,
+    roundsPlayed: roundNumber,
+    qualifying,
+    outDuringQualifying,
+    badBonuses,
+    badSeeding,
+  };
+};
+
+{
+  let decided = true;
+  let withinPromise = true;
+  let nobodyOutInQualifying = true;
+  let qualifyingFirst = true;
+  let bonusesRight = true;
+  let seededRight = true;
+  let seriesRight = true;
+  let finalLast = true;
+  let qDetail = "";
+
+  for (const losersBracket of [false, true]) {
+    for (const qualifying of [0, 1, 2, 3]) {
+      for (let count = 2; count <= 16; count++) {
+        for (let seed = 1; seed <= 8; seed++) {
+          const night = playSeededNight(count, losersBracket, qualifying, 99, seed * 977 + count * 13 + qualifying);
+          const max = roundsToDecide(count, losersBracket, qualifying, 3);
+          const tag = `${count} players, ${qualifying}Q${losersBracket ? ", LB" : ""}, seed ${seed}`;
+
+          if (!night.championId) {
+            decided = false;
+            qDetail ||= `${tag}: undecided`;
+          }
+          // A best-of-3 can finish a game early, never late.
+          if (night.roundsPlayed > max || night.roundsPlayed < max - 1) {
+            withinPromise = false;
+            qDetail ||= `${tag}: ${night.roundsPlayed} rounds, promised up to ${max}`;
+          }
+          if (night.outDuringQualifying > 0) nobodyOutInQualifying = false;
+          if (night.badBonuses > 0) {
+            bonusesRight = false;
+            qDetail ||= `${tag}: ${night.badBonuses} bonuses off`;
+          }
+          if (night.badSeeding > 0) {
+            seededRight = false;
+            qDetail ||= `${tag}: first bracket round not seeded`;
+          }
+          night.rounds.forEach((round, index) => {
+            const isQ = round.matchups.every((m) => sideOf(m) === "qualifying");
+            if ((index < qualifying) !== isQ) qualifyingFirst = false;
+          });
+
+          const finals = night.rounds.filter((round) =>
+            round.matchups.some((m) => sideOf(m) === "final"),
+          );
+          const lastFinal = finals[finals.length - 1]?.matchups[0];
+          const score = lastFinal ? seriesScore(lastFinal) : null;
+          if (
+            !lastFinal ||
+            !score ||
+            finals.length > 3 ||
+            finals.some((round) => round.matchups.length !== 1) ||
+            Math.max(score.winsA, score.winsB) !== winsNeeded(3) ||
+            lastFinal.winnerId !== night.championId
+          ) {
+            seriesRight = false;
+            qDetail ||= `${tag}: final series ${score ? `${score.winsA}-${score.winsB}` : "missing"} over ${finals.length} games`;
+          }
+          const firstFinal = night.rounds.indexOf(finals[0]);
+          if (firstFinal >= 0 && firstFinal !== night.rounds.length - finals.length) {
+            finalLast = false;
+          }
+        }
+      }
+    }
+  }
+
+  check("with qualifying, seeding and a best-of-3 final, every night produces a champion", decided, qDetail);
+  check(
+    "and takes no more rounds than the lobby promises — one fewer when the final goes 2–0",
+    withinPromise,
+    `12 players, 2 qualifying: up to ${roundsToDecide(12, false, 2, 3)} rounds; with a loser's bracket ${roundsToDecide(12, true, 2, 3)}`,
+  );
+  check("nobody is knocked out of a qualifying round", nobodyOutInQualifying);
+  check("the qualifying rounds come first, and only as many as the host set", qualifyingFirst);
+  check("beating your opponent adds half your round again to your total, and nothing else does", bonusesRight, qDetail);
+  check("the bracket after qualifying is drawn highest total against lowest, top seed owed the bye", seededRight, qDetail);
+  check("the final is a best of 3: one matchup a round, won by the first to two", seriesRight, qDetail);
+  check("the final's games are the last rounds played", finalLast);
+}
+
+{
+  // A final that goes 1–1 plays a third game; one that goes 2–0 does not.
+  const finalists = makePlayers(2).map((p) => ({ ...p, score: 1000 }));
+  const opening = buildFirstRound(finalists, { finalBestOf: 3 });
+  const game1 = settleRound(
+    opening,
+    finalists.map((p) => ({ ...p, roundScore: p.id === "p1" ? 500 : 100 })),
+    { losersBracket: false, playedRounds: [], hasMoreRounds: true, finalBestOf: 3, seeded: true },
+  );
+  const game2 = settleRound(
+    game1.nextRound!,
+    finalists.map((p) => ({ ...p, roundScore: p.id === "p2" ? 500 : 100 })),
+    { losersBracket: false, playedRounds: [game1.round], hasMoreRounds: true, finalBestOf: 3, seeded: true },
+  );
+  const game3 = settleRound(
+    game2.nextRound!,
+    finalists.map((p) => ({ ...p, roundScore: p.id === "p2" ? 600 : 300 })),
+    { losersBracket: false, playedRounds: [game1.round, game2.round], hasMoreRounds: true, finalBestOf: 3, seeded: true },
+  );
+
+  check(
+    "two players with a best-of-3 final go straight to game one of it",
+    opening.matchups.length === 1 && sideOf(opening.matchups[0]) === "final" && opening.matchups[0].series?.game === 1,
+  );
+  check(
+    "winning game one wins nothing yet — game two is drawn between the same two",
+    game1.championId === null &&
+      game1.eliminatedIds.length === 0 &&
+      game1.nextRound?.matchups[0].series?.game === 2 &&
+      game1.nextRound?.matchups[0].series?.winsA + game1.nextRound!.matchups[0].series!.winsB === 1,
+  );
+  check(
+    "1–1 goes to a deciding game three, and its winner takes the night",
+    game2.championId === null &&
+      game2.nextRound?.matchups[0].series?.game === 3 &&
+      game3.championId === "p2" &&
+      game3.eliminatedIds.join() === "p1" &&
+      game3.nextRound === null,
+    `champion ${game3.championId}`,
+  );
+
+  const sweep = settleRound(
+    game1.nextRound!,
+    finalists.map((p) => ({ ...p, roundScore: p.id === "p1" ? 500 : 100 })),
+    { losersBracket: false, playedRounds: [game1.round], hasMoreRounds: true, finalBestOf: 3, seeded: true },
+  );
+  check("2–0 ends it — no third game", sweep.championId === "p1" && sweep.nextRound === null);
+
+  const places = podium(
+    finalists.map((p) => ({ ...p, eliminated: p.id === "p1" })),
+    [game1.round, game2.round, game3.round],
+    "p2",
+  );
+  check("the runner-up of a series is the finalist who lost it", places.runnerUpId === "p1");
+}
+
+{
+  // Qualifying: nobody out, the winner's round counts ×1.5 on their total.
+  const field = makePlayers(4);
+  const q1 = buildFirstRound(field, { qualifying: true });
+  const [m1, m2] = q1.matchups;
+  const scores: Record<string, number> = {
+    [m1.playerAId]: 400,
+    [m1.playerBId!]: 300,
+    [m2.playerAId]: 200,
+    [m2.playerBId!]: 100,
+  };
+  const outcome = settleRound(
+    q1,
+    field.map((p) => ({ ...p, roundScore: scores[p.id], score: scores[p.id] })),
+    { losersBracket: false, playedRounds: [], hasMoreRounds: true, qualifyingRounds: 2, seeded: true, finalBestOf: 3 },
+  );
+  check(
+    "a qualifying round knocks nobody out",
+    outcome.eliminatedIds.length === 0 && outcome.championId === null,
+  );
+  check(
+    "and pays each winner half their round again",
+    outcome.bonuses[m1.playerAId] === 200 &&
+      outcome.bonuses[m2.playerAId] === 100 &&
+      outcome.bonuses[m1.playerBId!] === undefined,
+    JSON.stringify(outcome.bonuses),
+  );
+  // Totals after bonuses: 600, 300, 300, 100 — neighbours meet, and the two
+  // who just played are kept apart while there is anyone else to draw.
+  const next = outcome.nextRound!;
+  check(
+    "the next qualifying round pairs neighbours in the standings, without a rematch",
+    next.matchups.every((m) => sideOf(m) === "qualifying") &&
+      next.matchups[0].playerAId === m1.playerAId &&
+      next.matchups[0].playerBId !== m1.playerBId,
+    next.matchups.map((m) => `${m.playerAId}(#${m.seedA})-${m.playerBId}(#${m.seedB})`).join(", "),
   );
 }
 

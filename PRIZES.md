@@ -12,13 +12,20 @@ This is a recommendation, not something the app enforces. The app tells you
 
 ## 1. What the app gives you to award
 
+The shape of a game, which the prizes follow: **qualifying rounds** nobody
+goes out of (wins count ×1.5 on the total), a **bracket seeded on those
+totals**, the **Redemption Table** for anybody knocked out, and a
+**best-of-3 final**. Load enough rounds for the whole thing — the lobby says
+how many the room needs (two qualifying rounds, eight players and a best-of-3
+final is up to 7).
+
 At the end of every game the projector, the host desk, the remote and every
 phone show the same three names:
 
 | Place | Who gets it | Why it exists |
 | --- | --- | --- |
 | **Champion** | Last player standing in the bracket — or, if the rounds run out first, the top of the standings (unbeaten players ahead of the loser's bracket, then total score). | The main event. |
-| **Runner-up** | Whoever the champion beat last (the final's loser). If the rounds ran out, the next player in the same order the champion was picked in. | Rewards a deep run, and gives the semi-finalists something real to play for. |
+| **Runner-up** | The finalist who lost the best-of-3 series. If the rounds ran out, the next player in the same order the champion was picked in. | Rewards a deep run, and gives the semi-finalists something real to play for. |
 | **Redemption** | Most **redemption points** — points banked on the Redemption Table after being knocked out — among players *not already on the podium*. | Keeps everybody who loses early playing hard for the rest of the game. |
 
 Two things about Redemption matter for prize design:

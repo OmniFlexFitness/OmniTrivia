@@ -1,5 +1,5 @@
 import { GamePhase, GameState } from "../types";
-import { buildFirstRound } from "./bracket";
+import { buildFirstRound, openingOptions } from "./bracket";
 
 /**
  * Whether a game has bots in it.
@@ -64,7 +64,7 @@ export const applyBotsSetting = (state: GameState, enabled: boolean): GameState 
     players,
     bracket: redraw
       ? players.length >= 2
-        ? [buildFirstRound(players)]
+        ? [buildFirstRound(players, openingOptions(state))]
         : []
       : state.bracket,
   };

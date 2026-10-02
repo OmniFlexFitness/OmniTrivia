@@ -40,6 +40,8 @@ import { buildReveal, seatsOf } from "../services/snapshot";
 import { matchupById, roundsToDecide, sideOf } from "../services/bracket";
 import AvatarDisplay from "./AvatarDisplay";
 import PrizePodium from "./PrizePodium";
+import QualifyingRoundsControl from "./QualifyingRoundsControl";
+import { FINAL_BEST_OF } from "../constants";
 import BracketView, { MatchupCard, SideTag } from "./BracketView";
 import CategoryVotePanel from "./CategoryVotePanel";
 import SpectatorWheel from "./SpectatorWheel";
@@ -919,7 +921,14 @@ const LobbyRemote: React.FC<{ snapshot: BroadcastSnapshot; send: Send }> = ({
   snapshot,
   send,
 }) => {
-  const needed = roundsToDecide(snapshot.players.length, snapshot.losersBracket);
+  // Older hosts publish no qualifying count; they were elimination from round one.
+  const qualifying = snapshot.qualifyingRounds ?? 0;
+  const needed = roundsToDecide(
+    snapshot.players.length,
+    snapshot.losersBracket,
+    qualifying,
+    FINAL_BEST_OF,
+  );
 
   return (
     <div className="space-y-4">
@@ -966,6 +975,17 @@ const LobbyRemote: React.FC<{ snapshot: BroadcastSnapshot; send: Send }> = ({
             </span>
           </span>
         </button>
+        <div className="mt-3">
+          <QualifyingRoundsControl
+            rounds={qualifying}
+            onChange={(rounds) =>
+              send(
+                { kind: "set-qualifying-rounds", rounds },
+                `${rounds} qualifying round${rounds === 1 ? "" : "s"}`,
+              )
+            }
+          />
+        </div>
       </Card>
 
       <Card title="Bots">

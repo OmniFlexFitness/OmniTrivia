@@ -32,9 +32,24 @@ export const GLOSSARY: GlossaryEntry[] = [
       "One spin of the wheel. The wheel picks the category — really picks it, from the categories not yet played — and then every player still in the bracket is paired off into matchups.",
   },
   {
+    term: "Qualifying round",
+    definition:
+      "The first rounds of the night, as many as the host sets. Nobody goes out. Beat your opponent and that round's points count ×1.5 on your total. Round one is drawn at random; after that you meet the player next to you in the standings.",
+  },
+  {
+    term: "Seeding",
+    definition:
+      "After qualifying, the bracket is drawn on total score: the highest total meets the lowest, second meets second-lowest. It is drawn the same way again every round, so the totals keep counting. With odd numbers the top seed is owed the spare seat.",
+  },
+  {
+    term: "Final series",
+    definition:
+      "The final is best of 3. Each game is its own spin of the wheel and its own round; the first to win two takes the night. Everybody else keeps playing on the Redemption Table while it is on.",
+  },
+  {
     term: "Matchup",
     definition:
-      "One pairing for one round: you against one other player. Round one is drawn at random; after that you are paired on who won, so the bracket decides who you face.",
+      "One pairing for one round: you against one other player. Qualifying rounds pair you with somebody near you in the standings; bracket rounds pair the highest total left against the lowest.",
   },
   {
     term: "Match",
@@ -86,6 +101,7 @@ export const GLOSSARY: GlossaryEntry[] = [
 export const SCORING_RULES: string[] = [
   "100 points for a correct answer.",
   "10 more for every second still on your clock — answering fast is worth real points.",
+  "Beat your opponent and the round's points count ×1.5 on your total — the total is what seeds the bracket.",
   "The last question of every round counts double — nobody is out of a match until it is over.",
   "Each round is scored on its own. Every matchup starts level at zero, so the round you are in is the only one that decides it.",
   "A tie in a matchup is settled on total score, then on the draw. Never on a coin flip.",
@@ -125,7 +141,8 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
       "HOST GAME runs the night from this machine: you load the questions, spin the wheel and drive the big screen.",
       "JOIN GAME takes a seat in somebody else's game with their four-digit PIN.",
       "RESUME HOSTING is for a host whose window went away mid-game — the PIN and the host password put you back at the controls.",
-      "Everything in a game is scored head-to-head. Win your matchup and you are in the next round; lose it and you are out of the bracket — or, if the host turned on the loser's bracket, you drop into it and get a second life.",
+      "The night opens with qualifying rounds that nobody goes out of: beat your opponent and the round counts ×1.5 on your total. The totals seed the bracket.",
+      "In the bracket, win your matchup and you are in the next round; lose it and you are out of the bracket — or, if the host turned on the loser's bracket, you drop into it and get a second life. The final is best of 3.",
       "Out of the bracket is not out of the game: you keep playing every round on the Redemption Table, for the redemption prize and a shot at coming back in as a wildcard.",
     ],
   },
@@ -134,7 +151,8 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
     title: "Setting the game up",
     lead: "Rounds and questions per round are the shape of the whole night — one round is one spin of the wheel.",
     points: [
-      "Rounds: how many times the wheel is spun. Each round also halves the field, so five rounds is enough for a room of about thirty.",
+      "Rounds: how many times the wheel is spun. Qualifying rounds come first, then each bracket round halves the field, then the final can take up to three. The lobby says exactly how many the room needs.",
+      "Qualifying rounds: how many rounds nobody goes out of before the bracket is drawn on the totals. Two is a good night; zero is the old game, elimination from round one.",
       "Questions per round: how many questions each match works through. Five keeps a round to a few minutes.",
       "The game name is what the room sees on the big screen. The PIN is only the code players type to get in.",
       "GENERATE & REVIEW writes the questions with Claude; USE THE QUESTION BANK takes the premade set, which needs no API key and nothing written; IMPORT MY OWN takes a CSV or a Google Sheet.",
@@ -210,7 +228,8 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
       "Players join by scanning the QR code or typing the PIN.",
       "Open the broadcast display and drag it onto the projector before you start — it is the only screen the room should be looking at.",
       "ADD BOT fills the room out so a bracket can be tested; the host is always seated as a player. Switch bots off (here, at setup, or on round one's wheel) for a room of real players only.",
-      "START GAME closes the lobby and draws the first round's matchups at random.",
+      "START GAME closes the lobby and draws the first round's matchups at random — a qualifying round, if there are any.",
+      "Qualifying rounds can still be changed here, up until START GAME.",
       "The loser's bracket can still be switched on or off here, up until START GAME. The panel says how many rounds the bracket needs for the players in the room.",
       "Hosting from more than one screen: CAST shows a link and QR code for putting the broadcast on any device, and REMOTE shows one for running the round from a tablet with the host password.",
       "The host password on this screen is what takes this game back if this window goes away. It is shown here and nowhere else — note it down now.",
@@ -237,7 +256,7 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
       "You are not told whether an answer was right until your match is over. Then the whole round lands at once, and the answer key goes up when every match has finished.",
       "Points are 100 for a correct answer plus 10 for every second left on your clock. Fast is worth more.",
       "The last question of the round counts double. However the match has gone, it is not over until that one is in.",
-      "You and your opponent answer the same questions; whoever has more points at the end of the round wins the matchup.",
+      "You and your opponent answer the same questions; whoever has more points at the end of the round wins the matchup — and in every round, the winner's points count ×1.5 on their total.",
       "Out of the bracket? You are on the Redemption Table: the same questions, no opponent, and every point counts towards the redemption prize. The best round there can earn a wildcard back into the bracket.",
       "The big screen is behind you on purpose. It only moves when the slowest player in the room is through a question, and it never shows an answer mid-round.",
     ],
@@ -261,7 +280,8 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
     title: "End of the round",
     lead: "Matchups are settled on this round's points, and the winners are paired for the next one.",
     points: [
-      "Every matchup is decided on the round just played, not on the running total — so every round starts level.",
+      "Every matchup is decided on the round just played, not on the running total — so every round starts level. The winner's round then counts ×1.5 on their total.",
+      "In qualifying nobody goes out. After the last qualifying round the bracket is drawn on the totals — highest against lowest — and re-drawn the same way every round.",
       "Losers stay on the leaderboard with their score and move to the Redemption Table, where they keep playing every round. With a loser's bracket, a first loss drops a player into it instead, and only a second loss puts them on the table.",
       "When the next round has an odd seat, the best round on the Redemption Table takes it as a wildcard — knocked out this round included. It is marked WILDCARD on the pairings.",
       "The next round's pairings are drawn as soon as this one is settled, so who you play next is on your screen before the wheel is spun for it.",
@@ -272,7 +292,7 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
 
   gameOver: {
     title: "End of the game",
-    lead: "The last player standing takes it — or, if the rounds run out first, the highest score among those still in, with anyone unbeaten ranked ahead of the loser's bracket.",
+    lead: "Whoever wins the best-of-3 final takes it — or, if the rounds run out first, whoever leads the final series, else the highest score still in, with anyone unbeaten ranked ahead of the loser's bracket.",
     points: [
       "Three places are called: the champion, the runner-up, and the redemption winner — the most points banked on the Redemption Table by anybody not already on the podium.",
       "PLAY AGAIN replays the same questions with the scores reset and the bracket redrawn.",

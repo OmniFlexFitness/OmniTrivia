@@ -24,6 +24,9 @@ import {
   BOT_MAX_THINK_SECONDS,
   BOT_MIN_THINK_SECONDS,
   BOT_NAMES,
+  DEFAULT_QUALIFYING_ROUNDS,
+  FINAL_BEST_OF,
+  MAX_QUALIFYING_ROUNDS,
   REVEAL_DURATION,
   AVATARS,
   AVATAR_COLORS,
@@ -49,7 +52,9 @@ import {
 import {
   activePlayerIds,
   buildFirstRound,
+  openingOptions,
   rankStanding,
+  seriesScore,
   settleRound,
 } from "../services/bracket";
 import {
@@ -194,6 +199,11 @@ interface GameContextType extends GameState {
    * is still alive in it.
    */
   setLosersBracket: (enabled: boolean) => void;
+  /**
+   * How many qualifying rounds come before the bracket. Same window as the
+   * loser's bracket: up until the first round is drawn.
+   */
+  setQualifyingRounds: (rounds: number) => void;
   /**
    * Allow bots in this game, or take them out. Open while setting up, in the
    * lobby, and on round one's wheel before START ROUND — where turning them off
@@ -411,6 +421,11 @@ const finishRound = (prev: GameState): GameState => {
     wildcards: true,
     // A host running the room rather than playing it is not dealt back in.
     canWildcard: (player) => !player.isHost || prev.hostAnsweringEnabled,
+    // Nobody goes out of a qualifying round; the bracket after them is drawn,
+    // and re-drawn every round, on the totals.
+    qualifyingRounds: prev.qualifyingRounds,
+    seeded: true,
+    finalBestOf: FINAL_BEST_OF,
   });
 
   const bracket = [...prev.bracket];
@@ -420,7 +435,13 @@ const finishRound = (prev: GameState): GameState => {
   const out = new Set(outcome.eliminatedIds);
   const dropped = new Set(outcome.losersIds);
   const wildcards = new Set(outcome.wildcardIds);
-  const players = prev.players.map((player) =>
+  // Beating your opponent multiplies the round's points on your total.
+  const withBonuses = prev.players.map((player) =>
+    outcome.bonuses[player.id]
+      ? { ...player, score: player.score + outcome.bonuses[player.id] }
+      : player,
+  );
+  const players = withBonuses.map((player) =>
     // Checked first: a wildcard may have been knocked out by this very round.
     // Back in a loser's bracket game means back in the loser's bracket.
     wildcards.has(player.id)
@@ -552,6 +573,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     broadcastRevealSecondsLeft: REVEAL_DURATION,
     autoAdvance: true,
     losersBracket: false,
+    qualifyingRounds: DEFAULT_QUALIFYING_ROUNDS,
     // A host who turned bots off last time meant it for next time too.
     botsEnabled: readBotsPreference(),
     hostAnsweringEnabled: true,
@@ -1788,6 +1810,19 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         : { ...prev, losersBracket: enabled },
     );
 
+  const setQualifyingRounds = (rounds: number) =>
+    setState((prev) =>
+      prev.bracket.length > 0 && prev.phase !== GamePhase.LOBBY
+        ? prev
+        : {
+            ...prev,
+            qualifyingRounds: Math.max(
+              0,
+              Math.min(MAX_QUALIFYING_ROUNDS, Math.round(rounds)),
+            ),
+          },
+    );
+
   const updateConfig = (rounds: number, questions: number) => {
     setState((prev) => ({
       ...prev,
@@ -2199,7 +2234,10 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         // the broadcast can show the room who they are up against. One player
         // on their own is not a tournament: they play the rounds as configured
         // and nobody is eliminated.
-        bracket: players.length >= 2 ? [buildFirstRound(players)] : [],
+        bracket:
+          players.length >= 2
+            ? [buildFirstRound(players, openingOptions(prev))]
+            : [],
         championId: null,
         categoryPoll: null,
         lanes: [],
@@ -2519,7 +2557,21 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         // joined first, which is what sorting the lobby array alone used.
         const standing = prev.players.filter((p) => !p.eliminated);
         const pool = standing.length > 0 ? standing : prev.players;
-        const leader = rankStanding(
+        // A final series cut short goes to whoever is ahead in it.
+        const lastFinal = prev.bracket[prev.currentRound - 1]?.matchups.find(
+          (m) => m.series,
+        );
+        const series = lastFinal ? seriesScore(lastFinal) : null;
+        const seriesLeader =
+          lastFinal && series && series.winsA !== series.winsB
+            ? series.winsA > series.winsB
+              ? lastFinal.playerAId
+              : lastFinal.playerBId
+            : null;
+        const leader = seriesLeader
+          ? pool.find((p) => p.id === seriesLeader)
+          : undefined;
+        const ranked = rankStanding(
           pool,
           prev.bracket[0]
             ? activePlayerIds(prev.bracket[0])
@@ -2528,7 +2580,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
 
         return {
           ...prev,
-          championId: prev.championId ?? leader?.id ?? null,
+          championId: prev.championId ?? leader?.id ?? ranked?.id ?? null,
           phase: GamePhase.GAME_OVER,
         };
       }
@@ -2809,6 +2861,10 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         if (!is(GamePhase.LOBBY)) return "The bracket is already drawn.";
         setLosersBracket(command.enabled);
         return null;
+      case "set-qualifying-rounds":
+        if (!is(GamePhase.LOBBY)) return "The bracket is already drawn.";
+        setQualifyingRounds(command.rounds);
+        return null;
       case "spin":
         if (!is(GamePhase.CATEGORY_SELECT) || current.currentRound !== command.round) {
           return "That wheel has already been played.";
@@ -3003,6 +3059,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         toggleHostAnswering,
         setBroadcastText,
         setLosersBracket,
+        setQualifyingRounds,
         setBotsEnabled,
         botsSettingOpen: botsSettingOpen(state),
         clearJoinError,

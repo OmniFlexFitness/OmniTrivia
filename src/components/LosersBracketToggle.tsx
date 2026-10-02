@@ -1,6 +1,7 @@
 import React from "react";
 import { ShieldAlert } from "lucide-react";
 import { roundsToDecide } from "../services/bracket";
+import { FINAL_BEST_OF } from "../constants";
 
 /**
  * The switch between single and double elimination.
@@ -16,10 +17,15 @@ const LosersBracketToggle: React.FC<{
   players?: number;
   /** Rounds loaded, to compare against what the bracket needs. */
   rounds?: number;
+  /** Qualifying rounds before the bracket, which the count includes. */
+  qualifying?: number;
   disabled?: boolean;
-}> = ({ enabled, onChange, players, rounds, disabled = false }) => {
+}> = ({ enabled, onChange, players, rounds, qualifying = 0, disabled = false }) => {
   const needed =
-    players !== undefined ? roundsToDecide(players, enabled) : null;
+    players !== undefined
+      ? roundsToDecide(players, enabled, qualifying, FINAL_BEST_OF)
+      : null;
+  const shape = `${qualifying > 0 ? `${qualifying} qualifying + ` : ""}the bracket + a best-of-${FINAL_BEST_OF} final`;
   const short = needed !== null && rounds !== undefined && needed > rounds;
 
   return (
@@ -69,8 +75,8 @@ const LosersBracketToggle: React.FC<{
           : needed === 0
             ? "Needs at least two players to draw a bracket."
             : short
-              ? `${players} players need up to ${needed} rounds to settle this bracket, and ${rounds} are loaded. If the rounds run out first, the leader still standing wins — unbeaten players ahead of the loser's bracket.`
-              : `${players} players need up to ${needed} round${needed === 1 ? "" : "s"} to settle this bracket; ${rounds} are loaded.`}
+              ? `${players} players need up to ${needed} rounds (${shape}), and ${rounds} are loaded. If the rounds run out first, the leader still standing wins — unbeaten players ahead of the loser's bracket.`
+              : `${players} players need up to ${needed} round${needed === 1 ? "" : "s"} (${shape}); ${rounds} are loaded.`}
       </p>
     </div>
   );

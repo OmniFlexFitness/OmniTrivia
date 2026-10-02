@@ -20,10 +20,13 @@ exactly as they are defined here, and so does the code.
 | --- | --- |
 | **Game** | The whole night: one host, one PIN, and the set of rounds they have loaded. |
 | **Round** | One spin of the wheel. The wheel picks a category — really picks it, from the ones not yet played — then every player still in the bracket is paired off. A round has one category and one set of questions. |
-| **Matchup** | One pairing for one round: you against one other player. Round one is drawn at random; from then on the bracket decides who you face, because it pairs the players who won. |
+| **Matchup** | One pairing for one round: you against one other player. Round one is drawn at random. Qualifying rounds after it pair neighbours in the standings; bracket rounds pair the highest total left against the lowest. |
+| **Qualifying round** | One of the rounds before the bracket — as many as the host sets (default 2). Nobody goes out. Beat your opponent and that round's points count **×1.5** on your total. |
+| **Seeding** | Once qualifying is over, the bracket is drawn on total score: #1 meets the lowest seed, #2 the second-lowest, and so on, and it is re-drawn the same way every round. The top seed is owed the spare seat when the field is odd. |
+| **Final series** | The final is **best of 3** — each game its own spin and its own round, first to two wins takes the night. |
 | **Match** | A matchup actually being played — the round's questions, answered by the two people in it. A round has one match per matchup, and every match runs at its own pace. |
 | **Bracket** | Single elimination by default. The higher round score in a matchup advances; the other player is out of the bracket — not out of the game. When the field is odd, the spare seat goes to a **wildcard** from the Redemption Table, or, if nobody there has earned one, to a **bye**. Either way it lands on whoever has had the fewest so far, so the same person cannot keep drawing it. |
-| **Loser's bracket** | Optional double elimination, switched on at setup or in the lobby. A first loss drops a player into the loser's bracket instead of out; a loss there ends their night. Both sides play in every round, on the same category, and the last player on each side meets in a one-match **grand final**. |
+| **Loser's bracket** | Optional double elimination, switched on at setup or in the lobby. A first loss drops a player into the loser's bracket instead of out; a loss there ends their night. Both sides play in every round, on the same category, and the last player on each side meets in a best-of-3 **grand final**. |
 | **Redemption Table** | Where a player knocked out of the bracket keeps playing: every round, same spin, same category, same questions, their own seat and nobody across from them. Points banked there are their **redemption score** — it decides the redemption prize, and they count towards the night's total too. |
 | **Wildcard** | The bracket's odd seat, handed to the best round on the Redemption Table instead of a free bye. One per player per game, never on a round of zero. In a loser's-bracket game it comes back into the loser's bracket only. |
 | **Remote** | A tablet or phone running the round for the host — spin, start, pause, +10s, close, end the round, next round — once it has the PIN and the host password. The host's window still runs the game; the remote drives it. |
@@ -35,27 +38,36 @@ exactly as they are defined here, and so does the code.
 
 1. The host loads questions, opens a lobby, and players join with the PIN.
 2. **START GAME** closes the lobby and draws the round-one matchups at random.
+   With qualifying rounds on (the default is two), round one is a qualifying
+   round.
 3. Each round: the wheel is spun, whichever slice stops under the pointer is
    the category, every matchup is dealt that round's questions, and the matches
    play out. The wheel carries only the categories still to be played, so it
    loses a slice each round and the last round is a wheel of one. The host
    spins it, and the projector and every player's phone turn the same wheel
    alongside them.
-4. At the end of a round, every matchup is settled on that round's points. The
-   winners are paired into next round's matchups; the losers are out of the
-   bracket, stay on the leaderboard, and move to the **Redemption Table**,
-   where they keep playing every round.
-   **Only round one is drawn at random.** After that the bracket decides it:
-   the winner of the first matchup meets the winner of the second, and so on.
-   When the field is an odd size somebody is owed a bye, and it goes to whoever
-   has had the fewest byes — otherwise it lands on the same player every round,
-   because a bye winner is always last in the list of who advanced. A
-   **wildcard** from the Redemption Table then takes the seat opposite them, if
+4. At the end of a round, every matchup is settled on that round's points,
+   and the winner's round counts **×1.5** on their total.
+5. **Qualifying rounds** knock nobody out. After round one they pair
+   neighbours in the standings (first v second, third v fourth), avoiding a
+   rematch where they can; an odd player out takes a bye, which counts as a
+   win, and it goes to the lowest-ranked player who has had the fewest.
+6. After the last qualifying round **the bracket is drawn on the totals** —
+   highest against lowest — and re-drawn that way every round, so the totals
+   keep mattering all night. Bracket losers are out of the bracket, stay on the
+   leaderboard, and move to the **Redemption Table**, where they keep playing
+   every round. When a side is odd, the top seed is owed the spare seat, and a
+   **wildcard** from the Redemption Table takes the seat opposite them if
    anybody there has earned one.
-5. The game ends when one player is left standing, or when the rounds run out —
-   whichever comes first. If the rounds run out first, the highest score among
-   the players still in it takes the night — with anybody still unbeaten ranked
-   ahead of the loser's bracket.
+7. **The final is best of 3.** Each game is its own spin of the wheel; the
+   series score carries from game to game, and a 2–0 ends it a round early.
+8. The game ends when the final is won, or when the rounds run out — whichever
+   comes first. If the rounds run out first, whoever leads the final series
+   takes it; failing that, the highest total among the players still in, with
+   anybody still unbeaten ranked ahead of the loser's bracket.
+
+Set **QUALIFYING ROUNDS** to 0 for the old game: elimination from round one,
+drawn at random, and re-seeded on the totals from round two.
 
 ### The loser's bracket
 
@@ -68,19 +80,19 @@ before **START GAME**) and the night becomes double elimination:
 - **Both sides play every round.** One spin of the wheel, one category, one
   set of questions — the winners' matchups and the loser's matchups are just
   more tables on the same board, all on their own clocks.
-- **Nothing is drawn at random after round one.** The loser's bracket pairs
-  the players who survived it against the players who have just dropped into
-  it, alternately; byes still go to whoever has had the fewest.
-- **The grand final** is the last player on each side, one match, winner
+- **Nothing is drawn at random after round one.** Both sides are seeded on
+  total score, highest against lowest, every round.
+- **The grand final** is the last player on each side, best of 3, winner
   takes the night. There is no "bracket reset" if the loser's-bracket player
   wins it — every round is a spin of the wheel, and the wheel runs out.
 - **While one side is waiting on the other**, its last player takes a bye
   each round: they keep answering and banking points, with nobody to be
   drawn against until the other side catches up.
-- **It takes more rounds.** Roughly twice as many: 8 players settle in 3
-  rounds single elimination and 6 with a loser's bracket; 16 players take 4
-  and 7. The lobby shows the exact number for the players in the room next to
-  the number of rounds loaded, and warns when the rounds will run out first.
+- **It takes more rounds.** Roughly twice as many in the bracket. With two
+  qualifying rounds and a best-of-3 final, 8 players need up to 7 rounds
+  single elimination and 10 with a loser's bracket; 16 players up to 8 and 11.
+  The lobby shows the exact number for the players in the room next to the
+  number of rounds loaded, and warns when the rounds will run out first.
 
 `npm run check-hosting` plays several hundred simulated nights from 2 to 16
 players and asserts that nobody goes out on one loss (except the grand
@@ -88,7 +100,10 @@ final's loser), the champion has lost at most once, and every bracket is
 decided in exactly the number of rounds the lobby promises. It plays several
 hundred more with wildcards on, and asserts the round count still holds, no
 odd seat goes to a bye while somebody has earned it, and nobody comes back
-twice.
+twice. And several hundred more with qualifying rounds, seeding and a best-of-3
+final: nobody goes out in qualifying, every win bonus is exact, the first
+bracket round is drawn highest-against-lowest, and every final is won by the
+first to two games within the rounds promised.
 
 ### Comebacks: nobody is out of the night
 
@@ -165,6 +180,10 @@ the side is where the room watches somebody pull three questions clear.
 - **×2** on the last question of every round.
 - Each round is scored on its own. Every matchup starts level at zero, so only
   the round you are in decides it.
+- **×1.5 win bonus:** beat your opponent and the round's points count one and
+  a half times on your total (a qualifying bye counts as a win). The matchup
+  itself is still decided on raw round points; the bonus is what makes the
+  running total worth something, because the total is what seeds the bracket.
 - A tie in a matchup is settled on total score, then on the draw. Never on a
   coin flip in front of a room.
 

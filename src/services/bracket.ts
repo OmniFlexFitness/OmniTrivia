@@ -1,4 +1,12 @@
-import { BracketRound, BracketSide, Matchup, Player } from "../types";
+import {
+  BracketRound,
+  BracketSide,
+  FinalSeries,
+  GameState,
+  Matchup,
+  Player,
+} from "../types";
+import { FINAL_BEST_OF, WIN_MULTIPLIER } from "../constants";
 
 /**
  * The bracket for a room of players: single elimination, or double
@@ -97,6 +105,7 @@ const withByeLast = (
  * lines up with the lanes it dealt.
  */
 const ID_PREFIX: Record<BracketSide, string> = {
+  qualifying: "q",
   winners: "m",
   losers: "l",
   final: "f",
@@ -108,6 +117,7 @@ export const sideOf = (matchup: Matchup): BracketSide =>
 
 /** What each side is called on screen. */
 export const SIDE_LABELS: Record<BracketSide, string> = {
+  qualifying: "Qualifying",
   winners: "Winners' bracket",
   losers: "Loser's bracket",
   final: "Grand final",
@@ -149,15 +159,89 @@ const pair = (
   return matchups;
 };
 
-/**
- * Seed round one. The draw is random — there is no ranking to seed from before
- * anyone has answered a question.
- */
-export const buildFirstRound = (players: Player[]): BracketRound => ({
-  roundNumber: 1,
-  matchups: pair(1, shuffle(players.map((p) => p.id)), "winners"),
-  resolved: false,
+/** Games a best-of series needs to win: more than half of them. */
+export const winsNeeded = (bestOf: number): number => Math.floor(bestOf / 2) + 1;
+
+/** One game of a best-of final, between two players. */
+const finalGame = (
+  roundNumber: number,
+  playerAId: string,
+  playerBId: string,
+  series: FinalSeries,
+): Matchup => ({
+  ...pair(roundNumber, [playerAId, playerBId], "final")[0],
+  // A series keeps the same id stem on every game, so a screen can tell
+  // game two from a fresh final.
+  id: `r${roundNumber}-f1`,
+  series,
 });
+
+/**
+ * The series score once a game of it has been played: the wins it was played
+ * at, plus that game's result. Null for a matchup that is not part of one.
+ */
+export const seriesScore = (
+  matchup: Matchup,
+): { winsA: number; winsB: number; bestOf: number; game: number } | null => {
+  const series = matchup.series;
+  if (!series) return null;
+  return {
+    bestOf: series.bestOf,
+    game: series.game,
+    winsA: series.winsA + (matchup.winnerId === matchup.playerAId ? 1 : 0),
+    winsB:
+      series.winsB +
+      (matchup.winnerId && matchup.winnerId === matchup.playerBId ? 1 : 0),
+  };
+};
+
+/** How a game is shaped from its very first draw. */
+export interface OpeningOptions {
+  /** Round one is a qualifying round: nobody goes out. */
+  qualifying?: boolean;
+  losersBracket?: boolean;
+  /** Games in the final. One is the old single-match final. */
+  finalBestOf?: number;
+}
+
+/** The opening options a game's settings call for. */
+export const openingOptions = (
+  state: Pick<GameState, "qualifyingRounds" | "losersBracket">,
+): OpeningOptions => ({
+  qualifying: state.qualifyingRounds > 0,
+  losersBracket: state.losersBracket,
+  finalBestOf: FINAL_BEST_OF,
+});
+
+/**
+ * Draw round one. The draw is random — there is no ranking to seed from before
+ * anyone has answered a question.
+ *
+ * With qualifying rounds it is a qualifying round, which nobody goes out of.
+ * Without them it is the bracket's first round — or, for a room of two with a
+ * best-of final, game one of that final.
+ */
+export const buildFirstRound = (
+  players: Player[],
+  options: OpeningOptions = {},
+): BracketRound => {
+  const ids = shuffle(players.map((p) => p.id));
+  const bestOf = options.finalBestOf ?? 1;
+
+  if (!options.qualifying && !options.losersBracket && bestOf > 1 && ids.length === 2) {
+    return {
+      roundNumber: 1,
+      matchups: [finalGame(1, ids[0], ids[1], { bestOf, game: 1, winsA: 0, winsB: 0 })],
+      resolved: false,
+    };
+  }
+
+  return {
+    roundNumber: 1,
+    matchups: pair(1, ids, options.qualifying ? "qualifying" : "winners"),
+    resolved: false,
+  };
+};
 
 /**
  * Re-pair the winners of the previous round, in bracket order.
@@ -257,6 +341,25 @@ export const matchupForPlayer = (
   );
 
 /**
+ * What beating your opponent adds to your total: the round's points again,
+ * times (WIN_MULTIPLIER - 1). Whole points, because a scoreboard reading
+ * 1237.5 is a scoreboard nobody trusts.
+ */
+export const winBonusFor = (roundScore: number): number =>
+  Math.round(Math.max(0, roundScore) * (WIN_MULTIPLIER - 1));
+
+/** The win bonus each player earned in a resolved round. */
+export const winBonuses = (round: BracketRound): Record<string, number> => {
+  const bonuses: Record<string, number> = {};
+  round.matchups.forEach((matchup) => {
+    if (matchup.winnerId && matchup.winBonus) {
+      bonuses[matchup.winnerId] = (bonuses[matchup.winnerId] ?? 0) + matchup.winBonus;
+    }
+  });
+  return bonuses;
+};
+
+/**
  * Decide every matchup in a round on that round's points.
  *
  * Ties are broken on the running total and then on the draw order, rather than
@@ -274,38 +377,48 @@ export const resolveRound = (
 
     const scores = { scoreA: a?.roundScore ?? null, scoreB: b?.roundScore ?? null };
 
-    // Bye, or an opponent who left the game: A walks through.
+    // Bye, or an opponent who left the game: A walks through. In a
+    // qualifying round a bye still earns the win bonus — nobody advances
+    // anywhere in qualifying, so a bye that paid nothing would only be a
+    // penalty for the numbers being odd.
     if (!b) {
-      return { ...matchup, ...scores, winnerId: a?.id ?? null, tiebreak: "Bye" };
+      const bonus =
+        sideOf(matchup) === "qualifying" && a ? winBonusFor(a.roundScore) : 0;
+      return {
+        ...matchup,
+        ...scores,
+        winnerId: a?.id ?? null,
+        tiebreak: "Bye",
+        ...(bonus > 0 ? { winBonus: bonus } : {}),
+      };
     }
     if (!a) {
       return { ...matchup, ...scores, winnerId: b.id, tiebreak: "Bye" };
     }
 
-    if (a.roundScore !== b.roundScore) {
+    const decided = (winner: Player, tiebreak: string | null): Matchup => {
+      const bonus = winBonusFor(winner.roundScore);
       return {
         ...matchup,
         ...scores,
-        winnerId: a.roundScore > b.roundScore ? a.id : b.id,
-        tiebreak: null,
+        winnerId: winner.id,
+        tiebreak,
+        ...(bonus > 0 ? { winBonus: bonus } : {}),
       };
+    };
+
+    if (a.roundScore !== b.roundScore) {
+      return decided(a.roundScore > b.roundScore ? a : b, null);
     }
 
     if (a.score !== b.score) {
-      return {
-        ...matchup,
-        ...scores,
-        winnerId: a.score > b.score ? a.id : b.id,
-        tiebreak: "Tied on the round — decided on total score",
-      };
+      return decided(
+        a.score > b.score ? a : b,
+        "Tied on the round — decided on total score",
+      );
     }
 
-    return {
-      ...matchup,
-      ...scores,
-      winnerId: a.id,
-      tiebreak: "Dead heat — advanced on the draw",
-    };
+    return decided(a, "Dead heat — advanced on the draw");
   });
 
   return {
@@ -338,6 +451,11 @@ export interface RoundOutcome {
    * by the same round — and this list wins: they are back in the bracket.
    */
   wildcardIds: string[];
+  /**
+   * Win bonuses this round earned, by player — to be added to their totals.
+   * The bracket's own seeding has already counted them.
+   */
+  bonuses: Record<string, number>;
   /** The next round's draw, or null when the bracket is decided or out of rounds. */
   nextRound: BracketRound | null;
 }
@@ -409,17 +527,113 @@ const drawWildcard = (
  */
 const pairSide = (
   roundNumber: number,
-  ids: string[],
-  history: BracketRound[],
+  order: string[],
   side: BracketSide,
   wildcardId: string | null,
+  seeds?: Map<string, number>,
 ): Matchup[] => {
-  const order = withByeLast(ids, history);
-  if (!wildcardId) return pair(roundNumber, order, side);
+  const matchups = wildcardId
+    ? pair(roundNumber, [...order, wildcardId], side).map((matchup) =>
+        matchup.playerBId === wildcardId ? { ...matchup, wildcardId } : matchup,
+      )
+    : pair(roundNumber, order, side);
 
-  return pair(roundNumber, [...order, wildcardId], side).map((matchup) =>
-    matchup.playerBId === wildcardId ? { ...matchup, wildcardId } : matchup,
+  return seeds ? withSeeds(matchups, seeds) : matchups;
+};
+
+/* ------------------------------------------------------------------ *
+ * Standings, seeding and the qualifying draw
+ * ------------------------------------------------------------------ */
+
+/**
+ * A field in standing order: highest total first, ties on the draw.
+ */
+const standingOrder = (
+  ids: string[],
+  scoreOf: (id: string) => number,
+  drawOrder: string[],
+): string[] => {
+  const seed = new Map(drawOrder.map((id, index) => [id, index]));
+  const seedOf = (id: string) => seed.get(id) ?? Number.MAX_SAFE_INTEGER;
+  return [...ids].sort((a, b) => scoreOf(b) - scoreOf(a) || seedOf(a) - seedOf(b));
+};
+
+/** Each player's place in a ranked list, 1-based. */
+const seedMap = (ranked: string[]): Map<string, number> =>
+  new Map(ranked.map((id, index) => [id, index + 1]));
+
+/** Write each side's standing onto the matchups it was drawn from. */
+const withSeeds = (matchups: Matchup[], seeds: Map<string, number>): Matchup[] =>
+  matchups.map((matchup) => ({
+    ...matchup,
+    seedA: seeds.get(matchup.playerAId),
+    seedB: matchup.playerBId ? (seeds.get(matchup.playerBId) ?? null) : null,
+  }));
+
+/**
+ * Seeded order: the highest total meets the lowest, the second meets the
+ * second-lowest, and so on. With an odd field the top seed is the one left
+ * over — last in the list, where `pair` hands out the bye (or a wildcard
+ * takes the seat opposite). Being the top seed is supposed to be worth
+ * something.
+ *
+ * Done again every round rather than once, so a seed is always the player's
+ * standing *now*: the totals keep moving through the bracket.
+ */
+export const seededOrder = (ranked: string[]): string[] => {
+  const field = [...ranked];
+  const top = field.length % 2 === 1 ? field.shift() : undefined;
+  const order: string[] = [];
+  for (let i = 0, j = field.length - 1; i < j; i++, j--) {
+    order.push(field[i], field[j]);
+  }
+  if (top) order.push(top);
+  return order;
+};
+
+/**
+ * The qualifying draw after round one: neighbours in the standings meet —
+ * first against second, third against fourth — so every round is a close
+ * game and the totals sort the room out. Nobody is drawn against somebody
+ * they have already played while there is anyone else to draw. With an odd
+ * field the bye goes to the lowest-ranked player who has had the fewest.
+ */
+const qualifyingOrder = (
+  ranked: string[],
+  history: BracketRound[],
+): string[] => {
+  const pool = [...ranked];
+  let bye: string | undefined;
+
+  if (pool.length % 2 === 1) {
+    const counts = byeCounts(history);
+    bye = [...pool]
+      .reverse()
+      .reduce((best, id) =>
+        (counts.get(id) ?? 0) < (counts.get(best) ?? 0) ? id : best,
+      );
+    pool.splice(pool.indexOf(bye), 1);
+  }
+
+  const met = new Set<string>();
+  history.forEach((round) =>
+    round.matchups.forEach((m) => {
+      if (!m.playerBId) return;
+      met.add(`${m.playerAId}|${m.playerBId}`);
+      met.add(`${m.playerBId}|${m.playerAId}`);
+    }),
   );
+
+  const order: string[] = [];
+  while (pool.length > 1) {
+    const a = pool.shift() as string;
+    const fresh = pool.findIndex((b) => !met.has(`${a}|${b}`));
+    const [b] = pool.splice(fresh >= 0 ? fresh : 0, 1);
+    order.push(a, b);
+  }
+  order.push(...pool);
+  if (bye) order.push(bye);
+  return order;
 };
 
 /** A side that would hand out a genuine bye: odd, and more than a lone player. */
@@ -463,16 +677,98 @@ export const settleRound = (
     wildcards?: boolean;
     /** Who may be drawn as a wildcard — a host who is not answering may not. */
     canWildcard?: (player: Player) => boolean;
+    /**
+     * Rounds before the bracket. While `round` is one of them nobody goes
+     * out; after the last, the bracket is drawn seeded on the totals.
+     */
+    qualifyingRounds?: number;
+    /**
+     * Pair every bracket round by standing — highest total against lowest —
+     * rather than in bracket order. Off, the bracket pairs exactly as it
+     * always did.
+     */
+    seeded?: boolean;
+    /** Games in the final. One (the default) is the old single-match final. */
+    finalBestOf?: number;
   },
 ): RoundOutcome => {
   const { round: resolved } = resolveRound(round, players);
   const present = new Set(players.map((p) => p.id));
+  const bonuses = winBonuses(resolved);
+  const bestOf = options.finalBestOf ?? 1;
 
+  // Standings as they are once this round's win bonuses are counted — which
+  // is what anything drawn from here on is seeded on.
+  const totals = new Map(
+    players.map((p) => [p.id, p.score + (bonuses[p.id] ?? 0)]),
+  );
+  const history = [...options.playedRounds, resolved];
+  const drawOrder = history[0]
+    ? activePlayerIds(history[0])
+    : players.map((p) => p.id);
+  const rank = (ids: string[]) =>
+    standingOrder(ids, (id) => totals.get(id) ?? 0, drawOrder);
+  const roundNumber = round.roundNumber + 1;
+  const base = { round: resolved, wildcardIds: [] as string[], bonuses };
+
+  /* --- a qualifying round: nobody goes out --- */
+  const qualifying =
+    resolved.matchups.length > 0 &&
+    resolved.matchups.every((m) => sideOf(m) === "qualifying");
+
+  if (qualifying) {
+    const field = drawOrder.filter((id) => present.has(id));
+    let nextRound: BracketRound | null = null;
+
+    if (options.hasMoreRounds && field.length >= 2) {
+      const ranked = rank(field);
+      const seeds = seedMap(ranked);
+
+      if (round.roundNumber < (options.qualifyingRounds ?? 0)) {
+        nextRound = {
+          roundNumber,
+          matchups: withSeeds(
+            pair(roundNumber, qualifyingOrder(ranked, history), "qualifying"),
+            seeds,
+          ),
+          resolved: false,
+        };
+      } else if (!options.losersBracket && bestOf > 1 && ranked.length === 2) {
+        nextRound = {
+          roundNumber,
+          matchups: withSeeds(
+            [finalGame(roundNumber, ranked[0], ranked[1], { bestOf, game: 1, winsA: 0, winsB: 0 })],
+            seeds,
+          ),
+          resolved: false,
+        };
+      } else {
+        // The bracket, seeded on what qualifying built.
+        nextRound = {
+          roundNumber,
+          matchups: pairSide(roundNumber, seededOrder(ranked), "winners", null, seeds),
+          resolved: false,
+        };
+      }
+    }
+
+    return {
+      ...base,
+      winnersIds: field,
+      losersIds: [],
+      eliminatedIds: [],
+      championId: null,
+      nextRound,
+    };
+  }
+
+  /* --- the bracket --- */
   const winnersIds: string[] = [];
   const survivors: string[] = [];
   const dropped: string[] = [];
   const eliminatedIds: string[] = [];
   let championId: string | null = null;
+  let seriesGoesOn: Matchup | null = null;
 
   for (const matchup of resolved.matchups) {
     const ids = [matchup.playerAId, matchup.playerBId].filter(
@@ -482,6 +778,7 @@ export const settleRound = (
     const losers = ids.filter((id) => id !== winner);
 
     switch (sideOf(matchup)) {
+      case "qualifying":
       case "winners":
         if (winner) winnersIds.push(winner);
         if (options.losersBracket) dropped.push(...losers);
@@ -491,22 +788,71 @@ export const settleRound = (
         if (winner) survivors.push(winner);
         eliminatedIds.push(...losers);
         break;
-      case "final":
-        championId = winner;
-        eliminatedIds.push(...losers);
+      case "final": {
+        const score = seriesScore(matchup);
+        const need = score ? winsNeeded(score.bestOf) : 1;
+        // A finalist who left the room forfeits the series.
+        const decided =
+          !score ||
+          ids.length < 2 ||
+          score.winsA >= need ||
+          score.winsB >= need;
+        if (decided) {
+          championId = winner;
+          eliminatedIds.push(...losers);
+        } else {
+          seriesGoesOn = matchup;
+        }
         break;
+      }
     }
   }
 
-  const losersIds = interleave(survivors, dropped);
+  // A best-of final that nobody has won yet: the same two play the next
+  // game, and nothing else in the bracket moves.
+  if (seriesGoesOn) {
+    const score = seriesScore(seriesGoesOn)!;
+    return {
+      ...base,
+      winnersIds: [],
+      losersIds: [],
+      eliminatedIds: [],
+      championId: null,
+      nextRound: options.hasMoreRounds
+        ? {
+            roundNumber,
+            matchups: [
+              {
+                ...finalGame(
+                  roundNumber,
+                  seriesGoesOn.playerAId,
+                  seriesGoesOn.playerBId as string,
+                  {
+                    bestOf: score.bestOf,
+                    game: score.game + 1,
+                    winsA: score.winsA,
+                    winsB: score.winsB,
+                  },
+                ),
+                seedA: seriesGoesOn.seedA,
+                seedB: seriesGoesOn.seedB,
+              },
+            ],
+            resolved: false,
+          }
+        : null,
+    };
+  }
+
+  const losersIds = options.seeded
+    ? rank([...survivors, ...dropped])
+    : interleave(survivors, dropped);
   const alive = [...winnersIds, ...losersIds];
 
   // A final settles it, and so does a bracket with one player left in it —
   // which is how a game without a loser's bracket has always ended.
   if (!championId && alive.length <= 1) championId = alive[0] ?? null;
 
-  const history = [...options.playedRounds, resolved];
-  const roundNumber = round.roundNumber + 1;
   let nextRound: BracketRound | null = null;
   const wildcardIds: string[] = [];
 
@@ -520,43 +866,71 @@ export const settleRound = (
     const id = drawWildcard(
       players,
       outIds,
-      history[0] ? activePlayerIds(history[0]) : players.map((p) => p.id),
+      drawOrder,
       options.canWildcard ?? (() => true),
     );
     if (id) wildcardIds.push(id);
     return id;
   };
 
+  // Seeded: by standing, top seed owed the bye. Otherwise bracket order, bye
+  // to whoever has had the fewest.
+  const sideOrder = (ids: string[]) =>
+    options.seeded ? seededOrder(rank(ids)) : withByeLast(ids, history);
+  const sideSeeds = (ids: string[]) =>
+    options.seeded ? seedMap(rank(ids)) : undefined;
+  const finalOf = (a: string, b: string): BracketRound => {
+    const [first, second] = options.seeded ? rank([a, b]) : [a, b];
+    const matchup =
+      bestOf > 1
+        ? finalGame(roundNumber, first, second, { bestOf, game: 1, winsA: 0, winsB: 0 })
+        : pair(roundNumber, [first, second], "final")[0];
+    return {
+      roundNumber,
+      matchups: options.seeded ? withSeeds([matchup], seedMap(rank([a, b]))) : [matchup],
+      resolved: false,
+    };
+  };
+
   if (!championId && options.hasMoreRounds) {
     if (!options.losersBracket) {
-      nextRound = {
-        roundNumber,
-        matchups: pairSide(
-          roundNumber,
-          winnersIds,
-          history,
-          "winners",
-          wildcardFor(winnersIds),
-        ),
-        resolved: false,
-      };
+      nextRound =
+        bestOf > 1 && winnersIds.length === 2
+          ? finalOf(winnersIds[0], winnersIds[1])
+          : {
+              roundNumber,
+              matchups: pairSide(
+                roundNumber,
+                sideOrder(winnersIds),
+                "winners",
+                wildcardFor(winnersIds),
+                sideSeeds(winnersIds),
+              ),
+              resolved: false,
+            };
     } else if (winnersIds.length === 1 && losersIds.length === 1) {
-      nextRound = {
-        roundNumber,
-        matchups: pair(roundNumber, [winnersIds[0], losersIds[0]], "final"),
-        resolved: false,
-      };
+      nextRound = finalOf(winnersIds[0], losersIds[0]);
+      if (!options.seeded && bestOf <= 1) {
+        // The old final keeps its old shape: winners' player first.
+        nextRound.matchups = pair(roundNumber, [winnersIds[0], losersIds[0]], "final");
+      }
     } else {
       nextRound = {
         roundNumber,
         matchups: [
-          ...pairSide(roundNumber, winnersIds, history, "winners", null),
           ...pairSide(
             roundNumber,
-            losersIds,
-            history,
+            sideOrder(winnersIds),
+            "winners",
+            null,
+            sideSeeds(winnersIds),
+          ),
+          ...pairSide(
+            roundNumber,
+            sideOrder(losersIds),
             "losers",
             wildcardFor(losersIds),
+            sideSeeds(losersIds),
           ),
         ],
         resolved: false,
@@ -565,7 +939,7 @@ export const settleRound = (
   }
 
   return {
-    round: resolved,
+    ...base,
     winnersIds,
     losersIds,
     eliminatedIds,
@@ -587,8 +961,21 @@ export const settleRound = (
 export const roundsToDecide = (
   playerCount: number,
   losersBracket: boolean,
+  /** Rounds before the bracket, where nobody goes out. */
+  qualifyingRounds = 0,
+  /** Games in the final; a series can take all of them. */
+  finalBestOf = 1,
 ): number => {
   if (playerCount < 2) return 0;
+  return (
+    qualifyingRounds +
+    bracketRounds(playerCount, losersBracket) +
+    Math.max(0, finalBestOf - 1)
+  );
+};
+
+/** Rounds of the bracket itself, counting the final as one. */
+const bracketRounds = (playerCount: number, losersBracket: boolean): number => {
 
   let winners = playerCount;
   let losers = 0;
