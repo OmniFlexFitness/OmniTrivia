@@ -15,6 +15,7 @@ import {
   LaneStatus,
   Player,
   Question,
+  QuestionType,
   RemoteCommand,
   RoundConfig,
 } from "../types";
@@ -171,7 +172,8 @@ interface GameContextType extends GameState {
   remotePairingUrl: () => string | null;
   initHost: () => void;
   initJoin: () => void;
-  generateGame: (rounds: number, questions: number) => Promise<void>;
+  /** `formats` limits which question types Claude writes; omitted, it uses them all. */
+  generateGame: (rounds: number, questions: number, formats?: QuestionType[]) => Promise<void>;
   confirmGame: () => void;
   setGameName: (name: string) => void;
   /** Choose the password that gets this game back. Set before the lobby opens. */
@@ -1399,7 +1401,11 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     });
   };
 
-  const generateGame = async (rounds: number, questions: number) => {
+  const generateGame = async (
+    rounds: number,
+    questions: number,
+    formats?: QuestionType[],
+  ) => {
     setState((prev) => ({
       ...prev,
       loading: true,
@@ -1423,7 +1429,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
       // wait for 5 round-trips before the host saw anything.
       const results = await Promise.all(
         selectedCats.map((category) =>
-          generateQuestions(category.name, questions),
+          generateQuestions(category.name, questions, formats),
         ),
       );
 
@@ -2710,7 +2716,11 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     if (!roundConfig.questions[questionIndex]) return false;
 
     try {
-      const result = await generateQuestions(roundConfig.category.name, 1);
+      // The replacement keeps the slot's format: a host who swaps out a pin
+      // question wants a different pin question, not a surprise true/false.
+      const result = await generateQuestions(roundConfig.category.name, 1, [
+        roundConfig.questions[questionIndex].type ?? QuestionType.MULTIPLE_CHOICE,
+      ]);
       // A placeholder is not a replacement. Leaving the original in place and
       // saying so beats swapping a real question for "generation failed".
       if (result.usedFallback || result.questions.length === 0) return false;

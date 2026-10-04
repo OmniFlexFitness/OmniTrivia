@@ -47,6 +47,11 @@ export const GLOSSARY: GlossaryEntry[] = [
       "The final is best of 3. Each game is its own spin of the wheel and its own round; the first to win two takes the night. Everybody else keeps playing on the Redemption Table while it is on.",
   },
   {
+    term: "Close",
+    definition:
+      "A near miss that still scored. Sliders, pins and closest-number questions pay part of the points for an answer just off the target — how far off still counts is the question's margin — and a match or sort pays for the pairs it got right beyond guessing. It shows as ≈ rather than ✓, and does not keep a streak going.",
+  },
+  {
     term: "Matchup",
     definition:
       "One pairing for one round: you against one other player. Qualifying rounds pair you with somebody near you in the standings; bracket rounds pair the highest total left against the lowest.",
@@ -100,7 +105,8 @@ export const GLOSSARY: GlossaryEntry[] = [
 
 export const SCORING_RULES: string[] = [
   "100 points for a correct answer.",
-  "10 more for every second still on your clock — answering fast is worth real points.",
+  "Up to 150 more for speed — 10 a second on a 15-second question, scaled so a full clock is worth the same on every format, from a 12-second true/false to a 30-second puzzle.",
+  "Close counts on some formats: a slider, a pin or a closest-number guess just off the answer still earns part of the points, a range earns more the tighter it is, and a match or sort pays for what you got right beyond guessing.",
   "Beat your opponent and the round's points count ×1.5 on your total — the total is what seeds the bracket.",
   "The last question of every round counts double — nobody is out of a match until it is over.",
   "Each round is scored on its own. Every matchup starts level at zero, so the round you are in is the only one that decides it.",
@@ -167,7 +173,8 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
     lead: "One category per round: the importer groups rows by their category column and makes each group a round, whichever of these three you take.",
     points: [
       "LOAD THE QUESTION BANK is the premade set — hundreds of questions, thirty-odd categories, no API key and nothing to write. Everything below is for bringing your own.",
-      "Required columns: category, question, correctAnswer. Optional: type, option1–option5, explanation.",
+      "Required columns: category, question, correctAnswer. Optional: type, option1, option2 … (as many as you need), explanation, image, margin, unit, timeLimit.",
+      "Twelve formats: multiple choice, select-all, true/false, typed answer, slider, range, closest number, pin answer on a picture or a built-in world or US map, and four puzzles — order, match, sort and unscramble. QUESTION_FORMAT.md shows how each one is written.",
       "Leave the option columns empty and the row is read as a typed answer, or as true/false when correctAnswer says True or False. A row whose correctAnswer matches none of its options is dropped rather than guessed at, and so is any question with placeholder answers (\"Placeholder 1\", \"Option A\") or nothing to choose between.",
       "A Google Sheet has to be shared as 'anyone with the link can view' before it can be read.",
       "Bring the whole file. You choose how much of it to play on the next screen, so a library of twenty categories is fine for a three-round night.",
@@ -254,7 +261,8 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
     points: [
       "Answer, lock it in, and take the next question straight away — you never wait for your opponent.",
       "You are not told whether an answer was right until your match is over. Then the whole round lands at once, and the answer key goes up when every match has finished.",
-      "Points are 100 for a correct answer plus 10 for every second left on your clock. Fast is worth more.",
+      "Points are 100 for a correct answer plus up to 150 for speed. Fast is worth more.",
+      "Every format has its own clock: a true/false is quick, a puzzle or a pin gets longer. Sliders, pins and closest-number guesses pay part of the points for a near miss — shown as ≈ close when your results land.",
       "The last question of the round counts double. However the match has gone, it is not over until that one is in.",
       "You and your opponent answer the same questions; whoever has more points at the end of the round wins the matchup — and in every round, the winner's points count ×1.5 on their total.",
       "Out of the bracket? You are on the Redemption Table: the same questions, no opponent, and every point counts towards the redemption prize. The best round there can earn a wildcard back into the bracket.",

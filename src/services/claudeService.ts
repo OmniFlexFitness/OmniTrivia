@@ -3,6 +3,7 @@ import * as z from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { Question, QuestionType } from "../types";
 import { currentIdToken } from "./remoteRoom";
+import { rowToQuestion } from "./importService";
 
 const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY || "";
 
@@ -88,18 +89,93 @@ const client = proxyUrl
       })
     : null;
 
-// The model fills this shape directly — no JSON hidden in markdown fences, and
-// no hand-rolled parsing of a free-text response.
-const GeneratedQuestions = z.object({
-  questions: z.array(
-    z.object({
-      text: z.string(),
-      options: z.array(z.string()),
-      correctIndex: z.number().int(),
-      explanation: z.string(),
-    }),
-  ),
-});
+/**
+ * How each question type is written, for the model — the same column rules a
+ * spreadsheet follows (see QUESTION_FORMAT.md), because what comes back goes
+ * through the very same converter as an imported row.
+ */
+const TYPE_INSTRUCTIONS: Record<QuestionType, string> = {
+  [QuestionType.MULTIPLE_CHOICE]:
+    "MULTIPLE_CHOICE — options: exactly 4 choices, one right and three plausible but clearly wrong. correctAnswer: the right option, word for word.",
+  [QuestionType.MULTI_SELECT]:
+    'MULTI_SELECT — a "which of these…" question. options: 4 or 5 choices, of which 2 or 3 are right. correctAnswer: every right option, word for word, joined with " | ".',
+  [QuestionType.TRUE_FALSE]:
+    'TRUE_FALSE — text is a statement, not a question. options: []. correctAnswer: "True" or "False". Aim for roughly half false.',
+  [QuestionType.TYPE_ANSWER]:
+    "TYPE_ANSWER — players type the answer. options: every spelling to accept, canonical first (full name, surname, common variants). correctAnswer: the canonical answer.",
+  [QuestionType.SLIDER]:
+    "SLIDER — players slide to a number. options: [min, max, step, lowestCorrect, highestCorrect] as plain numbers; bracket the answer without centring on it, keep the correct window narrow but reachable with the step. correctAnswer: the true value. unit: what it counts, if anything.",
+  [QuestionType.RANGE]:
+    "RANGE — players drag two handles to catch the answer; the tighter, the more it pays. options: [min, max, step] as plain numbers, a scale wide enough that the answer is not obvious from it. correctAnswer: the exact number. unit: what it counts, if anything.",
+  [QuestionType.NUMBER]:
+    "NUMBER — closest guess wins, no scale shown. options: []. correctAnswer: the exact number, digits only. unit: what it counts, if anything. Only for numbers with one defensible value.",
+  [QuestionType.PIN]:
+    'PIN — players drop a pin on a built-in map. map: "world" or "usa" (the lower 48 only). text: "Drop a pin on …" or a clue to a place. options: [latitude, longitude, radiusKm] in decimal degrees; radius 300–800 km on the world map, 60–250 km on the US map. correctAnswer: the place\'s name. Only famous places with unambiguous coordinates.',
+  [QuestionType.PUZZLE]:
+    'PUZZLE — put items in order. options: 4 items in the CORRECT order, by something unarguable (usually date). correctAnswer: the same items joined with " | ".',
+  [QuestionType.MATCH]:
+    'MATCH — pair items up. options: 4 pairs, each written "item = partner"; every partner different. correctAnswer: "See the pairs".',
+  [QuestionType.CATEGORIZE]:
+    'CATEGORIZE — sort items into groups. options: 6 items, each written "item = group", using exactly 2 or 3 groups with at least 2 items each. correctAnswer: "See the groups".',
+  [QuestionType.SCRAMBLE]:
+    "SCRAMBLE — players rebuild a word from its shuffled letters. text: the clue. options: []. correctAnswer: one word or a two-word name, 5 to 12 letters.",
+};
+
+/** Every type a generated game can use. */
+export const GENERATABLE_TYPES: QuestionType[] = Object.values(QuestionType);
+
+/**
+ * The shape the model fills. One flat object per question rather than a
+ * union per type: the converter already knows what each type's columns
+ * mean, and a flat shape is one the model fills reliably.
+ */
+const generatedShape = (types: QuestionType[]) =>
+  z.object({
+    questions: z.array(
+      z.object({
+        type: z.enum(types as [QuestionType, ...QuestionType[]]),
+        text: z.string(),
+        options: z.array(z.string()),
+        correctAnswer: z.string(),
+        explanation: z.string(),
+        map: z.enum(["", "world", "usa"]),
+        unit: z.string(),
+      }),
+    ),
+  });
+
+export type GeneratedQuestion = z.infer<ReturnType<typeof generatedShape>>["questions"][number];
+
+/**
+ * What the model wrote, as questions — through `rowToQuestion`, exactly as a
+ * spreadsheet row would be read. A question the converter refuses is dropped
+ * with its reason logged, rather than played with a guessed answer.
+ */
+export const questionsFromGenerated = (
+  category: string,
+  generated: readonly GeneratedQuestion[],
+  stamp: number = Date.now(),
+): Question[] =>
+  generated.flatMap((q, index) => {
+    const result = rowToQuestion(
+      {
+        type: q.type,
+        category,
+        question: q.text,
+        options: q.options.map((o) => String(o)),
+        correctAnswer: q.correctAnswer,
+        explanation: q.explanation,
+        image: q.type === QuestionType.PIN ? q.map || "world" : "",
+        unit: q.unit,
+      },
+      `${category}-${stamp}-${index}`,
+    );
+    if ("skip" in result) {
+      console.warn(`Dropped a generated ${q.type} question (${result.skip}): ${q.text}`);
+      return [];
+    }
+    return [result.question];
+  });
 
 export interface GenerationResult {
   questions: Question[];
@@ -123,6 +199,8 @@ const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T> =>
 export const generateQuestions = async (
   category: string,
   count: number = 5,
+  /** The formats to write in. Empty or omitted means every format. */
+  types: readonly QuestionType[] = GENERATABLE_TYPES,
 ): Promise<GenerationResult> => {
   if (!client) {
     return fallback(
@@ -132,6 +210,16 @@ export const generateQuestions = async (
     );
   }
 
+  const allowed = types.length > 0 ? [...new Set(types)] : GENERATABLE_TYPES;
+  const mix =
+    allowed.length === 1
+      ? `Every question is ${allowed[0]}.`
+      : `Mix the formats so the round does not look the same twice in a row` +
+        (allowed.includes(QuestionType.MULTIPLE_CHOICE)
+          ? ": about half MULTIPLE_CHOICE, and the rest spread across the other formats"
+          : ": spread them across the formats") +
+        ", picking for each question the format that suits it — PIN for places, SLIDER, RANGE or NUMBER for years and quantities, PUZZLE for timelines, MATCH for pairs, CATEGORIZE for sorting, SCRAMBLE for a single memorable word.";
+
   try {
     const response = await withTimeout(
       client.messages.parse({
@@ -139,21 +227,27 @@ export const generateQuestions = async (
         max_tokens: 16000,
         thinking: { type: "adaptive" },
         system:
-          "You write pub-trivia questions. Every question must have exactly one " +
-          "defensibly correct answer and three plausible but clearly wrong " +
-          "distractors. Prefer questions a general audience can reason about " +
-          "over obscure recall. Never repeat a question within a set.",
+          "You write pub-trivia questions for a fast, head-to-head game played " +
+          "on phones. Every question must have exactly one defensibly correct " +
+          "answer, and wrong options must be plausible but clearly wrong. " +
+          "Prefer questions a general audience can reason about over obscure " +
+          "recall. Never repeat a question within a set. Keep every question " +
+          "short enough to read in a few seconds.",
         messages: [
           {
             role: "user",
             content:
-              `Write ${count} multiple-choice trivia questions about "${category}".\n` +
-              `Each needs exactly 4 options, the 0-based index of the correct ` +
-              `option, and a one-sentence fun fact explaining the answer.`,
+              `Write ${count} trivia questions about "${category}".\n` +
+              `${mix}\n\n` +
+              `Formats you may use, and how to fill each one:\n` +
+              allowed.map((type) => `- ${TYPE_INSTRUCTIONS[type]}`).join("\n") +
+              `\n\nFor every question: explanation is a one-sentence fun fact ` +
+              `worth reading aloud. map is "" except on PIN. unit is "" unless ` +
+              `the format uses one.`,
           },
         ],
         output_config: {
-          format: zodOutputFormat(GeneratedQuestions),
+          format: zodOutputFormat(generatedShape(allowed)),
         },
       }),
       REQUEST_TIMEOUT_MS,
@@ -179,31 +273,7 @@ export const generateQuestions = async (
       );
     }
 
-    const questions = parsed.questions
-      .map((q, index) => {
-        const options = q.options.map((o) => String(o));
-        // A question the players cannot answer is worse than one fewer question.
-        if (!q.text || options.length < 2) return null;
-
-        const correctIndex =
-          Number.isInteger(q.correctIndex) &&
-          q.correctIndex >= 0 &&
-          q.correctIndex < options.length
-            ? q.correctIndex
-            : 0;
-
-        return {
-          id: `${category}-${Date.now()}-${index}`,
-          category,
-          text: q.text,
-          options,
-          correctIndex,
-          explanation: q.explanation || "No explanation provided.",
-          type: QuestionType.MULTIPLE_CHOICE,
-        } as Question;
-      })
-      .filter((q): q is Question => q !== null);
-
+    const questions = questionsFromGenerated(category, parsed.questions);
     if (questions.length === 0) {
       return fallback(category, count, "The model returned no usable questions.");
     }

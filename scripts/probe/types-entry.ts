@@ -56,6 +56,7 @@ import {
   seatForPlayer,
 } from "../../src/services/lanes";
 import { MAP_FRAMES, geoPinTarget, mapAspect } from "../../src/services/mapProjection";
+import { questionsFromGenerated } from "../../src/services/claudeService";
 
 let failures = 0;
 const check = (label: string, passed: boolean, detail = ""): void => {
@@ -565,6 +566,47 @@ check(
   "every type survives the round trip",
   drifted.length === 0 && again.length === imported.length,
   drifted.map((q) => `${q.type}: ${q.text}`).join(" / "),
+);
+
+/* ------------------------------------------------------------------ *
+ * 7. What Claude writes goes through the same converter
+ * ------------------------------------------------------------------ */
+
+section("7. A generated round in every format becomes the questions it describes");
+
+const blank = { map: "" as const, unit: "" };
+const generated = questionsFromGenerated("Science", [
+  { ...blank, type: QuestionType.MULTIPLE_CHOICE, text: "Which planet is largest?", options: ["Jupiter", "Saturn", "Mars", "Venus"], correctAnswer: "Jupiter", explanation: "." },
+  { ...blank, type: QuestionType.MULTI_SELECT, text: "Which are mammals?", options: ["Whale", "Shark", "Bat", "Trout"], correctAnswer: "Whale | Bat", explanation: "." },
+  { ...blank, type: QuestionType.TRUE_FALSE, text: "Venus spins backwards.", options: [], correctAnswer: "True", explanation: "." },
+  { ...blank, type: QuestionType.TYPE_ANSWER, text: "Who proposed general relativity?", options: ["Albert Einstein", "Einstein"], correctAnswer: "Albert Einstein", explanation: "." },
+  { ...blank, type: QuestionType.SLIDER, text: "When was the first Moon landing?", options: ["1950", "1990", "1", "1969", "1969"], correctAnswer: "1969", explanation: "." },
+  { ...blank, type: QuestionType.RANGE, text: "How many bones in an adult?", options: ["100", "400", "1"], correctAnswer: "206", explanation: "." },
+  { ...blank, type: QuestionType.NUMBER, text: "Speed of light in km/s?", options: [], correctAnswer: "299792", explanation: ".", unit: "km/s" },
+  { ...blank, type: QuestionType.PIN, text: "Drop a pin on CERN.", options: ["46.2338", "6.0553", "300"], correctAnswer: "CERN, Geneva", explanation: ".", map: "world" },
+  { ...blank, type: QuestionType.PIN, text: "Drop a pin on Cape Canaveral.", options: ["28.3922", "-80.6077", "100"], correctAnswer: "Cape Canaveral", explanation: ".", map: "usa" },
+  { ...blank, type: QuestionType.PUZZLE, text: "Order these discoveries.", options: ["Gravity", "Electron", "DNA helix", "Higgs boson"], correctAnswer: "Gravity | Electron | DNA helix | Higgs boson", explanation: "." },
+  { ...blank, type: QuestionType.MATCH, text: "Match the scientist to the field.", options: ["Darwin = Evolution", "Curie = Radioactivity", "Newton = Gravity", "Mendel = Genetics"], correctAnswer: "See the pairs", explanation: "." },
+  { ...blank, type: QuestionType.CATEGORIZE, text: "Metal or non-metal?", options: ["Iron = Metal", "Carbon = Non-metal", "Copper = Metal", "Oxygen = Non-metal"], correctAnswer: "See the groups", explanation: "." },
+  { ...blank, type: QuestionType.SCRAMBLE, text: "The powerhouse of the cell", options: [], correctAnswer: "Mitochondria", explanation: "." },
+  // And one the converter has to refuse rather than guess at.
+  { ...blank, type: QuestionType.MULTIPLE_CHOICE, text: "Broken one?", options: ["A", "B", "C", "D"], correctAnswer: "E", explanation: "." },
+]);
+check(
+  "every well-formed generated question survives, in its own format, and a broken one is dropped",
+  generated.length === 13 &&
+    new Set(generated.map((q) => q.type)).size === Object.values(QuestionType).length,
+  `${generated.length} kept: ${[...new Set(generated.map((q) => q.type))].join(", ")}`,
+);
+check(
+  "a generated question's right answer grades as right",
+  generated.every((q) => gradeAnswer(q, botAnswerFor(q, true)).correct),
+  generated.filter((q) => !gradeAnswer(q, botAnswerFor(q, true)).correct).map((q) => q.type).join(", "),
+);
+check(
+  "a generated pin defaults to the map it names, and a number keeps its unit",
+  generated.find((q) => q.text.includes("Cape Canaveral"))?.image === "map:usa" &&
+    generated.find((q) => q.type === QuestionType.NUMBER)?.unit === "km/s",
 );
 
 /* ------------------------------------------------------------------ *
