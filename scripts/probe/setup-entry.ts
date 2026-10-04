@@ -67,7 +67,12 @@ const content = (id: string, name: string, count: number): CategoryContent => ({
 });
 
 /** The answer text a question currently marks correct. */
-const correctText = (q: Question): string => q.options[q.correctIndex];
+/** The correct answer as text — every one of them, for a multi-select. */
+const correctText = (q: Question): string =>
+  (q.correctIndices ?? [q.correctIndex])
+    .map((index) => q.options[index])
+    .sort()
+    .join("|");
 
 const library: CategoryContent[] = [
   content("science", "Science", 12),
@@ -275,8 +280,10 @@ check(
   "an imported question still marks the same answer correct",
   importedQuestions.every((q) => {
     const before = parsedById.get(q.id)!;
-    return (before.type ?? QuestionType.MULTIPLE_CHOICE) ===
-      QuestionType.MULTIPLE_CHOICE
+    // Multiple choice and multi-select have their options shuffled on the
+    // way in, so what has to survive is which answers are right, by text.
+    const type = before.type ?? QuestionType.MULTIPLE_CHOICE;
+    return type === QuestionType.MULTIPLE_CHOICE || type === QuestionType.MULTI_SELECT
       ? correctText(q) === correctText(before)
       : q.options.join("|") === before.options.join("|") &&
           q.correctIndex === before.correctIndex;

@@ -8,6 +8,9 @@ import { Settings, ArrowRight, KeyRound, Library, ListPlus, Loader2, RefreshCw, 
 import LosersBracketToggle from './LosersBracketToggle';
 import QualifyingRoundsControl from "./QualifyingRoundsControl";
 import BotsToggle from './BotsToggle';
+import QuestionFormatsPicker from './QuestionFormatsPicker';
+import { readFormatPreference, saveFormatPreference } from '../services/formatPreference';
+import { QuestionType } from '../types';
 
 const HostConfigScreen: React.FC = () => {
   const {
@@ -32,6 +35,11 @@ const HostConfigScreen: React.FC = () => {
   const [rounds, setRounds] = useState(7);
   const [questions, setQuestions] = useState(5);
   const [showPool, setShowPool] = useState(false);
+  const [formats, setFormats] = useState<QuestionType[]>(readFormatPreference);
+  const chooseFormats = (next: QuestionType[]) => {
+    setFormats(next);
+    saveFormatPreference(next);
+  };
   // The bank is fetched over the network, so this screen owns a spinner of its
   // own rather than borrowing the one that says GENERATING GAME CONTENT.
   const [loadingBank, setLoadingBank] = useState(false);
@@ -45,7 +53,7 @@ const HostConfigScreen: React.FC = () => {
 
   const handleGenerate = () => {
     if (passwordTooShort) return;
-    generateGame(rounds, questions);
+    generateGame(rounds, questions, formats);
   };
 
   // The sliders above are the shape of the game either way round. An import
@@ -209,6 +217,8 @@ const HostConfigScreen: React.FC = () => {
               not want them, and the place to say so is before the lobby
               starts seating them. */}
           <BotsToggle enabled={botsEnabled} onChange={setBotsEnabled} stage="setup" />
+
+          <QuestionFormatsPicker selected={formats} onChange={chooseFormats} />
 
           <div className="pt-4 space-y-3">
             <Button onClick={handleGenerate} fullWidth variant="neon" disabled={passwordTooShort || loadingBank} className="flex items-center justify-center gap-2">

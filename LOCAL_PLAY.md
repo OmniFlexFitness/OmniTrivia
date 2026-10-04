@@ -97,7 +97,7 @@ how much of it to play, so a library of twenty categories is a fine source for
 a three-round night.
 
 See **QUESTION_FORMAT.md** for the column spec, and `questions.example.csv` for
-a working file covering all five question types.
+a working file with every question format in it.
 
 ## Running the game
 

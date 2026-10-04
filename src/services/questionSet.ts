@@ -33,38 +33,50 @@ export const shuffle = <T,>(items: readonly T[]): T[] => {
 };
 
 /**
- * Shuffle the answers under a question, keeping the correct one marked.
+ * Shuffle the answers under a question, keeping the correct ones marked.
  *
- * Only multiple choice: everywhere else the order of `options` carries
- * meaning. TRUE_FALSE is read as True then False, SLIDER packs
- * [min, max, step, low, high], PUZZLE stores the answer *as* an order, and
- * TYPE_ANSWER lists accepted spellings with the canonical one first. Shuffling
- * any of those corrupts the question rather than varying it.
+ * Only multiple choice and multi-select: everywhere else the order of
+ * `options` carries meaning. TRUE_FALSE is read as True then False, SLIDER
+ * and RANGE pack [min, max, step, low, high], NUMBER packs [answer,
+ * tolerance], PUZZLE stores the answer *as* an order, MATCH and CATEGORIZE
+ * line `options` up with `pairs`, and TYPE_ANSWER and SCRAMBLE lead with the
+ * canonical answer. Shuffling any of those corrupts the question rather than
+ * varying it — and the puzzles are disguised on their way to a screen anyway
+ * (see `publicOptions`).
  */
 export const shuffleOptions = (question: Question): Question => {
   const type = question.type ?? QuestionType.MULTIPLE_CHOICE;
-  if (type !== QuestionType.MULTIPLE_CHOICE) return question;
+  if (type !== QuestionType.MULTIPLE_CHOICE && type !== QuestionType.MULTI_SELECT) {
+    return question;
+  }
   if (question.options.length < 2) return question;
+
+  const correct =
+    type === QuestionType.MULTI_SELECT
+      ? (question.correctIndices ?? [question.correctIndex])
+      : [question.correctIndex];
   // A question whose correct answer is already out of range is left exactly as
   // it is. Moving its options around would turn a visible import problem into
   // an invisible one — a question that now marks a different answer correct.
-  if (
-    question.correctIndex < 0 ||
-    question.correctIndex >= question.options.length
-  ) {
+  if (correct.length === 0 || correct.some((index) => index < 0 || index >= question.options.length)) {
     return question;
   }
 
   const shuffled = shuffle(
     question.options.map((option, index) => ({ option, index })),
   );
+  const moved = correct
+    .map((index) => shuffled.findIndex((entry) => entry.index === index))
+    .sort((a, b) => a - b);
 
   return {
     ...question,
     options: shuffled.map((entry) => entry.option),
-    correctIndex: shuffled.findIndex(
-      (entry) => entry.index === question.correctIndex,
-    ),
+    correctIndex:
+      type === QuestionType.MULTI_SELECT
+        ? moved[0]
+        : shuffled.findIndex((entry) => entry.index === question.correctIndex),
+    ...(type === QuestionType.MULTI_SELECT ? { correctIndices: moved } : {}),
   };
 };
 

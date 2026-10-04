@@ -22,20 +22,63 @@ export enum GameMode {
 }
 
 export enum QuestionType {
+  /** One right answer out of the options. */
   MULTIPLE_CHOICE = "MULTIPLE_CHOICE",
+  /** Every right answer out of the options — there may be more than one. */
+  MULTI_SELECT = "MULTI_SELECT",
+  /** A statement the player calls true or false. */
   TRUE_FALSE = "TRUE_FALSE",
+  /** Typed free text, matched against accepted spellings. */
   TYPE_ANSWER = "TYPE_ANSWER",
+  /** Drag to a number on a scale; close can still score (see `margin`). */
   SLIDER = "SLIDER",
+  /** Drag two handles to catch the answer; the tighter the range, the more it pays. */
+  RANGE = "RANGE",
+  /** Type a number with no scale to hint at it; the closer, the more it pays. */
+  NUMBER = "NUMBER",
+  /** Drop a pin on a picture or one of the built-in maps. */
+  PIN = "PIN",
+  /** Puzzle: drag items into the right order. */
   PUZZLE = "PUZZLE",
+  /** Puzzle: pair each item on the left with its partner on the right. */
+  MATCH = "MATCH",
+  /** Puzzle: sort every item into the group it belongs in. */
+  CATEGORIZE = "CATEGORIZE",
+  /** Puzzle: rebuild a word or phrase from its shuffled letters. */
+  SCRAMBLE = "SCRAMBLE",
+}
+
+/**
+ * How forgiving a "how close did you get" question is — the same five steps
+ * Kahoot's sliders use. `none` scores only an answer inside the target;
+ * every step up pays a share of the points for an answer that missed it by a
+ * little, falling to nothing at the edge of the margin; `maximum` pays
+ * something for anything on the scale, more the closer it is.
+ */
+export type AnswerMargin = "none" | "low" | "medium" | "high" | "maximum";
+
+/**
+ * Where a pin question's answer is: a spot on its picture and how near to it
+ * counts, all as fractions of the picture — `x` across its width, `y` down
+ * its height, `radius` of its width — so the same target means the same spot
+ * at any size it is drawn.
+ */
+export interface PinTarget {
+  x: number;
+  y: number;
+  radius: number;
 }
 
 /**
  * What a player submits depends on the question type: an option index for
- * multiple choice, typed text, a slider value, or a reordered list. It lives
- * here rather than in the scoring service so the broadcast snapshot types can
- * reference it without importing game logic.
+ * multiple choice and true/false, typed text for a typed answer or a
+ * scramble, a number for a slider or a closest-number guess, a reordered list
+ * for an order puzzle, option indices for multi-select, `[low, high]` for a
+ * range, `[x, y, aspect?]` for a pin, and an item-to-partner map for match and
+ * categorize. It lives here rather than in the scoring service so the
+ * broadcast snapshot types can reference it without importing game logic.
  */
-export type Answer = number | string | string[];
+export type Answer = number | string | string[] | number[] | Record<string, string>;
 
 /**
  * Why a question stopped *for one player*. The room is told which it was, so
@@ -98,6 +141,13 @@ export interface Player {
   wildcardUsed?: boolean;
 }
 
+/**
+ * One question, answer key and all. Host-side only — what reaches a screen is
+ * `PublicQuestion`, with the key taken out.
+ *
+ * `options` means something different per type (see `QUESTION_FORMAT.md`);
+ * the optional fields below are only set on the types that use them.
+ */
 export interface Question {
   id: string;
   category: string;
@@ -106,6 +156,27 @@ export interface Question {
   correctIndex: number;
   explanation?: string;
   type?: QuestionType;
+  /** MULTI_SELECT: every correct option. `correctIndex` is the first of them. */
+  correctIndices?: number[];
+  /**
+   * MATCH: each option's partner, in the same order as `options`.
+   * CATEGORIZE: the group each option belongs in, in the same order.
+   */
+  pairs?: string[];
+  /** PIN: where on the picture the answer is. */
+  pin?: PinTarget;
+  /** SLIDER, NUMBER, PIN: how much a near miss still scores. */
+  margin?: AnswerMargin;
+  /** SLIDER, RANGE, NUMBER: what the number counts — "km", "°F", "years". */
+  unit?: string;
+  /**
+   * A picture to show with the question: an https URL, or `map:world` /
+   * `map:usa` for a built-in map. Required for PIN, where it is what gets
+   * pinned; optional for everything else.
+   */
+  image?: string;
+  /** Seconds on the clock for this question, when not the type's default. */
+  timeLimit?: number;
 }
 
 export interface RoundConfig {
@@ -490,8 +561,9 @@ export interface PublicPlayer {
 
 /**
  * The question as the room may see it. `options` is stripped of anything that
- * gives the answer away: a typed answer shows none, a slider shows only its
- * bounds, and a puzzle is shuffled out of its correct order.
+ * gives the answer away: a typed answer shows none, a slider and a range show
+ * only their scale, a closest-number question and a pin show nothing but the
+ * question, and every puzzle arrives shuffled out of its correct order.
  */
 export interface PublicQuestion {
   id: string;
@@ -499,6 +571,17 @@ export interface PublicQuestion {
   text: string;
   type: QuestionType;
   options: string[];
+  /**
+   * MATCH: the right-hand side, shuffled and never in the answer order.
+   * CATEGORIZE: the groups to sort into.
+   */
+  choices?: string[];
+  /** The picture, or the built-in map, shown with the question. */
+  image?: string;
+  /** What the number counts, for the types that ask for one. */
+  unit?: string;
+  /** How forgiving the scoring is, so the screen can say "close counts". */
+  margin?: AnswerMargin;
 }
 
 /** One question of a finished round, with its answer, for the review. */
@@ -507,9 +590,17 @@ export interface RoundReviewItem {
   reveal: RevealDetail;
   /** How many of the players who answered it got it right. */
   correctCount: number;
+  /** How many missed it but were close enough to score some points. */
+  closeCount?: number;
   answeredCount: number;
-  /** Picks per public option — multiple choice and true/false only. */
+  /** Picks per public option — multiple choice, multi-select and true/false. */
   optionTallies: number[] | null;
+  /**
+   * Every answer the room gave, with no names on them — for drawing where the
+   * pins landed and how the guesses spread. Only for the types that have
+   * something to draw (pins, sliders, ranges, closest number).
+   */
+  responses?: Answer[];
 }
 
 /** Everything a screen needs to show an answer, sent only once it is due. */
@@ -518,8 +609,17 @@ export interface RevealDetail {
   label: string;
   /** Index into the public options, for highlighting a choice. Null if N/A. */
   correctIndex: number | null;
+  /** MULTI_SELECT: every correct option, as indices into the public options. */
+  correctIndices?: number[];
   correctOrder?: string[];
+  /** SLIDER, RANGE and NUMBER: the band that scores in full. */
   correctRange?: [number, number];
+  /** MATCH: each item and its partner. CATEGORIZE: each item and its group. */
+  pairs?: [string, string][];
+  /** PIN: the target, drawn on `image`. */
+  pin?: PinTarget;
+  image?: string;
+  unit?: string;
   explanation?: string;
 }
 

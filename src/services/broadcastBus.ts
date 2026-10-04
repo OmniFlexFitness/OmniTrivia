@@ -73,8 +73,11 @@ const ROOM_TTL_MS = 20000;
  * that moved reads as `undefined`, the render throws, and React takes the
  * whole page down. So the version travels with every snapshot and is checked
  * before anything is rendered from it.
+ *
+ * 10: seven new question types. An older phone would draw a pin, a range or a
+ * match puzzle as a multiple-choice question with no options, so it reloads.
  */
-export const SNAPSHOT_VERSION = 9;
+export const SNAPSHOT_VERSION = 10;
 
 /** How a snapshot's version compares to what this build can render. */
 export type SnapshotFit = "ok" | "sender-is-newer" | "sender-is-older";

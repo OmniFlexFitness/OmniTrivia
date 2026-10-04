@@ -1,6 +1,8 @@
-import { RoundConfig, Question, Category, QuestionType, CategoryContent } from '../types';
+import { AnswerMargin, Question, Category, QuestionType, CategoryContent, PinTarget } from '../types';
 import { CATEGORIES, DEFAULT_QUESTION_BANK } from '../constants';
 import { unplayableReason } from './questionQuality';
+import { parseQuestionType } from './questionTypes';
+import { MAP_FRAMES, MAP_PREFIX, geoFromPinTarget, geoPinTarget, mapKeyFor } from './mapProjection';
 
 // Simple CSV parser that handles quoted fields
 const parseCSVLine = (line: string): string[] => {
@@ -215,6 +217,316 @@ export const styleForCategory = (name: string): { icon: string; color: string } 
     };
 };
 
+/* ------------------------------------------------------------------ *
+ * One row, whatever wrote it
+ *
+ * A spreadsheet row and a question Claude has just written arrive in the same
+ * shape — a type, the question, some options, an answer — so they go through
+ * the same converter. That is what keeps a generated pin question and an
+ * imported one graded by exactly the same rules.
+ * ------------------------------------------------------------------ */
+
+/** A question as a row: every cell as the author typed it. */
+export interface QuestionRow {
+    type?: string;
+    category: string;
+    question: string;
+    options: string[];
+    correctAnswer: string;
+    explanation?: string;
+    image?: string;
+    margin?: string;
+    unit?: string;
+    timeLimit?: string;
+}
+
+export type RowResult = { question: Question } | { skip: string };
+
+/** "medium", "Med", "max", "exact" — the five margins, spelled loosely. */
+export const parseMargin = (value: string | undefined): AnswerMargin | undefined => {
+    const key = (value ?? '').trim().toLowerCase();
+    if (!key) return undefined;
+    if (/^(none|off|exact|no|0|strict)$/.test(key)) return 'none';
+    if (/^(low|small|tight|narrow)$/.test(key)) return 'low';
+    if (/^(medium|med|mid|normal|moderate)$/.test(key)) return 'medium';
+    if (/^(high|large|wide|loose|generous)$/.test(key)) return 'high';
+    if (/^(max|maximum|all|any|anything)$/.test(key)) return 'maximum';
+    return undefined;
+};
+
+/** The first number in a cell — "About 384,000 km" reads as 384000. */
+const leadingNumber = (value: string | undefined): number | null => {
+    const match = (value ?? '').replace(/(\d),(?=\d{3}\b)/g, '$1').match(/-?\d*\.?\d+(?:e[+-]?\d+)?/i);
+    if (!match) return null;
+    const parsed = Number(match[0]);
+    return Number.isFinite(parsed) ? parsed : null;
+};
+
+/** "1968-1970", "1968 – 1970", "1968 to 1970", or one number for both ends. */
+const numberBand = (value: string): [number, number] | null => {
+    const band = value
+        .replace(/(\d),(?=\d{3}\b)/g, '$1')
+        .match(/^\s*(-?\d*\.?\d+)\s*(?:-|–|—|to)\s*(-?\d*\.?\d+)\s*$/i);
+    if (band) {
+        const low = Number(band[1]);
+        const high = Number(band[2]);
+        return [Math.min(low, high), Math.max(low, high)];
+    }
+    const single = leadingNumber(value);
+    return single === null ? null : [single, single];
+};
+
+/** A short unit written after the answer — "384,400 km" gives "km". */
+const trailingUnit = (value: string): string | undefined => {
+    const match = value.trim().match(/^-?[\d.,\s]+\s*([^\d\s].{0,11})$/);
+    return match ? match[1].trim() : undefined;
+};
+
+/**
+ * "Au = Gold", "France -> Paris", "Tomato → Fruit": an item and its partner.
+ * Split at the first separator, so the partner may itself contain an "=".
+ */
+const PAIR_SEPARATOR = /\s*(?:→|=>|->|::|=)\s*/;
+export const parsePair = (value: string): [string, string] | null => {
+    const match = value.match(PAIR_SEPARATOR);
+    if (!match || match.index === undefined) return null;
+    const left = value.slice(0, match.index).trim();
+    const right = value.slice(match.index + match[0].length).trim();
+    return left && right ? [left, right] : null;
+};
+
+const TRUE_WORDS = /^(true|t|yes|y|fact|correct|1)$/i;
+const FALSE_WORDS = /^(false|f|no|n|fiction|incorrect|myth|0)$/i;
+
+/** Default pin radii, when a question gives a spot but not how near counts. */
+const DEFAULT_PIN_RADIUS_KM: Record<string, number> = { world: 500, usa: 150 };
+const DEFAULT_PIN_RADIUS_PERCENT = 6;
+
+/** A list cell split on pipes: "Mars|Venus" or "First | Second". */
+const pipeList = (value: string): string[] =>
+    value.split(/\s*[|;]\s*/).map((item) => item.trim()).filter(Boolean);
+
+/**
+ * Turn one row into a question, or say why it cannot be one.
+ *
+ * Everything a type needs is read here and nowhere else, so the import, the
+ * question bank and generated questions all agree on what a row means. The
+ * reason given for a skip is worded for a host: it ends up on the setup
+ * screen when an import leaves rows out.
+ */
+export const rowToQuestion = (row: QuestionRow, id: string): RowResult => {
+    const typeCell = (row.type ?? '').trim();
+    const named = parseQuestionType(typeCell);
+    const options = row.options.map((o) => (o ?? '').trim()).filter((o) => o !== '');
+    const answer = (row.correctAnswer ?? '').trim();
+    const image = (row.image ?? '').trim();
+
+    // What the row is, when the file does not say. A blank type column is the
+    // ordinary case for a spreadsheet somebody wrote by hand.
+    let type = named ?? QuestionType.MULTIPLE_CHOICE;
+    if (!typeCell) {
+        const lowered = options.map((o) => o.toLowerCase());
+        // Only the words themselves: a typed answer may well be "Yes" or "T".
+        const answerIsBoolean = /^(true|false)$/i.test(answer);
+        if (options.length === 2 && lowered.includes('true') && lowered.includes('false')) {
+            type = QuestionType.TRUE_FALSE;
+        } else if (options.length === 0 && answerIsBoolean) {
+            // "True or False: ..." with the option columns left empty, because
+            // on that row the two options are the question.
+            type = QuestionType.TRUE_FALSE;
+        } else if (options.length === 0) {
+            // No options and a written-out answer is a short answer, not a
+            // broken row. A quarter of the bundled question bank is this shape.
+            type = QuestionType.TYPE_ANSWER;
+        }
+    }
+
+    const base = {
+        id,
+        category: row.category.trim(),
+        text: row.question.trim(),
+        explanation: (row.explanation ?? '').trim(),
+        type,
+    };
+    const extras: Partial<Question> = {};
+    const timeLimit = leadingNumber(row.timeLimit);
+    if (timeLimit !== null && timeLimit > 0) extras.timeLimit = Math.round(timeLimit);
+    const margin = parseMargin(row.margin);
+    if (margin) extras.margin = margin;
+    const unit = (row.unit ?? '').trim();
+    if (unit) extras.unit = unit;
+    // Any question may carry a picture; for a pin it is the thing pinned.
+    if (image && type !== QuestionType.PIN) {
+        extras.image = mapKeyFor(image) ? `${MAP_PREFIX}${mapKeyFor(image)}` : image;
+    }
+
+    let finalOptions: string[] = options;
+    let correctIndex = 0;
+
+    switch (type) {
+        case QuestionType.TRUE_FALSE: {
+            if (!TRUE_WORDS.test(answer) && !FALSE_WORDS.test(answer)) {
+                return { skip: 'true/false answer is neither True nor False' };
+            }
+            finalOptions = ['True', 'False'];
+            correctIndex = TRUE_WORDS.test(answer) ? 0 : 1;
+            break;
+        }
+
+        case QuestionType.TYPE_ANSWER:
+            // A file that lists the accepted spellings itself is taken at its
+            // word; one that gives only an answer column has them derived.
+            finalOptions = options.length > 0 ? options : acceptedSpellings(answer);
+            break;
+
+        case QuestionType.SLIDER:
+        case QuestionType.RANGE: {
+            // min, max, step, low, high — or min, max, step with the answer in
+            // the answer column, which is how most people write one.
+            const numbers = options.map((o) => leadingNumber(o));
+            const [min, max] = numbers;
+            let step = numbers[2];
+            let band: [number, number] | null =
+                numbers.length >= 5 && numbers[3] !== null && numbers[4] !== null
+                    ? [numbers[3]!, numbers[4]!]
+                    : numberBand(answer);
+            if (min === null || min === undefined || max === null || max === undefined || !band) {
+                return { skip: `${type === QuestionType.RANGE ? 'range' : 'slider'} is missing its scale` };
+            }
+            if (step === null || step === undefined) {
+                step = [min, max, band[0], band[1]].every(Number.isInteger) ? 1 : 0.1;
+            }
+            finalOptions = [min, max, step, band[0], band[1]].map(String);
+            if (!extras.unit) {
+                const inferred = trailingUnit(answer);
+                if (inferred) extras.unit = inferred;
+            }
+            break;
+        }
+
+        case QuestionType.NUMBER: {
+            const target = leadingNumber(answer);
+            if (target === null) return { skip: 'no numeric answer' };
+            const tolerance = Math.abs(leadingNumber(options[0]) ?? 0);
+            finalOptions = [String(target), String(tolerance)];
+            if (!extras.unit) {
+                const inferred = trailingUnit(answer);
+                if (inferred) extras.unit = inferred;
+            }
+            break;
+        }
+
+        case QuestionType.PIN: {
+            // The picture comes from the image column, or from the first
+            // option when the sheet has no image column.
+            const pictureFromOption = !image && options.length > 0 && leadingNumber(options[0]) === null;
+            const picture = image || (pictureFromOption ? options[0] : '');
+            const coords = (pictureFromOption ? options.slice(1) : options).map((o) => leadingNumber(o));
+            const mapKey = mapKeyFor(picture);
+            if (!picture) return { skip: 'no picture to pin' };
+            if (coords.length < 2 || coords[0] === null || coords[1] === null) {
+                return { skip: 'pin target is missing' };
+            }
+
+            let pin: PinTarget | null;
+            if (mapKey) {
+                // On a built-in map: latitude, longitude, kilometres.
+                pin = geoPinTarget(
+                    MAP_FRAMES[mapKey],
+                    coords[0]!,
+                    coords[1]!,
+                    coords[2] ?? DEFAULT_PIN_RADIUS_KM[mapKey],
+                );
+                if (!pin) return { skip: 'pin target is off the map' };
+            } else {
+                // On a picture: percent across, percent down, percent of the
+                // width. A spot written as fractions (0–1) is read as one.
+                const [x, y] = [coords[0]!, coords[1]!];
+                const radius = coords[2] ?? null;
+                const fractions = x <= 1 && y <= 1 && (radius === null || radius <= 1);
+                const scale = fractions ? 1 : 100;
+                pin = {
+                    x: x / scale,
+                    y: y / scale,
+                    radius: radius === null ? DEFAULT_PIN_RADIUS_PERCENT / 100 : radius / scale,
+                };
+            }
+            extras.pin = pin;
+            extras.image = mapKey ? `${MAP_PREFIX}${mapKey}` : picture;
+            finalOptions = [answer];
+            break;
+        }
+
+        case QuestionType.MULTI_SELECT: {
+            const wanted = pipeList(answer);
+            const indices = wanted.map((one) => resolveCorrectIndex(options, one));
+            if (wanted.length === 0 || indices.some((index) => index === -1)) {
+                return { skip: 'an answer matches none of the options' };
+            }
+            extras.correctIndices = [...new Set(indices)].sort((a, b) => a - b);
+            correctIndex = extras.correctIndices[0];
+            break;
+        }
+
+        case QuestionType.PUZZLE:
+            // Items in the correct order — or, with the option columns left
+            // empty, the order written out in the answer column.
+            finalOptions = options.length > 0 ? options : pipeList(answer);
+            break;
+
+        case QuestionType.MATCH:
+        case QuestionType.CATEGORIZE: {
+            // "Item = partner" in each option column, or all of them in the
+            // answer column separated by pipes.
+            const cells = options.length > 0 ? options : pipeList(answer);
+            const pairs = cells.map(parsePair);
+            if (pairs.length === 0 || pairs.some((pair) => pair === null)) {
+                return { skip: 'every option needs an "item = partner" pair' };
+            }
+            finalOptions = pairs.map((pair) => pair![0]);
+            extras.pairs = pairs.map((pair) => pair![1]);
+            break;
+        }
+
+        case QuestionType.SCRAMBLE:
+            finalOptions = [answer];
+            break;
+
+        case QuestionType.MULTIPLE_CHOICE:
+        default:
+            correctIndex = resolveCorrectIndex(options, answer);
+            if (correctIndex === -1) {
+                return { skip: 'the answer matches none of the options' };
+            }
+            break;
+    }
+
+    if (finalOptions.length === 0) return { skip: 'no options' };
+
+    const question: Question = { ...base, options: finalOptions, correctIndex, ...extras };
+
+    // Placeholder answers ("Placeholder 1", "Option A"), questions with
+    // nothing to choose between and targets off the picture never reach a game.
+    const unplayable = unplayableReason(question);
+    return unplayable ? { skip: unplayable } : { question };
+};
+
+/** The category a question's name belongs to: a built-in one, or one made up. */
+export const categoryFor = (categoryName: string): Category =>
+    CATEGORIES.find(c => c.name.toLowerCase() === categoryName.toLowerCase()) || {
+        id: categoryName.toLowerCase().replace(/\s/g, ''),
+        name: categoryName,
+        ...styleForCategory(categoryName),
+    };
+
+/** The header names an optional column may go by. */
+const OPTIONAL_COLUMNS: Record<keyof Pick<QuestionRow, 'image' | 'margin' | 'unit' | 'timeLimit'>, string[]> = {
+    image: ['image', 'picture', 'imageurl', 'media', 'map'],
+    margin: ['margin', 'accuracy', 'marginofaccuracy'],
+    unit: ['unit', 'units'],
+    timeLimit: ['timelimit', 'time', 'seconds', 'timer'],
+};
+
 export const parseImportData = (csvData: string): { [categoryId: string]: CategoryContent } =>
     parseImportDataWithReport(csvData).contents;
 
@@ -240,139 +552,72 @@ export const parseImportDataWithReport = (csvData: string): ImportReport => {
         }
     }
 
+    // Read every option<N> column present, not a fixed four: a slider needs
+    // five values, and puzzles and sorts can run longer than four items.
+    const optionCols = Object.keys(colMap)
+        .filter(key => /^option\d+$/.test(key))
+        .sort((a, b) => Number(a.slice(6)) - Number(b.slice(6)));
+
+    const optionalCol = (names: string[]): number | undefined =>
+        names.map((name) => colMap[name]).find((index) => index !== undefined);
+    const cell = (row: string[], index: number | undefined): string =>
+        index === undefined ? '' : (row[index] ?? '').trim();
+
     const roundsConfig: { [categoryId: string]: CategoryContent } = {};
     const skipped: SkippedRow[] = [];
 
     rows.forEach((row, rowIndex) => {
         try {
-            const categoryName = row[colMap['category']];
-            const questionText = row[colMap['question']];
-            const typeStr = colMap['type'] !== undefined ? row[colMap['type']].toUpperCase() : '';
-            
-            let questionType: QuestionType = QuestionType.MULTIPLE_CHOICE;
-            if (Object.values(QuestionType).includes(typeStr as QuestionType)) {
-                questionType = typeStr as QuestionType;
-            }
-
-            // Read every option<N> column present, not a fixed four: SLIDER
-            // needs five values (min, max, step, low, high) and PUZZLE rounds
-            // can be longer than four items.
-            const optionCols = Object.keys(colMap)
-                .filter(key => /^option\d+$/.test(key))
-                .sort((a, b) => Number(a.slice(6)) - Number(b.slice(6)));
-
-            const options = optionCols
-                .map(key => row[colMap[key]])
-                .filter(opt => opt && opt.trim() !== '');
-            
-            const correctAnswerStr = row[colMap['correctanswer']];
-            // A blank explanation stays blank. The reveal already hides an
-            // empty one, and filler text on a projector reads worse than a
-            // clean answer card — which matters when a whole question bank was
-            // written without explanations.
-            const explanation =
-                colMap['explanation'] !== undefined
-                    ? (row[colMap['explanation']] ?? '').trim()
-                    : '';
+            const categoryName = cell(row, colMap['category']);
+            const questionText = cell(row, colMap['question']);
+            const correctAnswerStr = cell(row, colMap['correctanswer']);
 
             if (!categoryName || !questionText || !correctAnswerStr) {
+                // A wholly empty line is a sheet's trailing blank row, not a
+                // question anybody wrote.
+                if (row.some((value) => value && value.trim() !== '')) {
+                    skipped.push({
+                        row: rowIndex + 2,
+                        question: questionText || '(no question)',
+                        reason: 'missing category, question or answer',
+                    });
+                }
                 console.warn(`Skipping incomplete row ${rowIndex + 2}`);
                 return;
             }
 
-            let correctIndex = 0;
-            let finalOptions = options;
+            const result = rowToQuestion(
+                {
+                    type: cell(row, colMap['type']),
+                    category: categoryName,
+                    question: questionText,
+                    options: optionCols.map((key) => cell(row, colMap[key])),
+                    correctAnswer: correctAnswerStr,
+                    // A blank explanation stays blank. The reveal already hides
+                    // an empty one, and filler text on a projector reads worse
+                    // than a clean answer card.
+                    explanation: cell(row, colMap['explanation']),
+                    image: cell(row, optionalCol(OPTIONAL_COLUMNS.image)),
+                    margin: cell(row, optionalCol(OPTIONAL_COLUMNS.margin)),
+                    unit: cell(row, optionalCol(OPTIONAL_COLUMNS.unit)),
+                    timeLimit: cell(row, optionalCol(OPTIONAL_COLUMNS.timeLimit)),
+                },
+                `import-${categoryName}-${rowIndex}`,
+            );
 
-            // What the row is, when the file does not say. A blank type column
-            // is the ordinary case for a spreadsheet somebody wrote by hand.
-            if (!typeStr) {
-                const lowerCaseOptions = options.map(o => o.toLowerCase());
-                const answerIsBoolean = ['true', 'false'].includes(
-                    correctAnswerStr.toLowerCase(),
-                );
-
-                if (options.length === 2 && lowerCaseOptions.includes('true') && lowerCaseOptions.includes('false')) {
-                    questionType = QuestionType.TRUE_FALSE;
-                } else if (options.length === 0 && answerIsBoolean) {
-                    // "True or False: ..." with the option columns left empty,
-                    // because on that row the two options are the question.
-                    questionType = QuestionType.TRUE_FALSE;
-                } else if (options.length === 0) {
-                    // No options and a written-out answer is a short answer,
-                    // not a broken row. A quarter of the bundled question bank
-                    // is this shape, and it used to be dropped on the floor.
-                    questionType = QuestionType.TYPE_ANSWER;
-                }
-            }
-
-            switch(questionType) {
-                case QuestionType.TRUE_FALSE:
-                    finalOptions = ['True', 'False'];
-                    correctIndex = correctAnswerStr.toLowerCase() === 'true' ? 0 : 1;
-                    break;
-                case QuestionType.TYPE_ANSWER:
-                    // A file that lists the accepted spellings itself is taken
-                    // at its word; one that gives only an answer column has
-                    // them derived from it.
-                    finalOptions = options.length > 0 ? options : acceptedSpellings(correctAnswerStr);
-                    correctIndex = 0;
-                    break;
-                case QuestionType.SLIDER:
-                    finalOptions = options.slice(0, 5); // min, max, step, low, high
-                    correctIndex = 0;
-                    break;
-                case QuestionType.PUZZLE:
-                    finalOptions = options;
-                    correctIndex = 0;
-                    break;
-                case QuestionType.MULTIPLE_CHOICE:
-                default:
-                    correctIndex = resolveCorrectIndex(options, correctAnswerStr);
-                    if (correctIndex === -1) {
-                        console.warn(
-                            `Correct answer "${correctAnswerStr}" matches no option on row ${rowIndex + 2}. Dropping the question rather than marking a guess correct.`,
-                        );
-                        return;
-                    }
-                    break;
-            }
-
-            if (finalOptions.length === 0) {
-                console.warn(`Skipping row ${rowIndex + 2}: nothing for a player to answer.`);
+            if ('skip' in result) {
+                skipped.push({ row: rowIndex + 2, question: questionText, reason: result.skip });
                 return;
             }
 
-            const question: Question = {
-                id: `import-${categoryName}-${rowIndex}`,
-                category: categoryName,
-                text: questionText,
-                options: finalOptions,
-                correctIndex,
-                explanation,
-                type: questionType,
-            };
-
-            // Placeholder answers ("Placeholder 1", "Option A") and questions
-            // with nothing to choose between never reach a game.
-            const unplayable = unplayableReason(question);
-            if (unplayable) {
-                skipped.push({ row: rowIndex + 2, question: questionText, reason: unplayable });
-                return;
-            }
-
-            const categoryInfo = CATEGORIES.find(c => c.name.toLowerCase() === categoryName.toLowerCase()) || {
-                id: categoryName.toLowerCase().replace(/\s/g, ''),
-                name: categoryName,
-                ...styleForCategory(categoryName),
-            };
-
+            const categoryInfo = categoryFor(categoryName);
             if (!roundsConfig[categoryInfo.id]) {
                 roundsConfig[categoryInfo.id] = {
                     category: categoryInfo,
                     questions: []
                 };
             }
-            roundsConfig[categoryInfo.id].questions.push(question);
+            roundsConfig[categoryInfo.id].questions.push(result.question);
         } catch (e) {
             console.error(`Error parsing row ${rowIndex + 2}:`, e);
         }
@@ -392,7 +637,7 @@ export const parseImportDataWithReport = (csvData: string): ImportReport => {
     if (Object.keys(roundsConfig).length === 0) {
         throw new Error(
             skipped.length > 0
-                ? `No playable questions in the data — all ${skipped.length} had placeholder answers or no options to choose from.`
+                ? `No playable questions in the data — all ${skipped.length} were left out (${summarizeReasons(skipped)}).`
                 : "No valid questions could be parsed from the data.",
         );
     }
@@ -400,16 +645,27 @@ export const parseImportDataWithReport = (csvData: string): ImportReport => {
     return { contents: roundsConfig, skipped };
 };
 
+/** "3 with placeholder answers, 2 slider is missing its scale" — most common first. */
+const summarizeReasons = (skipped: readonly SkippedRow[]): string => {
+    const counts = new Map<string, number>();
+    skipped.forEach((entry) => {
+        const reason = entry.reason.includes('placeholder')
+            ? 'with placeholder answers'
+            : entry.reason === 'no options'
+              ? 'with no options to choose from'
+              : `— ${entry.reason}`;
+        counts.set(reason, (counts.get(reason) ?? 0) + 1);
+    });
+    return [...counts.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .map(([reason, count]) => `${count} ${reason}`)
+        .join(', ');
+};
+
 /** One sentence for the host about what an import left out, or null. */
 export const describeSkipped = (skipped: readonly SkippedRow[]): string | null => {
     if (skipped.length === 0) return null;
-    const placeholders = skipped.filter((entry) => entry.reason.includes('placeholder')).length;
-    const rest = skipped.length - placeholders;
-    const parts = [
-        placeholders > 0 ? `${placeholders} with placeholder answers` : null,
-        rest > 0 ? `${rest} with no options to choose from` : null,
-    ].filter(Boolean);
-    return `${skipped.length} question${skipped.length === 1 ? ' was' : 's were'} left out automatically (${parts.join(', ')}).`;
+    return `${skipped.length} question${skipped.length === 1 ? ' was' : 's were'} left out automatically (${summarizeReasons(skipped)}).`;
 };
 
 export const fetchFromGoogleSheet = async (url: string): Promise<string> => {
@@ -468,47 +724,115 @@ const escapeCsvField = (field: string | undefined): string => {
     return stringField;
 };
 
+/** A number for a spreadsheet: no trailing noise from floating point. */
+const cellNumber = (value: number, places = 4): string =>
+    String(Math.round(value * 10 ** places) / 10 ** places);
+
+/**
+ * One question as the row that would import back to it.
+ *
+ * The inverse of `rowToQuestion`, column for column, so a game reviewed and
+ * exported plays the same when it is imported again — including the types
+ * whose answer lives somewhere other than the answer column.
+ */
+const questionToRow = (q: Question, categoryName: string): QuestionRow => {
+    let options = [...q.options];
+    let correctAnswer = '';
+    let image = q.image ?? '';
+
+    switch (q.type) {
+        case QuestionType.SLIDER:
+        case QuestionType.RANGE:
+            correctAnswer = q.options[3] === q.options[4]
+                ? `${q.options[3]}`
+                : `${q.options[3]}-${q.options[4]}`;
+            break;
+        case QuestionType.NUMBER: {
+            correctAnswer = q.options[0];
+            const tolerance = Number(q.options[1] ?? 0);
+            options = tolerance > 0 ? [String(tolerance)] : [];
+            break;
+        }
+        case QuestionType.PIN: {
+            correctAnswer = q.options[0] ?? '';
+            const key = mapKeyFor(q.image);
+            const pin = q.pin ?? { x: 0.5, y: 0.5, radius: 0.06 };
+            if (key) {
+                const geo = geoFromPinTarget(MAP_FRAMES[key], pin);
+                image = key;
+                options = [cellNumber(geo.lat), cellNumber(geo.lng), cellNumber(geo.km, 0)];
+            } else {
+                options = [pin.x * 100, pin.y * 100, pin.radius * 100].map((n) => cellNumber(n, 2));
+            }
+            break;
+        }
+        case QuestionType.MULTI_SELECT:
+            correctAnswer = (q.correctIndices ?? [q.correctIndex]).map((i) => q.options[i]).join('|');
+            break;
+        case QuestionType.MATCH:
+        case QuestionType.CATEGORIZE:
+            options = q.options.map((item, i) => `${item} = ${q.pairs?.[i] ?? ''}`);
+            correctAnswer = q.type === QuestionType.MATCH ? 'See the pairs' : 'See the groups';
+            break;
+        case QuestionType.TYPE_ANSWER:
+        case QuestionType.SCRAMBLE:
+            correctAnswer = q.options[0];
+            break;
+        case QuestionType.PUZZLE:
+            correctAnswer = q.options.join('|'); // Use a pipe to separate puzzle answers
+            break;
+        case QuestionType.MULTIPLE_CHOICE:
+        case QuestionType.TRUE_FALSE:
+        default:
+            correctAnswer = q.options[q.correctIndex];
+            break;
+    }
+
+    return {
+        type: q.type ?? QuestionType.MULTIPLE_CHOICE,
+        category: categoryName,
+        question: q.text,
+        options,
+        correctAnswer,
+        explanation: q.explanation,
+        image,
+        margin: q.margin ?? '',
+        unit: q.unit ?? '',
+        timeLimit: q.timeLimit ? String(q.timeLimit) : '',
+    };
+};
+
 export const exportRoundsToCSV = (roundsConfig: { [categoryId: string]: CategoryContent }): string => {
-    const header = ['type', 'category', 'question', 'option1', 'option2', 'option3', 'option4', 'option5', 'correctAnswer', 'explanation'];
-    const rows: string[] = [header.join(',')];
+    const rowsOut = Object.values(roundsConfig).flatMap((content) =>
+        content.questions.map((q) => questionToRow(q, content.category.name)),
+    );
+    // Five option columns at least, as the format has always had, and as many
+    // more as the longest puzzle or sort needs.
+    const optionCount = Math.max(5, ...rowsOut.map((row) => row.options.length));
+    const optionHeaders = Array.from({ length: optionCount }, (_, i) => `option${i + 1}`);
+    const header = ['type', 'category', 'question', ...optionHeaders, 'correctAnswer', 'explanation', 'image', 'margin', 'unit', 'timeLimit'];
+    const lines: string[] = [header.join(',')];
 
-    Object.values(roundsConfig).forEach(content => {
-        content.questions.forEach(q => {
-            let correctAnswer = '';
-            let options = [...q.options];
-
-            switch(q.type) {
-                case QuestionType.SLIDER:
-                    correctAnswer = `${q.options[3]}-${q.options[4]}`; // e.g. "1968-1972"
-                    break;
-                case QuestionType.TYPE_ANSWER:
-                    correctAnswer = q.options[0];
-                    break;
-                case QuestionType.PUZZLE:
-                    correctAnswer = q.options.join('|'); // Use a pipe to separate puzzle answers
-                    break;
-                case QuestionType.MULTIPLE_CHOICE:
-                case QuestionType.TRUE_FALSE:
-                default:
-                    correctAnswer = q.options[q.correctIndex];
-                    break;
-            }
-            
-            while (options.length < 5) {
-                options.push('');
-            }
-
-            const row = [
-                q.type,
-                content.category.name,
-                q.text,
-                ...options.slice(0, 5),
-                correctAnswer,
-                q.explanation
-            ].map(escapeCsvField);
-            rows.push(row.join(','));
-        });
+    rowsOut.forEach((row) => {
+        const options = [...row.options];
+        while (options.length < optionCount) options.push('');
+        lines.push(
+            [
+                row.type,
+                row.category,
+                row.question,
+                ...options,
+                row.correctAnswer,
+                row.explanation,
+                row.image,
+                row.margin,
+                row.unit,
+                row.timeLimit,
+            ]
+                .map(escapeCsvField)
+                .join(','),
+        );
     });
 
-    return rows.join('\n');
+    return lines.join('\n');
 };

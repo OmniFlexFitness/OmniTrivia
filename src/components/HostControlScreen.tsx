@@ -9,7 +9,10 @@ import {
   Question,
   QuestionType,
 } from "../types";
-import { buildReveal, publicOptions, publicPoll } from "../services/snapshot";
+import { buildReveal, publicOptions, publicPoll, toPublicQuestion } from "../services/snapshot";
+import AnswerReveal from "./answers/AnswerReveal";
+import { QuestionImage } from "./answers/PinBoard";
+import { typeInfo } from "../services/questionTypes";
 import {
   answerBy,
   broadcastIndex,
@@ -132,25 +135,40 @@ const QuestionReference: React.FC<{
 }> = ({ question, withheld, compact = false }) => {
   const [hidden, setHidden] = React.useState(false);
   const reveal = buildReveal(question);
+  const publicQuestion = toPublicQuestion(question);
   const options = publicOptions(question);
   const type = question.type ?? QuestionType.MULTIPLE_CHOICE;
   const showAnswer = !withheld && !hidden;
+  // The choice types read best as their options with the right one lit; every
+  // other type is its answer, drawn (a ring on the map, a band on a scale).
+  const choiceType =
+    type === QuestionType.MULTIPLE_CHOICE ||
+    type === QuestionType.MULTI_SELECT ||
+    type === QuestionType.TRUE_FALSE;
+  const correct = new Set(reveal.correctIndices ?? (reveal.correctIndex === null ? [] : [reveal.correctIndex]));
 
   return (
     <div className="space-y-3">
-      <p
-        className={`font-bold text-white leading-snug ${compact ? "text-base" : "text-xl"}`}
-      >
-        {question.text}
-      </p>
+      <div className="flex items-start justify-between gap-3">
+        <p
+          className={`font-bold text-white leading-snug ${compact ? "text-base" : "text-xl"}`}
+        >
+          {question.text}
+        </p>
+        <span className={`shrink-0 text-[10px] font-mono uppercase px-2 py-0.5 rounded ${typeInfo(type).tone}`}>
+          {typeInfo(type).badge}
+        </span>
+      </div>
 
-      {!compact && options.length > 0 && type !== QuestionType.SLIDER && (
+      {!compact && type !== QuestionType.PIN && <QuestionImage image={question.image} />}
+
+      {!compact && choiceType && options.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
           {options.map((option, index) => (
             <div
               key={`${option}-${index}`}
               className={`px-3 py-2 rounded-lg border text-sm flex items-center gap-2 ${
-                showAnswer && reveal.correctIndex === index
+                showAnswer && correct.has(index)
                   ? "bg-green-600/20 border-green-500 text-green-300"
                   : "bg-slate-800 border-slate-700 text-slate-300"
               }`}
@@ -182,16 +200,20 @@ const QuestionReference: React.FC<{
               Held back until you are through this one yourself.
             </div>
           ) : showAnswer ? (
-            <>
-              <div className="text-lg font-bold text-green-400">
-                {reveal.label}
-              </div>
-              {question.explanation && (
-                <p className="text-sm text-slate-400 mt-1">
-                  {question.explanation}
-                </p>
-              )}
-            </>
+            choiceType || compact ? (
+              <>
+                <div className="text-lg font-bold text-green-400">
+                  {reveal.label}
+                </div>
+                {question.explanation && (
+                  <p className="text-sm text-slate-400 mt-1">
+                    {question.explanation}
+                  </p>
+                )}
+              </>
+            ) : (
+              <AnswerReveal question={publicQuestion} reveal={reveal} size="desk" />
+            )
           ) : (
             <div className="text-slate-600 text-sm">Hidden</div>
           )}
@@ -1033,7 +1055,9 @@ const HostPlayerPane: React.FC = () => {
 
             <QuestionCard
               key={`${question.id}-${seat.questionIndex}`}
-              question={question}
+              // What a phone would get, answer key and all taken out — the
+              // host's own seat is a player's seat.
+              question={toPublicQuestion(question)}
               timeLeft={seat.timeLeft}
               duration={seat.questionDuration}
               paused={seat.timerPaused}

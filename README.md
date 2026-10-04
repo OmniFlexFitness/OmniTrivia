@@ -176,7 +176,15 @@ the side is where the room watches somebody pull three questions clear.
 ### How points work
 
 - **100** for a correct answer.
-- **+10** for every second still on your own clock when you lock it in.
+- **Up to +150** for speed: 10 for every second still on your own clock on a
+  15-second question, scaled so a full clock is worth the same on every
+  format — a 12-second true/false and a 30-second puzzle alike.
+- **Partial credit** on the formats where close means something: a slider, a
+  pin or a closest-number guess just off the answer earns a share of the
+  points (how far off still counts is the question's *margin*), a range earns
+  more the tighter it is cast, and a match or sort pays for what is right
+  beyond guessing. A near miss shows as **≈ close**, not ✓, and keeps no
+  streak.
 - **×2** on the last question of every round.
 - Each round is scored on its own. Every matchup starts level at zero, so only
   the round you are in decides it.
@@ -436,12 +444,43 @@ npm run preview
 | `npm run check-question-bank` | Fetch the live question bank and assert every row still plays |
 | `npm run check-round-pacing` | Play a round headlessly and assert nobody waits for anybody |
 | `npm run check-game-setup` | Assert shuffling, import trimming and the wheel's geometry all hold |
+| `npm run check-question-types` | Assert every question format imports, grades, hides its answer and round-trips |
 | `npm run check-returns` | Take a lost game back headlessly, and check the wrong code cannot |
 | `npm run check-hosting` | Play simulated loser's-bracket nights, and check only the host password gets the remote |
 | `npm run check-live` | Check the *deployed* site: sign-in, published rules, and the proxy's key |
 | `npm run rules:deploy` | Publish `firebase/database.rules.json` to the live database |
 
 ## Questions
+
+### Question formats
+
+Twelve formats, built for a fast head-to-head round on a phone. Each brings
+its own clock, and the answer key at the end of the round draws its answer —
+a ring on the map with every pin the room dropped, a band on a scale with
+every guess, the pairs, the groups.
+
+| Format | What players do | Clock |
+|---|---|---|
+| Multiple choice | Tap one option | 15s |
+| Select all that apply | Tick every right option — a wrong tick cancels a right one | 20s |
+| True or false | Two big ✓ / ✕ buttons, or T / F on a keyboard | 12s |
+| Typed answer | Type it; every accepted spelling is listed | 20s |
+| Slider | Slide to a number; a *margin* can pay for a near miss | 20s |
+| Range | Drag two handles to catch the answer — the tighter, the more it pays | 20s |
+| Closest number | Type a number with no scale to hint at it | 20s |
+| Pin answer | Drop a pin on a picture, or on the built-in world or US map | 25s |
+| Puzzle · order | Put items in order | 30s |
+| Puzzle · match | Pair each item with its partner | 30s |
+| Puzzle · sort | Sort items into two to four groups | 30s |
+| Puzzle · unscramble | Rebuild a word from shuffled letter tiles | 25s |
+
+Pin questions on the built-in maps are written as a latitude, a longitude and
+a radius in kilometres — no picture to find and no pixels to measure. The maps
+are drawn from Natural Earth and US Census data (both public domain) through
+the same projection the game grades with; `scripts/generate-maps.mjs` redraws
+them. `QUESTION_FORMAT.md` shows how every format is written in a sheet, and
+**GENERATE & REVIEW** has a *Question formats* picker for which ones Claude
+writes.
 
 ### The default: the question bank
 
@@ -493,7 +532,8 @@ and a typed answer. **HOST GAME → IMPORT MY OWN QUESTIONS → Select File** an
 you are playing, with no API key involved.
 
 Regenerate it, or write a different set, without ever putting the key in the
-browser:
+browser — a regenerated file gives every category one of the newer formats as
+its special question (a pin, a range, a match, a sort, an unscramble…):
 
 - Generate all 10 categories:
 ```bash
@@ -532,7 +572,7 @@ are exactly the ones you wrote.
   export the sheet to CSV beforehand if the venue's Wi-Fi is unreliable.
 
 `QUESTION_FORMAT.md` has the column spec; `questions.example.csv` is a working
-file covering all five question types.
+file with every question format in it.
 
 ### Generate with Claude
 
@@ -862,9 +902,12 @@ player out gets a bye. Each round is scored on its own — every pairing starts
 level at zero — and the higher score in a pairing advances. A tie is settled on
 the running total, then on the draw; never on a coin flip in front of a room.
 
-Points are 100 for a correct answer plus 10 for every second left on **your
-own** clock, so answering quickly is worth the same wherever you are in the
-field, and getting there quickly also means getting to the next question first.
+Points are 100 for a correct answer plus up to 150 for the time left on
+**your own** clock, so answering quickly is worth the same wherever you are in
+the field, and getting there quickly also means getting to the next question
+first. The formats that measure how close you got — slider, range, pin,
+closest number — and the match and sort puzzles can pay part of the points;
+see "How points work" above.
 
 The game ends when one player is left standing, or when the rounds run out,
 whichever comes first.
@@ -914,8 +957,9 @@ npm run check-game-setup
 ```
 
 It asserts that a shuffle never loses, duplicates or corrupts a question and
-that the correct answer follows its option around; that the four question types
-whose option order *is* the answer are left alone, checked against
+that the correct answer follows its option around; that the question formats
+whose option order *is* the answer (true/false, slider, range, closest number,
+the puzzles, typed answers) are left alone, checked against
 `questions.example.csv` through the real parser; that an import is trimmed to
 the categories the host kept and the ceilings they set; that the slice under
 the pointer is the slice the spin planned for, at every wheel size; and that

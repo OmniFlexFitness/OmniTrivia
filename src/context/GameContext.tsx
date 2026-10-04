@@ -14,7 +14,6 @@ import {
   GameMode,
   LaneStatus,
   Player,
-  Question,
   QuestionType,
   RemoteCommand,
   RoundConfig,
@@ -28,11 +27,13 @@ import {
   FINAL_BEST_OF,
   MAX_QUALIFYING_ROUNDS,
   REVEAL_DURATION,
+  TIMER_DURATION,
   AVATARS,
   AVATAR_COLORS,
   CATEGORIES,
 } from "../constants";
 import { generateQuestions } from "../services/claudeService";
+import { botAnswerFor } from "../services/botAnswers";
 import {
   describeSkipped,
   fetchDefaultQuestionBank,
@@ -170,7 +171,8 @@ interface GameContextType extends GameState {
   remotePairingUrl: () => string | null;
   initHost: () => void;
   initJoin: () => void;
-  generateGame: (rounds: number, questions: number) => Promise<void>;
+  /** `formats` limits which question types Claude writes; omitted, it uses them all. */
+  generateGame: (rounds: number, questions: number, formats?: QuestionType[]) => Promise<void>;
   confirmGame: () => void;
   setGameName: (name: string) => void;
   /** Choose the password that gets this game back. Set before the lobby opens. */
@@ -472,38 +474,6 @@ const finishRound = (prev: GameState): GameState => {
   };
 };
 
-/** An answer a bot submits, built to be right or wrong on purpose. */
-const botAnswerFor = (question: Question, shouldBeCorrect: boolean): Answer => {
-  const options = question.options;
-
-  switch (question.type) {
-    case QuestionType.TYPE_ANSWER:
-      return shouldBeCorrect ? (options[0] ?? "") : "…";
-
-    case QuestionType.SLIDER: {
-      const [min, max, , low, high] = options.map(Number);
-      if (shouldBeCorrect) return (low + high) / 2;
-      // Miss on whichever side of the correct band is still inside the slider.
-      return low - 1 >= min ? low - 1 : Math.min(high + 1, max);
-    }
-
-    case QuestionType.PUZZLE:
-      return shouldBeCorrect || options.length < 2
-        ? [...options]
-        : [...options].reverse();
-
-    default: {
-      if (shouldBeCorrect) return question.correctIndex;
-      const wrong = options
-        .map((_, index) => index)
-        .filter((index) => index !== question.correctIndex);
-      return wrong.length
-        ? wrong[Math.floor(Math.random() * wrong.length)]
-        : question.correctIndex;
-    }
-  }
-};
-
 /**
  * The game PIN carried on this page's own URL, if there is one.
  *
@@ -705,7 +675,12 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         if (alreadyIn) return;
 
         // Leave a second on the clock so a bot never lands after time is up.
-        const latest = Math.min(seat.timeLeft - 1, BOT_MAX_THINK_SECONDS);
+        // A thirty-second puzzle earns a longer think than a true/false, in
+        // the same proportion a person would take.
+        const latest = Math.min(
+          seat.timeLeft - 1,
+          Math.round((BOT_MAX_THINK_SECONDS * seat.questionDuration) / TIMER_DURATION),
+        );
         const spread = Math.max(0, latest - BOT_MIN_THINK_SECONDS);
 
         const answerUp = () => {
@@ -1425,7 +1400,11 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     });
   };
 
-  const generateGame = async (rounds: number, questions: number) => {
+  const generateGame = async (
+    rounds: number,
+    questions: number,
+    formats?: QuestionType[],
+  ) => {
     setState((prev) => ({
       ...prev,
       loading: true,
@@ -1449,7 +1428,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
       // wait for 5 round-trips before the host saw anything.
       const results = await Promise.all(
         selectedCats.map((category) =>
-          generateQuestions(category.name, questions),
+          generateQuestions(category.name, questions, formats),
         ),
       );
 
@@ -2736,7 +2715,11 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     if (!roundConfig.questions[questionIndex]) return false;
 
     try {
-      const result = await generateQuestions(roundConfig.category.name, 1);
+      // The replacement keeps the slot's format: a host who swaps out a pin
+      // question wants a different pin question, not a surprise true/false.
+      const result = await generateQuestions(roundConfig.category.name, 1, [
+        roundConfig.questions[questionIndex].type ?? QuestionType.MULTIPLE_CHOICE,
+      ]);
       // A placeholder is not a replacement. Leaving the original in place and
       // saying so beats swapping a real question for "generation failed".
       if (result.usedFallback || result.questions.length === 0) return false;

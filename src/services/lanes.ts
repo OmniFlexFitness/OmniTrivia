@@ -11,7 +11,8 @@ import {
 } from "../types";
 import { REVEAL_DURATION, TIMER_DURATION } from "../constants";
 import { answeringRoster, redemptionRoster, rosterForRound } from "./bracket";
-import { isAnswerCorrect } from "./scoring";
+import { gradeAnswer } from "./scoring";
+import { questionSeconds } from "./questionTypes";
 
 /**
  * Asynchronous matches.
@@ -29,8 +30,9 @@ import { isAnswerCorrect } from "./scoring";
  * person they are playing is still on the first.
  *
  * Why the two players in a matchup are not kept in step: points are 100 for a
- * correct answer plus 10 for every second left on the clock (doubled on the
- * round's last question), so answering fast
+ * correct answer plus up to 150 for answering fast — 10 a second on a
+ * fifteen-second question, scaled so a full clock is worth the same on every
+ * type — and doubled on the round's last question, so answering fast
  * is already worth something, and making the fast answerer sit and wait for
  * their opponent spends the very thing they just earned. They are compared on
  * the points they finish the round with, not on the pace they got there at.
@@ -42,6 +44,31 @@ import { isAnswerCorrect } from "./scoring";
 
 const CORRECT_BASE_POINTS = 100;
 const TIME_BONUS_PER_SECOND = 10;
+/**
+ * The most the clock can be worth on any question. Ten a second on a
+ * fifteen-second question is 150; a thirty-second puzzle pays five a second
+ * so that taking your time on it is not worth twice what a quick true/false
+ * is.
+ */
+const TIME_BONUS_FULL_CLOCK = TIME_BONUS_PER_SECOND * TIMER_DURATION;
+
+/**
+ * Points for one answer. `credit` is the share of the question it earned —
+ * 1 for a right answer, 0 for a wrong one, something between for a near miss
+ * on the types that pay for those.
+ */
+export const answerPoints = (
+  credit: number,
+  timeLeft: number,
+  questionSecondsTotal: number,
+  multiplier: number,
+): number => {
+  if (credit <= 0) return 0;
+  const perSecond = TIME_BONUS_FULL_CLOCK / Math.max(1, questionSecondsTotal);
+  return Math.round(
+    credit * (CORRECT_BASE_POINTS + Math.max(0, timeLeft) * perSecond) * multiplier,
+  );
+};
 /** What the last question of a round is worth, against an ordinary one. */
 export const FINAL_QUESTION_MULTIPLIER = 2;
 
@@ -227,14 +254,21 @@ const patchSeat = (
  * Drawing the matches
  * ------------------------------------------------------------------ */
 
-const freshSeat = (playerId: string, playable: boolean, questionCount: number): LaneSeat => ({
+const freshSeat = (
+  playerId: string,
+  playable: boolean,
+  questionCount: number,
+  firstQuestion: Question | undefined,
+): LaneSeat => ({
   playerId,
   // A seat with nothing to answer is retired where it stands rather than
   // walked through the round on an empty clock.
   questionIndex: playable ? 0 : questionCount,
   status: playable ? LaneStatus.ANSWERING : LaneStatus.DONE,
-  timeLeft: TIMER_DURATION,
-  questionDuration: TIMER_DURATION,
+  // Every question brings its own clock: a puzzle gets longer than a
+  // true/false (see `questionSeconds`).
+  timeLeft: questionSeconds(firstQuestion),
+  questionDuration: questionSeconds(firstQuestion),
   timerPaused: false,
   revealSecondsLeft: REVEAL_DURATION,
   revealReason: null,
@@ -305,7 +339,7 @@ export const buildRoundLanes = (state: GameState): MatchupLane[] => {
       playerIds,
       answeringIds,
       seats: answeringIds.map((playerId) =>
-        freshSeat(playerId, questionCount > 0, questionCount),
+        freshSeat(playerId, questionCount > 0, questionCount, state.questionsQueue[0]),
       ),
       answers: [],
     };
@@ -391,14 +425,15 @@ export const advanceSeat = (
   const questionCount = state.questionsQueue.length;
   const nextIndex = seat.questionIndex + 1;
   const hasMore = nextIndex < questionCount;
+  const seconds = questionSeconds(state.questionsQueue[nextIndex]);
 
   return patchSeat(state, laneId, playerId, {
     // A finished seat parks on the round's length, so it reads as through
     // every question rather than stuck on the last one.
     questionIndex: hasMore ? nextIndex : questionCount,
     status: hasMore ? LaneStatus.ANSWERING : LaneStatus.DONE,
-    timeLeft: TIMER_DURATION,
-    questionDuration: TIMER_DURATION,
+    timeLeft: seconds,
+    questionDuration: seconds,
     timerPaused: false,
     revealSecondsLeft: REVEAL_DURATION,
     revealReason: null,
@@ -467,7 +502,7 @@ export const recordLaneAnswer = (
   const existing = laneAnswers(lane, seat.questionIndex);
   if (existing.some((record) => record.playerId === playerId)) return state;
 
-  const isCorrect = isAnswerCorrect(question, answer);
+  const grade = gradeAnswer(question, answer);
   const multiplier = questionMultiplier(
     seat.questionIndex,
     state.questionsQueue.length,
@@ -475,11 +510,15 @@ export const recordLaneAnswer = (
   const record: AnswerRecord = {
     playerId,
     answer,
-    isCorrect,
-    points: isCorrect
-      ? (CORRECT_BASE_POINTS + seat.timeLeft * TIME_BONUS_PER_SECOND) *
-        multiplier
-      : 0,
+    isCorrect: grade.correct,
+    // A near miss on a slider, a pin or a closest-number question still
+    // earns its share; everything else is all or nothing.
+    points: answerPoints(
+      grade.credit,
+      seat.timeLeft,
+      questionSeconds(question),
+      multiplier,
+    ),
     timeLeft: seat.timeLeft,
   };
 

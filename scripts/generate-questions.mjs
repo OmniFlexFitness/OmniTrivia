@@ -9,8 +9,9 @@
  *   node scripts/generate-questions.mjs --out kava-night.csv
  *   node scripts/generate-questions.mjs --categories Science,Music
  *
- * Each round is 3 multiple choice + 1 true/false + 1 of the varied types the
- * game supports, so a night is not five identical-looking screens.
+ * Each round is 3 multiple choice + 1 true/false + 1 of the other formats the
+ * game supports — a pin, a range, a match puzzle and so on, a different one
+ * per category — so a night is not five identical-looking screens.
  */
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
@@ -18,6 +19,7 @@ import * as z from "zod";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { HEADER, SPECIALS, clean, row } from "./lib/question-rows.mjs";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const MODEL = "claude-opus-5";
@@ -67,16 +69,16 @@ const arg = (name, fallback) => {
 // Matching the built-in names gets each round its own icon and colour on the
 // wheel; anything else still plays, just in grey.
 const ALL_CATEGORIES = [
-  { name: "Science", special: "slider" },
+  { name: "Science", special: "number" },
   { name: "History", special: "puzzle" },
-  { name: "Geography", special: "slider" },
-  { name: "Pop Culture", special: "typeAnswer" },
-  { name: "Sports", special: "slider" },
-  { name: "Tech", special: "puzzle" },
-  { name: "Art", special: "typeAnswer" },
+  { name: "Geography", special: "pin" },
+  { name: "Pop Culture", special: "match" },
+  { name: "Sports", special: "range" },
+  { name: "Tech", special: "scramble" },
+  { name: "Art", special: "slider" },
   { name: "Literature", special: "typeAnswer" },
-  { name: "Music", special: "puzzle" },
-  { name: "Food", special: "typeAnswer" },
+  { name: "Music", special: "multiSelect" },
+  { name: "Food", special: "categorize" },
 ];
 
 const wanted = arg("categories", "")
@@ -109,44 +111,6 @@ const trueFalse = z.object({
   explanation: z.string(),
 });
 
-const special = {
-  slider: z.object({
-    question: z.string(),
-    min: z.number(),
-    max: z.number(),
-    step: z.number(),
-    correctLow: z.number(),
-    correctHigh: z.number(),
-    exactAnswer: z.string(),
-    explanation: z.string(),
-  }),
-  typeAnswer: z.object({
-    question: z.string(),
-    acceptedAnswers: z.array(z.string()).min(1).max(5),
-    explanation: z.string(),
-  }),
-  puzzle: z.object({
-    question: z.string(),
-    orderedItems: z.array(z.string()).min(3).max(6),
-    explanation: z.string(),
-  }),
-};
-
-const specialBrief = {
-  slider:
-    "a numeric guess question answered on a slider. Give a min and max that " +
-    "bracket the answer without giving it away, a sensible step, and a " +
-    "correctLow/correctHigh window generous enough that a good guess scores.",
-  typeAnswer:
-    "a short free-text question. acceptedAnswers must list every spelling you " +
-    "would accept out loud (full name, surname only, common variants) — " +
-    "matching is exact apart from case and spacing.",
-  puzzle:
-    "an ordering question with exactly 4 items. Put orderedItems in the " +
-    "CORRECT order; the game shuffles them for players. Order by something " +
-    "unambiguous, like date.",
-};
-
 // --- generation ------------------------------------------------------------
 const SYSTEM =
   "You write pub-trivia questions for a relaxed bar crowd playing on a big " +
@@ -162,7 +126,7 @@ const generate = async (category) => {
   const schema = z.object({
     multipleChoice: z.array(multipleChoice).min(3).max(6),
     trueFalse: z.array(trueFalse).min(1).max(3),
-    special: special[category.special],
+    special: SPECIALS[category.special].schema,
   });
 
   const response = await client.messages.parse({
@@ -178,7 +142,7 @@ const generate = async (category) => {
           `- multipleChoice: 3 questions, 4 options each, mixed difficulty ` +
           `(one most people get, one middling, one that rewards a real fan).\n` +
           `- trueFalse: 1 statement that sounds plausible either way.\n` +
-          `- special: ${specialBrief[category.special]}\n\n` +
+          `- special: ${SPECIALS[category.special].brief}\n\n` +
           `All 5 must be about different things — no two questions on the ` +
           `same person, event, or work.`,
       },
@@ -196,30 +160,9 @@ const generate = async (category) => {
 };
 
 // --- CSV -------------------------------------------------------------------
-/**
- * The importer's parser splits on newlines before it looks at quotes, and it
- * treats every `"` as a delimiter toggle rather than honouring `""` escapes.
- * So: no newlines and no double quotes reach the file at all. Commas are fine
- * inside a quoted field, which is the one case that does work.
- */
-const clean = (value) =>
-  String(value)
-    .replace(/[\r\n]+/g, " ")
-    .replace(/["“”]/g, "'")
-    .replace(/\s+/g, " ")
-    .trim();
+// Cleaning, quoting and the row layout live in ./lib/question-rows.mjs.
 
-const field = (value) => {
-  const text = clean(value);
-  return text.includes(",") ? `"${text}"` : text;
-};
-
-const row = (type, category, question, options, correctAnswer, explanation) => {
-  const padded = [...options.map(clean), "", "", "", "", ""].slice(0, 5);
-  return [type, category, question, ...padded, correctAnswer, explanation].map(field).join(",");
-};
-
-const toRows = (categoryName, round) => {
+const toRows = (categoryName, special, round) => {
   const rows = [];
 
   // The schema allows a little slack (the model sometimes returns a bonus
@@ -248,27 +191,7 @@ const toRows = (categoryName, round) => {
     );
   }
 
-  const s = round.special;
-  if ("orderedItems" in s) {
-    rows.push(
-      row("PUZZLE", categoryName, s.question, s.orderedItems, s.orderedItems.map(clean).join("|"), s.explanation),
-    );
-  } else if ("acceptedAnswers" in s) {
-    rows.push(
-      row("TYPE_ANSWER", categoryName, s.question, s.acceptedAnswers, s.acceptedAnswers[0], s.explanation),
-    );
-  } else {
-    rows.push(
-      row(
-        "SLIDER",
-        categoryName,
-        s.question,
-        [s.min, s.max, s.step, s.correctLow, s.correctHigh],
-        s.exactAnswer,
-        s.explanation,
-      ),
-    );
-  }
+  rows.push(SPECIALS[special].toRow(categoryName, round.special));
 
   return rows;
 };
@@ -300,10 +223,9 @@ if (!ok.length) {
   process.exit(1);
 }
 
-const header = "type,category,question,option1,option2,option3,option4,option5,correctAnswer,explanation";
-const rows = ok.flatMap(({ category, round }) => toRows(category.name, round));
+const rows = ok.flatMap(({ category, round }) => toRows(category.name, category.special, round));
 
-writeFileSync(outPath, [header, ...rows].join("\n") + "\n", "utf8");
+writeFileSync(outPath, [HEADER, ...rows].join("\n") + "\n", "utf8");
 
 console.log(
   `\nWrote ${rows.length} questions across ${ok.length} round(s) to ${outPath} ` +

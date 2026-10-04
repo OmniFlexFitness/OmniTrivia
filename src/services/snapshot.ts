@@ -34,6 +34,8 @@ import {
   seatCompletedCount,
 } from "./lanes";
 import { SNAPSHOT_VERSION } from "./broadcastBus";
+import { marginFor, readNumber } from "./scoring";
+import { formatNumber } from "./questionTypes";
 
 /**
  * Builds the read-only view of the game that the projector and the players'
@@ -89,69 +91,170 @@ export const seededShuffle = <T,>(items: T[], seed: number): T[] => {
 };
 
 /**
- * The tile order a puzzle is shown in, on any screen.
+ * A deterministic shuffle that never hands back what it was given.
  *
- * A shuffle is free to hand back the order it was given, and for a puzzle that
- * order is the answer — roughly one in six three-tile puzzles and half of all
- * two-tile ones would have published it. When the draw comes back as the
- * source order, rotate instead: still deterministic, never the answer.
+ * A shuffle is free to return the order it started from, and for a puzzle
+ * that order is the answer — roughly one in six three-tile puzzles and half
+ * of all two-tile ones would have published it. When the draw comes back
+ * reading the same as the source (compared as text, so a scramble of "LEVEL"
+ * that swaps its two Ls counts as unscrambled), rotate instead: still
+ * deterministic, never the answer. Only a list whose items are all the same
+ * cannot be disguised, and the importer refuses those.
  */
-export const puzzleDisplayOrder = (question: Question): string[] => {
-  const options = question.options;
-  if (options.length < 2) return [...options];
-
-  const shuffled = seededShuffle(options, hashString(question.id));
-  const isSourceOrder = shuffled.every((item, i) => item === options[i]);
-
-  return isSourceOrder ? [...options.slice(1), options[0]] : shuffled;
+const disguised = (items: string[], seed: string): string[] => {
+  if (items.length < 2) return [...items];
+  const shuffled = seededShuffle(items, hashString(seed));
+  const same = shuffled.every((item, i) => item === items[i]);
+  return same ? [...items.slice(1), items[0]] : shuffled;
 };
 
+/** The tile order a puzzle is shown in, on any screen. */
+export const puzzleDisplayOrder = (question: Question): string[] =>
+  disguised(question.options, question.id);
+
 /**
- * Options with the answer stripped out. A typed answer has none to show, a
- * slider would give away its own target range, and a puzzle arrives in the
- * correct order — all three have to be filtered, not just passed through.
+ * A match puzzle's right-hand side as players see it: shuffled uniformly, and
+ * never in the answer order.
+ *
+ * Some partners will often sit level with their item, and that is on purpose.
+ * Nobody can tell which, so trusting the level rows scores no better than
+ * guessing. A derangement — no partner ever level — would be the leak: it
+ * tells every player that the partner beside an item is the wrong one.
+ */
+export const matchChoices = (question: Question): string[] =>
+  disguised(question.pairs ?? [], `${question.id}:pairs`);
+
+/** A sort puzzle's groups, alphabetically — their order says nothing. */
+export const categorizeGroups = (question: Question): string[] =>
+  [...new Set(question.pairs ?? [])].sort((a, b) => a.localeCompare(b));
+
+/** The letters of a scramble, with spaces and punctuation left out. */
+export const scrambleLetters = (answer: string): string[] =>
+  [...answer.toUpperCase()].filter((char) => /[\p{L}\p{N}]/u.test(char));
+
+/** How long each word of a scramble is — "3 · 4" for NEW YORK. */
+export const scrambleWordLengths = (answer: string): number[] =>
+  answer
+    .split(/\s+/)
+    .map((word) => scrambleLetters(word).length)
+    .filter((length) => length > 0);
+
+/**
+ * Options with the answer stripped out. Every type that is not a plain pick
+ * hides its key somewhere in `options` — a typed answer's spellings, a
+ * slider's target, a closest-number answer, a puzzle's order — so each has to
+ * be filtered, not just passed through.
  */
 export const publicOptions = (question: Question): string[] => {
   switch (question.type) {
     case QuestionType.TYPE_ANSWER:
+    case QuestionType.NUMBER:
+    case QuestionType.PIN:
       return [];
     case QuestionType.SLIDER:
-      // options are [min, max, step, correctLow, correctHigh]. Only the two
-      // bounds are needed to draw the scale, so only those are published.
-      return question.options.slice(0, 2);
+    case QuestionType.RANGE:
+      // options are [min, max, step, correctLow, correctHigh]. The scale is
+      // all a screen needs to draw, so the scale is all that is published.
+      return question.options.slice(0, 3);
     case QuestionType.PUZZLE:
+    case QuestionType.CATEGORIZE:
       return puzzleDisplayOrder(question);
+    case QuestionType.SCRAMBLE:
+      return disguised(scrambleLetters(question.options[0] ?? ""), question.id);
     default:
+      // Multiple choice, multi-select and true/false show their options as
+      // they are; a match puzzle's left-hand side gives nothing away on its
+      // own, because its partners are shuffled separately.
       return question.options;
   }
 };
 
-export const toPublicQuestion = (question: Question): PublicQuestion => ({
-  id: question.id,
-  category: question.category,
-  text: question.text,
-  type: question.type ?? QuestionType.MULTIPLE_CHOICE,
-  options: publicOptions(question),
-});
+/** The second list a puzzle needs, if it needs one. */
+const publicChoices = (question: Question): string[] | undefined => {
+  switch (question.type) {
+    case QuestionType.MATCH:
+      return matchChoices(question);
+    case QuestionType.CATEGORIZE:
+      return categorizeGroups(question);
+    case QuestionType.SCRAMBLE:
+      return scrambleWordLengths(question.options[0] ?? "").map(String);
+    default:
+      return undefined;
+  }
+};
+
+export const toPublicQuestion = (question: Question): PublicQuestion => {
+  const type = question.type ?? QuestionType.MULTIPLE_CHOICE;
+  const choices = publicChoices(question);
+  const scored = type === QuestionType.SLIDER || type === QuestionType.NUMBER || type === QuestionType.PIN;
+  return {
+    id: question.id,
+    category: question.category,
+    text: question.text,
+    type,
+    options: publicOptions(question),
+    ...(choices ? { choices } : {}),
+    ...(question.image ? { image: question.image } : {}),
+    ...(question.unit ? { unit: question.unit } : {}),
+    ...(scored ? { margin: marginFor(question) } : {}),
+  };
+};
 
 /** How the answer reads on screen, formatted for the question type. */
 export const buildReveal = (question: Question): RevealDetail => {
+  const shared = {
+    explanation: question.explanation,
+    ...(question.image ? { image: question.image } : {}),
+    ...(question.unit ? { unit: question.unit } : {}),
+  };
+
   switch (question.type) {
     case QuestionType.TYPE_ANSWER:
-      return {
-        label: question.options[0] ?? "",
-        correctIndex: null,
-        explanation: question.explanation,
-      };
+      return { label: question.options[0] ?? "", correctIndex: null, ...shared };
 
-    case QuestionType.SLIDER: {
+    case QuestionType.SLIDER:
+    case QuestionType.RANGE: {
       const low = Number(question.options[3]);
       const high = Number(question.options[4]);
       return {
-        label: low === high ? `${low}` : `${low} – ${high}`,
+        label:
+          low === high
+            ? formatNumber(low, question.unit)
+            : `${formatNumber(low)} – ${formatNumber(high, question.unit)}`,
         correctIndex: null,
         correctRange: [low, high],
-        explanation: question.explanation,
+        ...shared,
+      };
+    }
+
+    case QuestionType.NUMBER: {
+      const target = readNumber(question.options[0]) ?? 0;
+      const tolerance = Math.abs(readNumber(question.options[1]) ?? 0);
+      return {
+        label:
+          formatNumber(target, question.unit) +
+          (tolerance > 0 ? ` (± ${formatNumber(tolerance)})` : ""),
+        correctIndex: null,
+        correctRange: [target - tolerance, target + tolerance],
+        ...shared,
+      };
+    }
+
+    case QuestionType.PIN:
+      return {
+        label: question.options[0] || "The marked spot",
+        correctIndex: null,
+        pin: question.pin,
+        ...shared,
+      };
+
+    case QuestionType.MULTI_SELECT: {
+      const indices = question.correctIndices ?? [question.correctIndex];
+      return {
+        label: indices.map((index) => question.options[index]).filter(Boolean).join("  ·  "),
+        correctIndex: indices[0] ?? null,
+        correctIndices: indices,
+        ...shared,
       };
     }
 
@@ -160,20 +263,63 @@ export const buildReveal = (question: Question): RevealDetail => {
         label: question.options.join("  →  "),
         correctIndex: null,
         correctOrder: question.options,
-        explanation: question.explanation,
+        ...shared,
       };
+
+    case QuestionType.MATCH: {
+      const pairs = question.options.map(
+        (item, i) => [item, question.pairs?.[i] ?? ""] as [string, string],
+      );
+      return {
+        label: pairs.map(([item, partner]) => `${item} → ${partner}`).join("  ·  "),
+        correctIndex: null,
+        pairs,
+        ...shared,
+      };
+    }
+
+    case QuestionType.CATEGORIZE: {
+      const pairs = question.options.map(
+        (item, i) => [item, question.pairs?.[i] ?? ""] as [string, string],
+      );
+      return {
+        label: categorizeGroups(question)
+          .map(
+            (group) =>
+              `${group}: ${pairs
+                .filter(([, home]) => home === group)
+                .map(([item]) => item)
+                .join(", ")}`,
+          )
+          .join("  ·  "),
+        correctIndex: null,
+        pairs,
+        ...shared,
+      };
+    }
+
+    case QuestionType.SCRAMBLE:
+      return { label: question.options[0] ?? "", correctIndex: null, ...shared };
 
     default:
       return {
         label: question.options[question.correctIndex] ?? "",
         correctIndex: question.correctIndex,
-        explanation: question.explanation,
+        ...shared,
       };
   }
 };
 
+/** The types whose answers are worth drawing on the answer key. */
+const DRAWN_TYPES = new Set<QuestionType>([
+  QuestionType.PIN,
+  QuestionType.SLIDER,
+  QuestionType.RANGE,
+  QuestionType.NUMBER,
+]);
+
 /**
- * Counts per option, for the bar chart under a revealed multiple choice. Only
+ * Counts per option, for the bar chart under a revealed pick. Only
  * index-style answers can be tallied this way, so other types get nothing.
  */
 const tallyOptions = (
@@ -181,15 +327,22 @@ const tallyOptions = (
   answers: AnswerRecord[],
 ): number[] | null => {
   const type = question.type ?? QuestionType.MULTIPLE_CHOICE;
-  if (type !== QuestionType.MULTIPLE_CHOICE && type !== QuestionType.TRUE_FALSE) {
+  if (
+    type !== QuestionType.MULTIPLE_CHOICE &&
+    type !== QuestionType.TRUE_FALSE &&
+    type !== QuestionType.MULTI_SELECT
+  ) {
     return null;
   }
 
   const tallies = question.options.map(() => 0);
   answers.forEach(({ answer }) => {
-    if (typeof answer === "number" && tallies[answer] !== undefined) {
-      tallies[answer] += 1;
-    }
+    const picks = Array.isArray(answer) ? answer : [answer];
+    new Set(picks).forEach((pick) => {
+      if (typeof pick === "number" && tallies[pick] !== undefined) {
+        tallies[pick] += 1;
+      }
+    });
   });
   return tallies;
 };
@@ -409,8 +562,12 @@ export const buildSnapshot = (
             question: toPublicQuestion(question),
             reveal: buildReveal(question),
             correctCount: answers.filter((a) => a.isCorrect).length,
+            closeCount: answers.filter((a) => !a.isCorrect && a.points > 0).length,
             answeredCount: answers.length,
             optionTallies: tallyOptions(question, answers),
+            ...(DRAWN_TYPES.has(question.type ?? QuestionType.MULTIPLE_CHOICE)
+              ? { responses: answers.map((a) => a.answer) }
+              : {}),
           };
         })
       : null;
