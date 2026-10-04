@@ -113,8 +113,13 @@ export const puzzleDisplayOrder = (question: Question): string[] =>
   disguised(question.options, question.id);
 
 /**
- * A match puzzle's right-hand side as players see it: shuffled, so the
- * partners do not sit level with the items they pair with.
+ * A match puzzle's right-hand side as players see it: shuffled uniformly, and
+ * never in the answer order.
+ *
+ * Some partners will often sit level with their item, and that is on purpose.
+ * Nobody can tell which, so trusting the level rows scores no better than
+ * guessing. A derangement — no partner ever level — would be the leak: it
+ * tells every player that the partner beside an item is the wrong one.
  */
 export const matchChoices = (question: Question): string[] =>
   disguised(question.pairs ?? [], `${question.id}:pairs`);

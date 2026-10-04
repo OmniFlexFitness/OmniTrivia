@@ -572,7 +572,7 @@ export interface PublicQuestion {
   type: QuestionType;
   options: string[];
   /**
-   * MATCH: the right-hand side, shuffled so it does not line up with the left.
+   * MATCH: the right-hand side, shuffled and never in the answer order.
    * CATEGORIZE: the groups to sort into.
    */
   choices?: string[];

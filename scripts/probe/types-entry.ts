@@ -348,7 +348,7 @@ check(
   }),
 );
 check(
-  "a match puzzle's partners never line up with their items",
+  "a match puzzle's partners are shuffled, and never shown in the answer order",
   Array.from({ length: 60 }).every((_, n) => {
     const q = { ...match, id: `match-${n}` };
     const shown = matchChoices(q);
