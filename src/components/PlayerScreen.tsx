@@ -36,6 +36,8 @@ import SpectatorWheel from "./SpectatorWheel";
 import VersusIntro, { VersusStrip } from "./VersusIntro";
 import PrizePodium from "./PrizePodium";
 import { QuestionPanel } from "./CyberQuestion";
+import AnswerReveal, { describeAnswer } from "./answers/AnswerReveal";
+import { typeInfo } from "../services/questionTypes";
 import Button from "./Button";
 import {
   ArrowRight,
@@ -47,6 +49,7 @@ import {
   Pause,
   Radio,
   Swords,
+  Target,
   TimerOff,
   Trophy,
   X,
@@ -71,20 +74,6 @@ import {
  */
 
 const HOST_TIMEOUT_MS = 8000;
-
-/**
- * The snapshot's question carries no answer key, which is the point. Handing
- * it to QuestionCard needs a Question shape, so it gets one that cannot grade
- * anything — and the card never grades anyway.
- */
-const asAnswerable = (question: PublicQuestion): Question => ({
-  id: question.id,
-  category: question.category,
-  text: question.text,
-  options: question.options,
-  correctIndex: -1,
-  type: question.type,
-});
 
 /**
  * Who this player is drawn against, for a round that has not started yet.
@@ -459,27 +448,36 @@ const OpponentStrip: React.FC<{
   );
 };
 
-/** One question's outcome as a small chip: ✓, ✕, or – for no answer. */
+/**
+ * One question's outcome as a small chip: ✓, ≈ for a near miss that still
+ * scored, ✕, or – for no answer.
+ */
 const ResultChip: React.FC<{ index: number; answered: boolean; correct: boolean; points: number }> = ({
   index,
   answered,
   correct,
   points,
-}) => (
-  <div
-    className={`flex flex-col items-center justify-center gap-0.5 w-14 py-2 border ${
-      correct
-        ? "border-[#39ff88] bg-[#39ff88]/10 text-[#39ff88]"
-        : answered
-          ? "border-[#ff3b5c] bg-[#ff3b5c]/10 text-[#ff3b5c]"
-          : "border-slate-600 bg-slate-800/60 text-slate-400"
-    }`}
-  >
-    <span className="cyber-hud text-[9px] tracking-normal text-slate-400">Q{index + 1}</span>
-    {correct ? <Check size={18} /> : answered ? <X size={18} /> : <Minus size={18} />}
-    <span className="font-mono text-[10px]">{correct ? `+${points}` : "0"}</span>
-  </div>
-);
+}) => {
+  const close = !correct && points > 0;
+  return (
+    <div
+      className={`flex flex-col items-center justify-center gap-0.5 w-14 py-2 border ${
+        correct
+          ? "border-[#39ff88] bg-[#39ff88]/10 text-[#39ff88]"
+          : close
+            ? "border-[#ffb020] bg-[#ffb020]/10 text-[#ffb020]"
+            : answered
+              ? "border-[#ff3b5c] bg-[#ff3b5c]/10 text-[#ff3b5c]"
+              : "border-slate-600 bg-slate-800/60 text-slate-400"
+      }`}
+      title={close ? "Close — part of the points" : undefined}
+    >
+      <span className="cyber-hud text-[9px] tracking-normal text-slate-400">Q{index + 1}</span>
+      {correct ? <Check size={18} /> : close ? <Target size={18} /> : answered ? <X size={18} /> : <Minus size={18} />}
+      <span className="font-mono text-[10px]">{points > 0 ? `+${points}` : "0"}</span>
+    </div>
+  );
+};
 
 /**
  * The end of a match, on the phone of someone in it.
@@ -645,23 +643,10 @@ const MatchResult: React.FC<{
   );
 };
 
-/** A player's answer, as words, for the end-of-round review. */
-const describeAnswer = (answer: Answer | null, question: PublicQuestion): string => {
-  if (answer === null) return "No answer";
-  if (Array.isArray(answer)) return answer.join("  →  ");
-  if (
-    typeof answer === "number" &&
-    (question.type === QuestionType.MULTIPLE_CHOICE ||
-      question.type === QuestionType.TRUE_FALSE)
-  ) {
-    return question.options[answer] ?? "No answer";
-  }
-  return String(answer);
-};
-
 /**
  * The round, question by question, once it is over: what was asked, the
- * answer, and — for a player who played it — what they said.
+ * answer — drawn, for the types that have something to draw — and, for a
+ * player who played it, what they said.
  */
 const RoundReview: React.FC<{
   review: RoundReviewItem[];
@@ -673,12 +658,13 @@ const RoundReview: React.FC<{
     </div>
     {review.map((item, index) => {
       const result = seat?.results?.[index] ?? null;
+      const close = result ? !result.correct && result.points > 0 : false;
       return (
         <div key={`${item.question.id}-${index}`} className="cyber-panel px-4 py-3">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="cyber-hud text-[9px] text-[#00f0ff] mb-1">
-                Q{String(index + 1).padStart(2, "0")}
+                Q{String(index + 1).padStart(2, "0")} · {typeInfo(item.question.type).badge}
               </div>
               <div className="cyber-question text-base leading-snug">
                 {item.question.text}
@@ -689,29 +675,37 @@ const RoundReview: React.FC<{
                 className={`shrink-0 mt-1 ${
                   result.correct
                     ? "text-[#39ff88]"
-                    : result.answered
-                      ? "text-[#ff3b5c]"
-                      : "text-slate-500"
+                    : close
+                      ? "text-[#ffb020]"
+                      : result.answered
+                        ? "text-[#ff3b5c]"
+                        : "text-slate-500"
                 }`}
               >
-                {result.correct ? <Check size={20} /> : result.answered ? <X size={20} /> : <Minus size={20} />}
+                {result.correct ? <Check size={20} /> : close ? <Target size={20} /> : result.answered ? <X size={20} /> : <Minus size={20} />}
               </span>
             )}
           </div>
-          <div className="mt-2 text-sm">
-            <span className="text-slate-500">Answer: </span>
-            <span className="font-bold text-[#39ff88]">{item.reveal.label}</span>
+          <div className="mt-2">
+            <AnswerReveal
+              question={item.question}
+              reveal={item.reveal}
+              responses={item.responses}
+              mine={result?.answer ?? null}
+              showExplanation={false}
+            />
           </div>
           {result && !result.correct && (
-            <div className="text-sm">
+            <div className="text-sm mt-1">
               <span className="text-slate-500">You said: </span>
               <span className="text-slate-300">
-                {describeAnswer(result.answer, item.question)}
+                {describeAnswer(result.answer, item.question, item.reveal)}
               </span>
+              {close && <span className="text-[#ffb020]"> — close, +{result.points}</span>}
             </div>
           )}
           {result?.correct && (
-            <div className="text-xs font-mono text-[#39ff88]">+{result.points}</div>
+            <div className="text-xs font-mono text-[#39ff88] mt-1">+{result.points}</div>
           )}
           {item.reveal.explanation && (
             <p className="text-xs text-slate-400 mt-1">{item.reveal.explanation}</p>
@@ -855,10 +849,9 @@ const PlayerScreen: React.FC = () => {
       ) ?? null,
     [lane, currentPlayerId],
   );
-  const question = useMemo(
-    () => (seat?.question ? asAnswerable(seat.question) : null),
-    [seat?.question],
-  );
+  // The snapshot's question carries no answer key, which is the point — and
+  // it is exactly what the answer card takes.
+  const question = seat?.question ?? null;
 
   /* --- liking the category this game is on --- */
   const category = snapshot?.category ?? null;

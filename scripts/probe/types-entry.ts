@@ -286,6 +286,13 @@ check(
   );
 }
 check(
+  "a miss by a hair is still worth less than a hit",
+  gradeAnswer(slider, 1969.01).credit < 1 &&
+    !gradeAnswer(slider, 1969.01).correct &&
+    gradeAnswer(paris, [paris.pin!.x + paris.pin!.radius * 1.0001, paris.pin!.y]).credit < 1,
+  `slider ${gradeAnswer(slider, 1969.01).credit}`,
+);
+check(
   "pin on a picture: the aspect a phone reports stretches distance down the picture",
   gradeAnswer(redSquare, [0.4, 0.33, 1]).correct && !gradeAnswer(redSquare, [0.4, 0.33, 3]).correct,
 );

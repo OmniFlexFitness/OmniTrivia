@@ -2,7 +2,7 @@ import React from 'react';
 import { useGame } from '../context/GameContext';
 import { GamePhase, LaneStatus } from '../types';
 import { answerBy, laneForPlayer, seatFor } from '../services/lanes';
-import { publicPoll } from '../services/snapshot';
+import { publicPoll, toPublicQuestion } from '../services/snapshot';
 import Wheel from './Wheel';
 import QuestionCard from './QuestionCard';
 import Leaderboard from './Leaderboard';
@@ -156,7 +156,7 @@ const GameScreen: React.FC = () => {
     return (
       <QuestionCard
         key={`${question.id}-${seat.questionIndex}`}
-        question={question}
+        question={toPublicQuestion(question)}
         timeLeft={seat.timeLeft}
         duration={seat.questionDuration}
       />

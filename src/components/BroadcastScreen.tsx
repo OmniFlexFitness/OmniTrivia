@@ -40,7 +40,11 @@ import CategoryVotePanel from "./CategoryVotePanel";
 import SpectatorWheel from "./SpectatorWheel";
 import { GLOSSARY, SCORING_RULES } from "../content/instructions";
 import { CHOICE_KEYS, QuestionPanel, accentStyle } from "./CyberQuestion";
+import PinBoard, { QuestionImage } from "./answers/PinBoard";
+import AnswerReveal from "./answers/AnswerReveal";
+import { formatNumber, typeInfo } from "../services/questionTypes";
 import {
+  Check,
   CheckCircle2,
   Crown,
   Flag,
@@ -51,6 +55,7 @@ import {
   Swords,
   Trophy,
   Users,
+  X,
 } from "lucide-react";
 
 /**
@@ -730,14 +735,25 @@ const RoundIntroStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
 };
 
 /**
- * Options as the room sees them. Never marked: the answer waits for the end
- * of the round, where it goes up in the answer key.
+ * How the room is told to answer, under the question on the big screen.
+ * Never marked: the answer waits for the end of the round, where it goes up
+ * in the answer key. Every type gets a layout that says what kind of answer
+ * is wanted before anyone has read the small print — two slabs for true or
+ * false, a map for a pin, tiles for a scramble.
  */
 const BroadcastOptions: React.FC<{ snapshot: BroadcastSnapshot }> = ({
   snapshot,
 }) => {
   const question = snapshot.question;
   if (!question) return null;
+  const info = typeInfo(question.type);
+
+  const caption = (
+    <div className="cyber-hud text-center text-sm text-slate-400 mt-3">
+      {info.prompt}
+      {question.margin && question.margin !== "none" ? " · close counts" : ""}
+    </div>
+  );
 
   switch (question.type) {
     case QuestionType.TYPE_ANSWER:
@@ -750,23 +766,57 @@ const BroadcastOptions: React.FC<{ snapshot: BroadcastSnapshot }> = ({
         </div>
       );
 
-    case QuestionType.SLIDER: {
+    case QuestionType.NUMBER:
+      return (
+        <div className="flex items-center justify-center py-6">
+          <div className="cyber-panel px-12 py-8 text-center">
+            <div className="cyber-hud text-sm text-[#00f0ff]">Closest number</div>
+            <div className="cyber-question text-6xl mt-2 tabular-nums">
+              ?{question.unit ? <span className="text-3xl text-slate-400 normal-case"> {question.unit}</span> : null}
+            </div>
+            <div className="cyber-hud text-sm text-slate-400 mt-3">Type a number — closest guess scores the most</div>
+          </div>
+        </div>
+      );
+
+    case QuestionType.SLIDER:
+    case QuestionType.RANGE: {
       const [min, max] = question.options.map(Number);
+      const isRange = question.type === QuestionType.RANGE;
       return (
         <div className="py-8 px-6">
-          <div className="cyber-timer h-8">
-            <div className="cyber-timer-fill opacity-30" style={{ width: "100%" }} />
+          <div className="relative">
+            <div className="cyber-timer h-8">
+              <div className="cyber-timer-fill opacity-30" style={{ width: "100%" }} />
+            </div>
+            {isRange &&
+              [30, 70].map((at) => (
+                <div
+                  key={at}
+                  className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 w-10 h-10 rounded-full border-4 border-[#00f0ff] bg-[#070817] shadow-[0_0_16px_rgba(0,240,255,0.8)]"
+                  style={{ left: `${at}%` }}
+                />
+              ))}
           </div>
           <div className="font-hud flex justify-between mt-3 text-3xl text-slate-300">
-            <span>{min}</span>
+            <span>{formatNumber(min)}</span>
             <span className="cyber-hud text-sm self-center text-slate-500">
-              slide to your guess
+              {isRange ? "catch the answer — the tighter, the more it pays" : "slide to your guess"}
+              {question.unit ? <span style={{ textTransform: "none" }}> · {question.unit}</span> : null}
             </span>
-            <span>{max}</span>
+            <span>{formatNumber(max)}</span>
           </div>
         </div>
       );
     }
+
+    case QuestionType.PIN:
+      return (
+        <div className="w-full max-w-5xl mx-auto">
+          <PinBoard image={question.image ?? ""} zoomable={false} />
+          {caption}
+        </div>
+      );
 
     case QuestionType.PUZZLE:
       return (
@@ -781,34 +831,135 @@ const BroadcastOptions: React.FC<{ snapshot: BroadcastSnapshot }> = ({
               <span className="text-3xl">{item}</span>
             </div>
           ))}
-          <div className="cyber-hud text-center text-sm text-slate-500">
-            Put them in the right order
-          </div>
+          {caption}
         </div>
       );
 
-    default: {
-      const isTrueFalse = question.type === QuestionType.TRUE_FALSE;
+    case QuestionType.MATCH:
       return (
-        <div className={`grid gap-5 ${isTrueFalse ? "grid-cols-2" : "grid-cols-1 md:grid-cols-2"}`}>
-          {question.options.map((option, index) => (
-            <div
-              key={index}
-              style={accentStyle(index)}
-              className={`cyber-option min-h-[6rem] px-6 py-5 gap-6 ${isTrueFalse ? "justify-center" : ""}`}
-            >
-              {!isTrueFalse && (
+        <div className="max-w-5xl mx-auto w-full">
+          <div className="grid grid-cols-2 gap-x-10 gap-y-3">
+            <div className="space-y-3">
+              {question.options.map((item, index) => (
+                <div key={item} style={accentStyle(index)} className="cyber-option px-5 py-4 text-3xl">
+                  {item}
+                </div>
+              ))}
+            </div>
+            <div className="space-y-3">
+              {(question.choices ?? []).map((partner) => (
+                <div
+                  key={partner}
+                  className="cyber-option px-5 py-4 text-3xl"
+                  style={{ "--accent": "#94a3b8", "--accent-rgb": "148, 163, 184" } as React.CSSProperties}
+                >
+                  {partner}
+                </div>
+              ))}
+            </div>
+          </div>
+          {caption}
+        </div>
+      );
+
+    case QuestionType.CATEGORIZE:
+      return (
+        <div className="max-w-5xl mx-auto w-full">
+          <div className="flex justify-center gap-4 mb-5">
+            {(question.choices ?? []).map((group, g) => (
+              <div
+                key={group}
+                style={accentStyle(g)}
+                className="cyber-hud rounded-2xl border-[3px] border-[var(--accent)] text-[var(--accent)] px-8 py-3 text-2xl shadow-[0_0_20px_rgba(var(--accent-rgb),0.45)]"
+              >
+                {group}
+              </div>
+            ))}
+          </div>
+          <div className="flex flex-wrap justify-center gap-3">
+            {question.options.map((item) => (
+              <span key={item} className="font-cyber font-bold text-3xl text-white rounded-xl border-2 border-slate-600 bg-slate-900/80 px-5 py-3">
+                {item}
+              </span>
+            ))}
+          </div>
+          {caption}
+        </div>
+      );
+
+    case QuestionType.SCRAMBLE: {
+      const lengths = (question.choices ?? []).map(Number);
+      return (
+        <div className="flex flex-col items-center gap-6 py-4">
+          <div className="flex flex-wrap justify-center gap-3">
+            {question.options.map((letter, index) => (
+              <span
+                key={index}
+                style={accentStyle(index)}
+                className="cyber-option justify-center w-20 h-24 text-5xl font-hud font-black"
+              >
+                {letter}
+              </span>
+            ))}
+          </div>
+          <div className="flex gap-6">
+            {lengths.map((length, w) => (
+              <div key={w} className="flex gap-2">
+                {Array.from({ length }).map((_, i) => (
+                  <span key={i} className="w-10 h-1.5 rounded-full bg-[#00e5ff]/60" />
+                ))}
+              </div>
+            ))}
+          </div>
+          {caption}
+        </div>
+      );
+    }
+
+    case QuestionType.TRUE_FALSE:
+      return (
+        <div className="relative grid grid-cols-2 gap-6 max-w-5xl mx-auto w-full">
+          {["True", "False"].map((label, index) => {
+            const Icon = index === 0 ? Check : X;
+            return (
+              <div
+                key={label}
+                style={accentStyle(index)}
+                className="cyber-option flex-col justify-center gap-4 min-h-[13rem]"
+              >
+                <span className="w-24 h-24 rounded-full border-4 border-current flex items-center justify-center">
+                  <Icon size={60} strokeWidth={3} />
+                </span>
+                <span className="cyber-hud font-black text-5xl tracking-[0.18em]">{label}</span>
+              </div>
+            );
+          })}
+          <span className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-16 h-16 rounded-full bg-[#070817] border-2 border-[#9d4dff] flex items-center justify-center font-hud font-black italic text-lg shadow-[0_0_18px_rgba(157,77,255,0.6)]">
+            OR
+          </span>
+        </div>
+      );
+
+    case QuestionType.MULTI_SELECT:
+    default: {
+      const multi = question.type === QuestionType.MULTI_SELECT;
+      return (
+        <div>
+          <div className="grid gap-5 grid-cols-1 md:grid-cols-2">
+            {question.options.map((option, index) => (
+              <div
+                key={index}
+                style={accentStyle(index)}
+                className="cyber-option min-h-[6rem] px-6 py-5 gap-6"
+              >
                 <span className="cyber-option-key w-14 h-14 text-2xl">
                   {CHOICE_KEYS[index] ?? index + 1}
                 </span>
-              )}
-              <span
-                className={`leading-snug ${isTrueFalse ? "text-5xl uppercase tracking-wider" : "flex-1 text-3xl"}`}
-              >
-                {option}
-              </span>
-            </div>
-          ))}
+                <span className="leading-snug flex-1 text-3xl">{option}</span>
+              </div>
+            ))}
+          </div>
+          {multi && caption}
         </div>
       );
     }
@@ -844,6 +995,10 @@ const QuestionStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
           category={snapshot.category?.name ?? snapshot.question?.category}
           size="room"
         />
+
+        {snapshot.question?.type !== QuestionType.PIN && (
+          <QuestionImage image={snapshot.question?.image} />
+        )}
 
         <BroadcastOptions snapshot={snapshot} />
 
@@ -906,7 +1061,8 @@ const QuestionStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
 
 /**
  * The round's answers, once there is no match left to spoil: every question,
- * its answer, and how many in the room got it.
+ * its answer — with every pin and every guess the room put down, for the types
+ * that have them — and how many in the room got it.
  */
 const AnswerKey: React.FC<{ review: RoundReviewItem[] }> = ({ review }) => (
   <div>
@@ -918,21 +1074,23 @@ const AnswerKey: React.FC<{ review: RoundReviewItem[] }> = ({ review }) => (
         <div key={`${item.question.id}-${index}`} className="cyber-panel px-5 py-4">
           <div className="flex items-baseline justify-between gap-4">
             <span className="cyber-hud text-xs text-[#00f0ff]">
-              Q{String(index + 1).padStart(2, "0")}
+              Q{String(index + 1).padStart(2, "0")} · {typeInfo(item.question.type).badge}
             </span>
             <span className="cyber-hud text-[10px] text-slate-400 tracking-normal">
               {item.correctCount}/{item.answeredCount} got it
+              {item.closeCount ? ` · ${item.closeCount} close` : ""}
             </span>
           </div>
-          <div className="cyber-question text-xl mt-1 leading-snug">
+          <div className="cyber-question text-xl mt-1 mb-2 leading-snug">
             {item.question.text}
           </div>
-          <div className="cyber-question text-2xl mt-2 text-[#39ff88]">
-            {item.reveal.label}
-          </div>
-          {item.reveal.explanation && (
-            <p className="text-sm text-slate-400 mt-1">{item.reveal.explanation}</p>
-          )}
+          <AnswerReveal
+            question={item.question}
+            reveal={item.reveal}
+            tallies={item.optionTallies}
+            responses={item.responses}
+            size="room"
+          />
         </div>
       ))}
     </div>

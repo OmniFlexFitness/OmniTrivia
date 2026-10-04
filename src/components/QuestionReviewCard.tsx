@@ -2,6 +2,10 @@ import React, { useState } from 'react';
 import { Question, QuestionType } from '../types';
 import { useGame } from '../context/GameContext';
 import { RefreshCw, Loader2, Trash2, AlertTriangle } from 'lucide-react';
+import { buildReveal, toPublicQuestion } from '../services/snapshot';
+import { questionSeconds, typeInfo } from '../services/questionTypes';
+import AnswerReveal from './answers/AnswerReveal';
+import { QuestionImage } from './answers/PinBoard';
 
 interface QuestionReviewCardProps {
   question: Question;
@@ -41,28 +45,32 @@ const QuestionReviewCard: React.FC<QuestionReviewCardProps> = ({
   };
 
   const questionType = question.type ?? QuestionType.MULTIPLE_CHOICE;
+  const info = typeInfo(questionType);
+  const reveal = buildReveal(question);
+  const seconds = questionSeconds(question);
 
   const renderAnswer = () => {
     switch (questionType) {
-      case QuestionType.SLIDER:
-        const [min, max, step, correctLow, correctHigh] = question.options;
-        return <p className="text-green-400 font-bold">✓ Range: {correctLow} - {correctHigh}</p>;
-      case QuestionType.TYPE_ANSWER:
-        return <p className="text-green-400 font-bold">✓ Answers: {question.options.join(', ')}</p>;
-      case QuestionType.PUZZLE:
-        return <p className="text-green-400 font-bold">✓ Order: {question.options.join(' → ')}</p>;
       case QuestionType.MULTIPLE_CHOICE:
-      case QuestionType.TRUE_FALSE:
-      default:
+      case QuestionType.MULTI_SELECT:
+      case QuestionType.TRUE_FALSE: {
+        const correct = new Set(reveal.correctIndices ?? [question.correctIndex]);
         return question.options.map((option, index) => (
-          <p 
-            key={index} 
-            className={`flex items-center ${index === question.correctIndex ? 'text-green-400 font-bold' : 'text-slate-400'}`}
+          <p
+            key={index}
+            className={`flex items-center ${correct.has(index) ? 'text-green-400 font-bold' : 'text-slate-400'}`}
           >
-            <span className="w-4 mr-2">{index === question.correctIndex ? '✓' : '•'}</span>
+            <span className="w-4 mr-2">{correct.has(index) ? '✓' : '•'}</span>
             {option}
           </p>
         ));
+      }
+      case QuestionType.TYPE_ANSWER:
+        return <p className="text-green-400 font-bold">✓ Answers: {question.options.join(', ')}</p>;
+      default:
+        // Everything else is drawn: a ring on the map, a band on the scale,
+        // the pairs, the groups — what the room will see at the end.
+        return <AnswerReveal question={toPublicQuestion(question)} reveal={reveal} size="desk" showExplanation={false} />;
     }
   };
 
@@ -74,14 +82,12 @@ const QuestionReviewCard: React.FC<QuestionReviewCardProps> = ({
             <span className="text-neon-blue font-bold mr-2">{questionIndex + 1}.</span>
             {question.text}
           </p>
-          <span className={`text-xs font-mono uppercase px-2 py-0.5 rounded ml-7 mt-2 inline-block ${
-            questionType === QuestionType.TRUE_FALSE ? 'bg-purple-500/20 text-purple-300' :
-            questionType === QuestionType.TYPE_ANSWER ? 'bg-yellow-500/20 text-yellow-300' :
-            questionType === QuestionType.SLIDER ? 'bg-orange-500/20 text-orange-300' :
-            questionType === QuestionType.PUZZLE ? 'bg-red-500/20 text-red-300' :
-            'bg-sky-500/20 text-sky-300'
-          }`}>
-            {questionType.replace('_', ' ')}
+          <span className={`text-xs font-mono uppercase px-2 py-0.5 rounded ml-7 mt-2 inline-block ${info.tone}`}>
+            {info.badge}
+          </span>
+          <span className="text-xs font-mono text-slate-500 ml-2" title="Seconds on the clock">
+            {seconds}s
+            {question.margin && question.margin !== 'none' ? ` · ${question.margin} margin` : ''}
           </span>
         </div>
         <div className="flex items-center gap-1 shrink-0">
@@ -113,6 +119,9 @@ const QuestionReviewCard: React.FC<QuestionReviewCardProps> = ({
           Could not write a replacement, so this one was left alone. Check the
           API key or import your own questions.
         </p>
+      )}
+      {questionType !== QuestionType.PIN && question.image && (
+        <QuestionImage image={question.image} className="mt-3 pl-7 justify-start" />
       )}
       <div className="mt-3 pl-7 space-y-1 text-sm">
         {renderAnswer()}

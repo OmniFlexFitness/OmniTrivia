@@ -73,12 +73,19 @@ export const MARGINS: AnswerMargin[] = ["none", "low", "medium", "high", "maximu
 export const marginFor = (question: Question): AnswerMargin =>
   question.margin ?? DEFAULT_MARGIN[question.type ?? QuestionType.MULTIPLE_CHOICE] ?? "none";
 
+/**
+ * A miss is never worth as much as a hit: a near miss tops out a point short
+ * of full, so "not quite" can never round its way up to the same score as
+ * dead on.
+ */
+const NEAR_MISS_CEILING = 0.99;
+
 /** Credit for landing `miss` past the target, with `reach` of margin. */
 const nearMiss = (miss: number, reach: number): Grade =>
   miss <= 0
     ? RIGHT
     : reach > 0
-      ? { correct: false, credit: tidy(1 - miss / reach) }
+      ? { correct: false, credit: Math.min(NEAR_MISS_CEILING, tidy(1 - miss / reach)) }
       : WRONG;
 
 /* ------------------------------------------------------------------ *
