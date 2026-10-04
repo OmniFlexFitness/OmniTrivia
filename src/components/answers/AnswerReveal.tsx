@@ -251,7 +251,11 @@ export const AnswerReveal: React.FC<{
         return (
           <div className={`grid gap-2 ${groups.length > 2 ? "grid-cols-2 sm:grid-cols-3" : "grid-cols-2"}`}>
             {groups.map((group, g) => (
-              <div key={group} style={accentStyle(g)} className="rounded-xl border-2 border-[var(--accent)]/60 px-3 py-2">
+              <div
+                key={group}
+                style={{ ...accentStyle(g), borderColor: "rgba(var(--accent-rgb), 0.6)" }}
+                className="rounded-xl border-2 px-3 py-2"
+              >
                 <div className={`cyber-hud text-[var(--accent)] ${big ? "text-sm" : "text-[10px]"} mb-1`}>{group}</div>
                 <div className={`font-cyber font-bold text-white ${text} leading-snug`}>
                   {pairs.filter(([, home]) => home === group).map(([item]) => item).join(", ")}

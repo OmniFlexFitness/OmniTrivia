@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Answer,
   BroadcastSnapshot,
   Category,
   GamePhase,
@@ -8,10 +7,7 @@ import {
   Matchup,
   PublicLane,
   PublicPlayer,
-  PublicQuestion,
   PublicSeat,
-  Question,
-  QuestionType,
   RoundReviewItem,
 } from "../types";
 import { useGame } from "../context/GameContext";
