@@ -12,7 +12,7 @@ import { CategoryContent, Question, QuestionType, RoundConfig } from "../types";
  *   hands the room the answer or asks it nothing at all.
  * - **Questions with nothing to pick from.** A multiple-choice question with
  *   one real option, or none, a slider missing its bounds, a puzzle with a
- *   single tile.
+ *   single tile, a pin question with no picture, a scramble of one letter.
  *
  * Both are dropped wherever questions come in — import, generation, and once
  * more when a round is dealt — rather than flagged for a host to notice. A
@@ -69,11 +69,32 @@ export const unplayableReason = (question: Question): string | null => {
         ? null
         : "no accepted answer";
 
-    case QuestionType.SLIDER: {
+    case QuestionType.SLIDER:
+    case QuestionType.RANGE: {
       const [min, max, step, low, high] = options.map(Number);
       const numeric = options.length >= 5 && [min, max, low, high].every(Number.isFinite);
       if (!numeric || max <= min || !(step > 0) || low > high) {
-        return "slider is missing its range";
+        return `${type === QuestionType.RANGE ? "range" : "slider"} is missing its scale`;
+      }
+      // A target off the scale is a question nobody can get right.
+      if (high < min || low > max) return "the answer is off the scale";
+      return null;
+    }
+
+    case QuestionType.NUMBER: {
+      const answer = String(options[0] ?? "").replace(/[,\s_]/g, "");
+      return answer !== "" && Number.isFinite(Number(answer)) ? null : "no numeric answer";
+    }
+
+    case QuestionType.PIN: {
+      const pin = question.pin;
+      if (!question.image || isPlaceholderOption(question.image)) return "no picture to pin";
+      if (
+        !pin ||
+        ![pin.x, pin.y, pin.radius].every(Number.isFinite) ||
+        pin.x < 0 || pin.x > 1 || pin.y < 0 || pin.y > 1 || !(pin.radius > 0)
+      ) {
+        return "pin target is off the picture";
       }
       return null;
     }
@@ -85,7 +106,51 @@ export const unplayableReason = (question: Question): string | null => {
 
     case QuestionType.PUZZLE:
       if (options.some(isPlaceholderOption)) return "placeholder options";
-      return options.length >= 2 ? null : "no options";
+      if (options.length < 2) return "no options";
+      // The tiles are told apart by their text, so two the same cannot both
+      // be in the right place.
+      return new Set(options.map((o) => o.trim().toLowerCase())).size === options.length
+        ? null
+        : "two items are the same";
+
+    case QuestionType.MATCH:
+    case QuestionType.CATEGORIZE: {
+      const pairs = question.pairs ?? [];
+      if (options.some(isPlaceholderOption) || pairs.some(isPlaceholderOption)) {
+        return "placeholder options";
+      }
+      if (options.length < 2 || pairs.length !== options.length) return "no pairs";
+      if (new Set(options.map((o) => o.trim().toLowerCase())).size !== options.length) {
+        return "two items are the same";
+      }
+      const partners = new Set(pairs.map((p) => p.trim().toLowerCase())).size;
+      if (type === QuestionType.MATCH && partners !== pairs.length) {
+        return "two items share a partner";
+      }
+      if (type === QuestionType.CATEGORIZE && (partners < 2 || partners > 4)) {
+        return "a sort needs two to four groups";
+      }
+      return null;
+    }
+
+    case QuestionType.SCRAMBLE: {
+      const letters = (options[0] ?? "").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+      if (isPlaceholderOption(options[0])) return "no word to scramble";
+      if (letters.length < 3 || letters.length > 20) return "a scramble needs 3 to 20 letters";
+      return new Set(letters).size > 1 ? null : "nothing to unscramble";
+    }
+
+    case QuestionType.MULTI_SELECT: {
+      if (options.some(isPlaceholderOption)) {
+        return options.every(isPlaceholderOption) ? "no options" : "placeholder options";
+      }
+      const correct = question.correctIndices ?? [];
+      if (options.length < 3) return "no options";
+      if (correct.length === 0 || correct.some((i) => i < 0 || i >= options.length)) {
+        return "no correct answer";
+      }
+      return null;
+    }
 
     case QuestionType.MULTIPLE_CHOICE:
     default: {

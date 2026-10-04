@@ -15,7 +15,6 @@ import {
   LaneStatus,
   Player,
   Question,
-  QuestionType,
   RemoteCommand,
   RoundConfig,
 } from "../types";
@@ -28,11 +27,13 @@ import {
   FINAL_BEST_OF,
   MAX_QUALIFYING_ROUNDS,
   REVEAL_DURATION,
+  TIMER_DURATION,
   AVATARS,
   AVATAR_COLORS,
   CATEGORIES,
 } from "../constants";
 import { generateQuestions } from "../services/claudeService";
+import { botAnswerFor } from "../services/botAnswers";
 import {
   describeSkipped,
   fetchDefaultQuestionBank,
@@ -472,38 +473,6 @@ const finishRound = (prev: GameState): GameState => {
   };
 };
 
-/** An answer a bot submits, built to be right or wrong on purpose. */
-const botAnswerFor = (question: Question, shouldBeCorrect: boolean): Answer => {
-  const options = question.options;
-
-  switch (question.type) {
-    case QuestionType.TYPE_ANSWER:
-      return shouldBeCorrect ? (options[0] ?? "") : "…";
-
-    case QuestionType.SLIDER: {
-      const [min, max, , low, high] = options.map(Number);
-      if (shouldBeCorrect) return (low + high) / 2;
-      // Miss on whichever side of the correct band is still inside the slider.
-      return low - 1 >= min ? low - 1 : Math.min(high + 1, max);
-    }
-
-    case QuestionType.PUZZLE:
-      return shouldBeCorrect || options.length < 2
-        ? [...options]
-        : [...options].reverse();
-
-    default: {
-      if (shouldBeCorrect) return question.correctIndex;
-      const wrong = options
-        .map((_, index) => index)
-        .filter((index) => index !== question.correctIndex);
-      return wrong.length
-        ? wrong[Math.floor(Math.random() * wrong.length)]
-        : question.correctIndex;
-    }
-  }
-};
-
 /**
  * The game PIN carried on this page's own URL, if there is one.
  *
@@ -705,7 +674,12 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         if (alreadyIn) return;
 
         // Leave a second on the clock so a bot never lands after time is up.
-        const latest = Math.min(seat.timeLeft - 1, BOT_MAX_THINK_SECONDS);
+        // A thirty-second puzzle earns a longer think than a true/false, in
+        // the same proportion a person would take.
+        const latest = Math.min(
+          seat.timeLeft - 1,
+          Math.round((BOT_MAX_THINK_SECONDS * seat.questionDuration) / TIMER_DURATION),
+        );
         const spread = Math.max(0, latest - BOT_MIN_THINK_SECONDS);
 
         const answerUp = () => {

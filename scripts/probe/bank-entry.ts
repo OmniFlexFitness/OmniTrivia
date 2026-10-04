@@ -20,6 +20,7 @@ import {
 import { isPlayable } from "../../src/services/questionQuality";
 import { buildRoundsFromContent } from "../../src/services/questionSet";
 import { isAnswerCorrect } from "../../src/services/scoring";
+import { botAnswerFor } from "../../src/services/botAnswers";
 import { publicOptions } from "../../src/services/snapshot";
 import { CategoryContent, Question, QuestionType } from "../../src/types";
 
@@ -85,18 +86,9 @@ check(
   ),
 );
 
-const gradedRight = questions.filter((q) => {
-  switch (q.type) {
-    case QuestionType.TYPE_ANSWER:
-      return isAnswerCorrect(q, q.options[0]);
-    case QuestionType.SLIDER:
-      return isAnswerCorrect(q, Number(q.options[3]));
-    case QuestionType.PUZZLE:
-      return isAnswerCorrect(q, [...q.options]);
-    default:
-      return isAnswerCorrect(q, q.correctIndex);
-  }
-});
+// What a player who knows the answer would send, built the same way the
+// bots build theirs — so every type in the sheet is graded on its own terms.
+const gradedRight = questions.filter((q) => isAnswerCorrect(q, botAnswerFor(q, true)));
 check(
   "the right answer is scored as right, every time",
   gradedRight.length === questions.length,
@@ -119,12 +111,17 @@ check(
     .join(" / "),
 );
 
-/* What the room is shown must not contain the answer. A typed answer publishes
- * no options at all — that is the check — and nothing else may publish an
- * empty list, because an empty list is a question nobody can answer. */
+/* What the room is shown must not contain the answer. A typed answer, a
+ * closest-number guess and a pin publish no options at all — that is the
+ * check — and nothing else may publish an empty list, because an empty list
+ * is a question nobody can answer. */
+const NOTHING_TO_SHOW = new Set<QuestionType | undefined>([
+  QuestionType.TYPE_ANSWER,
+  QuestionType.NUMBER,
+  QuestionType.PIN,
+]);
 const leaks = questions.filter(
-  (q) =>
-    q.type !== QuestionType.TYPE_ANSWER && publicOptions(q).length === 0,
+  (q) => !NOTHING_TO_SHOW.has(q.type) && publicOptions(q).length === 0,
 );
 check("every published question still has something to answer", leaks.length === 0);
 
