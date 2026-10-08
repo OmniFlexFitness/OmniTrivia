@@ -276,6 +276,16 @@ const commonNames: [string, QuestionType][] = [
   ["Closest guess", QuestionType.NUMBER],
   ["Fill in the blank", QuestionType.TYPE_ANSWER],
   ["Checkboxes", QuestionType.MULTI_SELECT],
+  // What other quiz tools write: Open Trivia DB's "multiple" and "boolean",
+  // Quizizz's "Open-Ended", Gimkit's "Text input".
+  ["multiple", QuestionType.MULTIPLE_CHOICE],
+  ["boolean", QuestionType.TRUE_FALSE],
+  ["MCQ", QuestionType.MULTIPLE_CHOICE],
+  ["Multiple choice question", QuestionType.MULTIPLE_CHOICE],
+  ["Single choice", QuestionType.MULTIPLE_CHOICE],
+  ["Multi-choice", QuestionType.MULTIPLE_CHOICE],
+  ["Open-Ended", QuestionType.TYPE_ANSWER],
+  ["Text input", QuestionType.TYPE_ANSWER],
 ];
 check(
   "the names people write for a format read as it",
@@ -332,10 +342,17 @@ const lettersAndNumbers: [string[], string, string, string?][] = [
   [["US", "UK", "UN", "EU"], "United Kingdom (UK)", "left out: the answer matches none of the options"],
   [["Mercury", "Venus", "Earth", "Mars"], "A|C", "left out: the answer is an option's letter or number — write the option itself", "MULTI_SELECT"],
   [["1969", "1970", "1971", "1972"], "69", "left out: the answer matches none of the options"],
+  [["Vitamin A", "Vitamin B", "Vitamin C", "Vitamin D"], "B", "left out: the answer is an option's letter or number — write the option itself"],
+  [["$5", "$10", "$15", "$20"], "$10.50", "left out: the answer matches none of the options"],
+  // Part of a word is not the word.
+  [["Jerusalem", "Paris", "Rome", "London"], "USA", "left out: the answer matches none of the options"],
+  [["Mozart", "Bach", "Liszt", "Haydn"], "Art", "left out: the answer matches none of the options"],
+  // Two options in the answer is no answer.
+  [["Mars", "Venus", "Jupiter", "Mercury"], "Mars and Venus", "left out: the answer matches none of the options"],
 ];
 const guessed = lettersAndNumbers.filter(([options, answer, expected, type]) => answerKey(options, answer, type) !== expected);
 check(
-  "a letter, a number or a two-letter code in correctAnswer is never matched to the option it is part of",
+  "a letter, a number, a two-letter code or part of a word in correctAnswer is never matched to an option",
   guessed.length === 0,
   guessed.map(([options, answer, , type]) => `${answer} → ${answerKey(options, answer, type)}`).join(" | "),
 );
@@ -343,6 +360,7 @@ const fuller: [string[], string, string][] = [
   [["Amazon", "Nile", "Mississippi", "Yangtze"], "The Nile", "Nile"],
   [["Jacksonville", "Tampa", "Miami", "Key West"], "Tampa (Ybor City)", "Tampa"],
   [["Shape of You", "Despacito", "Old Town Road", "Rockstar"], "Old Town Road by Lil Nas X", "Old Town Road"],
+  [["Shape of You", "Despacito", "Old Town Road", "Rockstar"], "Lil Nas X's Old Town Road", "Old Town Road"],
   [["The Beatles", "The Who", "Queen", "ABBA"], "Beatles", "The Beatles"],
   [["10", "20", "30", "40"], "20", "20"],
   [["A", "B", "AB", "O"], "AB", "AB"],
@@ -386,17 +404,95 @@ const quotedSeparators = separated(";", [
 ]);
 const quotedQuestion = Object.values(quotedSeparators.contents)[0]?.questions[0];
 check(
-  "a semicolon file's decimal commas are read in numbers, and left alone in sentences",
-  quotedQuestion?.options.join("|") === "1.5|2.5|3.5" &&
-    quotedQuestion?.options[quotedQuestion.correctIndex] === "2.5" &&
-    quotedQuestion?.explanation === "1,5 million people live there.",
-  JSON.stringify(quotedQuestion && { options: quotedQuestion.options, explanation: quotedQuestion.explanation }),
-);
-check(
-  "a separator inside quotes, or a comma in a comma file's header, does not decide the separator",
+  "a separator inside quotes, or inside one heading, does not decide the separator",
   quotedSeparators.skipped.length === 0 &&
     quotedQuestion?.text === "Which; of these?" &&
-    importReport('category,question,correctAnswer,"notes; misc"\nX,Q?,A,').skipped.length === 0,
+    importReport('category,question,correctAnswer,"notes; misc"\nX,Q?,A,').skipped.length === 0 &&
+    importReport("category\tquestion\tcorrectAnswer\tnotes, sources, links, misc\nX\tQ?\tA\t").skipped.length === 0,
+);
+
+/* Numbers are read the way the file writes them; text is left as written. A
+ * semicolon file comes from where the comma is the decimal mark and the point
+ * groups thousands; anywhere, a comma that cannot group thousands is a
+ * decimal mark. */
+const numbersIn = (separator: string, rows: string[][]) =>
+  Object.values(separated(separator, rows).contents).flatMap((c) => c.questions);
+const numberHeader = ["type", "category", "question", "option1", "option2", "option3", "correctAnswer", "unit"];
+const local = numbersIn(";", [
+  numberHeader,
+  ["RANGE", "X", "Body temperature?", "30", "45", "0,1", "36,5-37,5", ""],
+  ["SLIDER", "X", "How tall is Everest?", "0", "10.000", "100", "8.849", "m"],
+  ["NUMBER", "X", "Pi?", "", "", "", "ca. 3,14", ""],
+  ["NUMBER", "X", "To the Moon?", "", "", "", "384,400 km", ""],
+  ["TYPE_ANSWER", "X", "Which herbicide?", "", "", "", "2,4-D", ""],
+  ["MULTI_SELECT", "X", "Which are under 3?", "1,5", "2,5", "3,5", "1,5|2,5", ""],
+  ["MULTIPLE_CHOICE", "X", "Which is a half?", "0,5", "1,5", "2,5", "0,5", ""],
+]);
+const pointed = numbersIn(",", [
+  numberHeader,
+  ["NUMBER", "X", "To the Moon?", "", "", "", '"384,400 km"', ""],
+  ["NUMBER", "X", "Fort Myers latitude?", "", "", "", '"26,6406"', ""],
+]);
+const pinRows = (lat: string, lng: string) => [
+  [...numberHeader, "image"],
+  ["PIN", "X", "Pin Fort Myers.", lat, lng, "120", "Fort Myers", "", "usa"],
+];
+const tabbed = numbersIn("\t", pinRows("26,6406", "-81,8723"));
+const pinnedWithPoints = numbersIn(",", pinRows("26.6406", "-81.8723"));
+const readAs = local.map((q) => (q.correctIndices ?? (q.type === QuestionType.MULTIPLE_CHOICE ? [q.correctIndex] : null))
+  ? (q.correctIndices ?? [q.correctIndex]).map((i) => q.options[i]).join("|")
+  : `${q.options.join(",")}${q.unit ? ` ${q.unit}` : ""}`);
+check(
+  "a semicolon file's numbers are read with a decimal comma and a thousands point, and its text is left alone",
+  readAs.join(" / ") === "30,45,0.1,36.5,37.5 / 0,10000,100,8849,8849 m / 3.14,0 / 384.4,0 km / 2,4-D / 1,5|2,5 / 0,5",
+  readAs.join(" / "),
+);
+check(
+  "anywhere else a comma before three digits groups thousands, and any other is a decimal mark",
+  pointed.map((q) => q.options[0]).join(" / ") === "384400 / 26.6406" &&
+    tabbed[0]?.pin !== undefined &&
+    JSON.stringify(tabbed[0]?.pin) === JSON.stringify(pinnedWithPoints[0]?.pin),
+  `${pointed.map((q) => q.options[0]).join(" / ")} · tab pin ${JSON.stringify(tabbed[0]?.pin)}`,
+);
+
+/* Quotes. A CSV is read the way it always has been: a quoted cell can hold a
+ * comma, and a cell cut by a line break comes up short and is left out, not
+ * read as a question. A tab-separated file has no quoting of its own: Google
+ * Sheets writes quotes as they stand, Excel quotes a cell the way a CSV does. */
+const commaQuotes = importReport(
+  [
+    "category,question,correctAnswer,explanation",
+    'Music,"Which band',
+    'recorded Bohemian Rhapsody?",Queen,Fun fact',
+    'X,Name the "Fab Four, of Liverpool",Beatles,',
+    "X,A real question?,A real answer,",
+  ].join("\n"),
+);
+const commaQuoted = Object.values(commaQuotes.contents).flatMap((c) => c.questions);
+check(
+  "in a CSV, a cell cut by a line break is left out, and a quoted phrase may hold a comma",
+  commaQuoted.map((q) => `${q.text} = ${q.options[0]}`).join(" | ") ===
+    "Name the Fab Four, of Liverpool = Beatles | A real question? = A real answer" &&
+    commaQuotes.skipped.length === 2,
+  `${commaQuoted.map((q) => `${q.text} = ${q.options[0]}`).join(" | ")} · left out: ${commaQuotes.skipped.map((s) => s.reason).join(", ")}`,
+);
+const tabQuotes = importReport(
+  [
+    "category\tquestion\tcorrectAnswer\texplanation",
+    'Music\t"Hey Jude" was by which band?\tThe Beatles\t',
+    'Music\t"""Let It Be"" was by which band?"\tThe Beatles\t"Recorded in 1969, released in 1970."',
+    'Music\t"Unclosed start\tThe Beatles\tNot swallowed',
+    'Music\t"Which band',
+    'recorded Bohemian Rhapsody?"\tQueen\tFun fact',
+  ].join("\n"),
+);
+const tabQuoted = Object.values(tabQuotes.contents).flatMap((c) => c.questions);
+check(
+  "in a TSV, quotes are kept as written, an Excel-quoted cell is unwrapped, and a cell cut by a line break is left out",
+  tabQuoted.map((q) => `${q.text} = ${q.options[0]} (${q.explanation})`).join(" | ") ===
+    '"Hey Jude" was by which band? = The Beatles () | "Let It Be" was by which band? = The Beatles (Recorded in 1969, released in 1970.) | "Unclosed start = The Beatles (Not swallowed)' &&
+    tabQuotes.skipped.map((s) => s.reason).join(" | ") === "a line break inside a cell | a line break inside a cell",
+  `${tabQuoted.map((q) => `${q.text} = ${q.options[0]} (${q.explanation})`).join(" | ")} · left out: ${tabQuotes.skipped.map((s) => s.reason).join(", ")}`,
 );
 
 /* ------------------------------------------------------------------ *
@@ -929,15 +1025,16 @@ check(
 check("`Sort` is the sort puzzle, as the guide warns, not putting things in order", parseQuestionType("Sort") === QuestionType.CATEGORIZE);
 
 // The guide's table of reasons a row is left out is how a host reads the
-// setup screen. The two reasons this importer added have to be in it, word
-// for word as the importer gives them.
+// setup screen. The reasons added with the importer's own checks have to be
+// in it, word for word as the importer gives them.
 const guideReasons = guide.filter((line) => /^\| [a-z]/.test(line)).map((line) => line.split("|")[1].trim());
 const importerReasons = [
   unknownTypes.skipped[0]?.reason.replace(/"[^"]*"/, '"…"'),
   answerKey(["Boston", "Chicago", "Denver", "Austin"], "B").replace(/^left out: /, ""),
+  tabQuotes.skipped[0]?.reason,
 ];
 check(
-  "the guide lists the reasons an unknown format and a letter answer are left out for, as the importer words them",
+  "the guide lists the reasons an unknown format, a letter answer and a cut cell are left out for, as the importer words them",
   importerReasons.every((reason) => reason !== undefined && guideReasons.includes(reason)),
   importerReasons.filter((reason) => !guideReasons.includes(reason!)).join(" | "),
 );
