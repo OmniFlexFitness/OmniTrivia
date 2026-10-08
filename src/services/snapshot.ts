@@ -34,7 +34,7 @@ import {
   seatCompletedCount,
 } from "./lanes";
 import { SNAPSHOT_VERSION } from "./broadcastBus";
-import { marginFor, readNumber } from "./scoring";
+import { marginFor, normalize, readNumber } from "./scoring";
 import { formatNumber } from "./questionTypes";
 
 /**
@@ -124,9 +124,26 @@ export const puzzleDisplayOrder = (question: Question): string[] =>
 export const matchChoices = (question: Question): string[] =>
   disguised(question.pairs ?? [], `${question.id}:pairs`);
 
+/**
+ * Each item's group in a sort puzzle, spelled the way players see it.
+ *
+ * Two groups that differ only in capitals or spacing are one group: the
+ * importer counts them that way and the grader compares them that way. So a
+ * row with `Tomato = Fruit` and `Apple = fruit` has one Fruit button, not two
+ * that both grade right, and it is spelled the way the sheet first wrote it.
+ */
+export const categorizeHomes = (question: Question): string[] => {
+  const shown = new Map<string, string>();
+  return (question.pairs ?? []).map((group) => {
+    const key = normalize(group);
+    if (!shown.has(key)) shown.set(key, group.trim());
+    return shown.get(key)!;
+  });
+};
+
 /** A sort puzzle's groups, alphabetically — their order says nothing. */
 export const categorizeGroups = (question: Question): string[] =>
-  [...new Set(question.pairs ?? [])].sort((a, b) => a.localeCompare(b));
+  [...new Set(categorizeHomes(question))].sort((a, b) => a.localeCompare(b));
 
 /** The letters of a scramble, with spaces and punctuation left out. */
 export const scrambleLetters = (answer: string): string[] =>
@@ -279,8 +296,11 @@ export const buildReveal = (question: Question): RevealDetail => {
     }
 
     case QuestionType.CATEGORIZE: {
+      // Each item under its group as the buttons spelled it, so the answer
+      // key draws one Fruit box where the sheet wrote Fruit and fruit.
+      const homes = categorizeHomes(question);
       const pairs = question.options.map(
-        (item, i) => [item, question.pairs?.[i] ?? ""] as [string, string],
+        (item, i) => [item, homes[i] ?? ""] as [string, string],
       );
       return {
         label: categorizeGroups(question)
