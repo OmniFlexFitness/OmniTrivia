@@ -668,6 +668,30 @@ export const describeSkipped = (skipped: readonly SkippedRow[]): string | null =
     return `${skipped.length} question${skipped.length === 1 ? ' was' : 's were'} left out automatically (${summarizeReasons(skipped)}).`;
 };
 
+/** A sheet's CSV export: the tab with this id, or, with no id, the first tab. */
+const sheetExportUrl = (sheetId: string, gid?: string): string =>
+    `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv${gid === undefined ? '' : `&gid=${gid}`}`;
+
+/** The two things that make an export fail: the sharing, and the tab. */
+const sheetFetchError = (status: number): Error =>
+    new Error(
+        `Failed to fetch from Google Sheet. Status: ${status}. Make sure the sheet is public ('Anyone with the link can view'), and that the link points at the tab you want: open that tab, then copy the URL from the address bar.`,
+    );
+
+/**
+ * One tab of a public Google Sheet, as CSV.
+ *
+ * A link that names a tab (`gid=` in the query or after the `#`) gets that
+ * tab. A link that names none gets tab 0, as it always has, and when there is
+ * no tab 0 it gets the first tab instead.
+ *
+ * The second case is an Excel file kept in Drive and opened in Sheets. Its
+ * share link carries no `gid`, its tabs have large random ids, and asking for
+ * tab 0 is a 400. Asking for no tab at all exports the first one. That is not
+ * tried first because on a native sheet "no tab" means the leftmost tab, which
+ * need not be tab 0 (on the question bank they are different tabs), so links
+ * that work today would start importing something else.
+ */
 export const fetchFromGoogleSheet = async (url: string): Promise<string> => {
     if (!url.includes('docs.google.com/spreadsheets/d/')) {
         throw new Error("Invalid Google Sheet URL.");
@@ -675,7 +699,7 @@ export const fetchFromGoogleSheet = async (url: string): Promise<string> => {
 
     const sheetIdRegex = /spreadsheets\/d\/([a-zA-Z0-9-_]+)/;
     const gidRegex = /gid=([0-9]+)/;
-    
+
     const sheetIdMatch = url.match(sheetIdRegex);
     const gidMatch = url.match(gidRegex);
 
@@ -684,15 +708,19 @@ export const fetchFromGoogleSheet = async (url: string): Promise<string> => {
     }
 
     const sheetId = sheetIdMatch[1];
-    const gid = gidMatch ? gidMatch[1] : '0';
 
-    const exportUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}`;
-
-    const response = await fetch(exportUrl);
-    if (!response.ok) {
-        throw new Error(`Failed to fetch from Google Sheet. Status: ${response.status}. Make sure the sheet is public ('Anyone with the link can view').`);
+    if (gidMatch) {
+        const response = await fetch(sheetExportUrl(sheetId, gidMatch[1]));
+        if (!response.ok) throw sheetFetchError(response.status);
+        return response.text();
     }
-    return response.text();
+
+    const tabZero = await fetch(sheetExportUrl(sheetId, '0'));
+    if (tabZero.ok) return tabZero.text();
+
+    const firstTab = await fetch(sheetExportUrl(sheetId));
+    if (!firstTab.ok) throw sheetFetchError(firstTab.status);
+    return firstTab.text();
 };
 
 /**

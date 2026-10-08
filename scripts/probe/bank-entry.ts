@@ -15,6 +15,7 @@ import "./dom-stub";
 import { DEFAULT_QUESTION_BANK } from "../../src/constants";
 import {
   fetchDefaultQuestionBank,
+  fetchFromGoogleSheet,
   parseImportDataWithReport,
 } from "../../src/services/importService";
 import { isPlayable } from "../../src/services/questionQuality";
@@ -29,6 +30,86 @@ const check = (label: string, passed: boolean, detail = ""): void => {
   console.log(`${passed ? "ok  " : "FAIL"} ${label}${detail ? ` — ${detail}` : ""}`);
   if (!passed) failures += 1;
 };
+
+/* Which tab a pasted link reads. Checked first, offline, against a stand-in
+ * for Google's export endpoint, because the bank cannot exercise it: the
+ * bank's link names its tab, and the link that needs the fallback (an Excel
+ * file kept in Drive) names none. The stand-in answers the way docs.google.com
+ * does: a tab id that exists exports that tab, one that does not is a 400, and
+ * no id at all exports the leftmost tab. */
+console.log("\nWhich tab a pasted link reads (offline)\n");
+
+const SHEETS: Record<string, { leftmost: string; tabs: Record<string, string> }> = {
+  // Made in Google Sheets, with tab 0 dragged off the left end.
+  native: { leftmost: "7", tabs: { "0": "tab zero", "7": "tab seven" } },
+  // An .xlsx opened from Drive: no tab 0, only large random ids.
+  excel: { leftmost: "2132467210", tabs: { "2132467210": "first tab" } },
+};
+const asked: string[] = [];
+const realFetch = globalThis.fetch;
+globalThis.fetch = (async (input: string | URL | Request) => {
+  const url = new URL(input instanceof Request ? input.url : String(input));
+  const gid = url.searchParams.get("gid");
+  asked.push(gid === null ? "no gid" : `gid=${gid}`);
+  const sheet = SHEETS[url.pathname.split("/")[3]];
+  const body = sheet?.tabs[gid ?? sheet.leftmost];
+  return body === undefined
+    ? new Response("Sorry, unable to open the file at this time.", { status: 400 })
+    : new Response(body, { status: 200 });
+}) as typeof fetch;
+
+const readLink = async (path: string) => {
+  asked.length = 0;
+  try {
+    const csv = await fetchFromGoogleSheet(`https://docs.google.com/spreadsheets/d/${path}`);
+    return { csv, error: "", asked: asked.join(", ") };
+  } catch (error: any) {
+    return { csv: "", error: String(error?.message ?? error), asked: asked.join(", ") };
+  }
+};
+
+const nativeNoGid = await readLink("native/edit?usp=sharing");
+check(
+  "a native sheet's link with no tab still reads tab 0, in one request",
+  nativeNoGid.csv === "tab zero" && nativeNoGid.asked === "gid=0",
+  nativeNoGid.asked,
+);
+const nativeTab = await readLink("native/edit#gid=7");
+check(
+  "a link that names a tab reads that tab",
+  nativeTab.csv === "tab seven" && nativeTab.asked === "gid=7",
+  nativeTab.asked,
+);
+const excelShare = await readLink(
+  "excel/edit?usp=sharing&ouid=114124429795052735817&rtpof=true&sd=true",
+);
+check(
+  "an Excel file's share link, which has no tab 0, falls back to its first tab",
+  excelShare.csv === "first tab" && excelShare.asked === "gid=0, no gid",
+  excelShare.asked || excelShare.error,
+);
+const excelTab = await readLink("excel/edit?gid=2132467210#gid=2132467210");
+check(
+  "an Excel file's link that names its tab reads it directly",
+  excelTab.csv === "first tab" && excelTab.asked === "gid=2132467210",
+  excelTab.asked,
+);
+const goneTab = await readLink("native/edit#gid=99");
+check(
+  "a named tab that is gone is an error, never quietly a different tab",
+  goneTab.csv === "" && goneTab.error !== "" && goneTab.asked === "gid=99",
+  goneTab.asked,
+);
+const unreachable = await readLink("missing/edit");
+check(
+  "a sheet that cannot be read at all is tried once each way, then explained",
+  unreachable.asked === "gid=0, no gid" &&
+    unreachable.error.includes("Anyone with the link can view") &&
+    unreachable.error.includes("tab"),
+  unreachable.error,
+);
+
+globalThis.fetch = realFetch;
 
 console.log(`\nReading ${DEFAULT_QUESTION_BANK.name}\n${DEFAULT_QUESTION_BANK.url}\n`);
 
