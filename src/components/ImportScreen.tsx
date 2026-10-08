@@ -93,7 +93,7 @@ const ImportScreen: React.FC = () => {
         <div className="text-center mb-6">
           <h2 className="text-3xl font-bold text-white">IMPORT TRIVIA</h2>
           <p className="text-slate-400 mt-2">
-            Take the ready-made bank, upload a CSV file, or link a public Google Sheet.
+            Take the ready-made bank, upload a CSV or TSV file, or link a public Google Sheet.
           </p>
         </div>
 
@@ -146,15 +146,18 @@ const ImportScreen: React.FC = () => {
               type="file"
               ref={fileInputRef}
               onChange={handleFileChange}
-              // Comma-separated only: the importer splits on commas, so a
-              // tab-separated file would read as one long column.
-              accept=".csv,.txt"
+              // The importer reads the delimiter off the header row: commas,
+              // semicolons (Excel where the decimal mark is a comma) or tabs.
+              accept=".csv,.tsv,.txt"
               className="hidden"
               disabled={busy}
             />
             <Upload size={40} className="mx-auto text-slate-500 mb-4" />
             <h3 className="text-lg font-bold text-white">Upload a File</h3>
-            <p className="text-sm text-slate-400 mb-4">A CSV file, comma-separated and saved as UTF-8.</p>
+            <p className="text-sm text-slate-400 mb-4">
+              A CSV or TSV file, saved as UTF-8. Commas, semicolons or tabs
+              between cells all work.
+            </p>
             <Button onClick={triggerFileSelect} variant="secondary" disabled={busy}>
               {loading ? <Loader2 className="animate-spin" /> : 'Select File'}
             </Button>

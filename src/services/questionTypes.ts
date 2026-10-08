@@ -22,7 +22,10 @@ export interface QuestionTypeInfo {
   seconds: number;
   /** One line telling the room how to answer, on the big screen. */
   prompt: string;
-  /** Other ways a spreadsheet's `type` column may name it. */
+  /**
+   * Other ways a spreadsheet's `type` column may name it, besides the type,
+   * its label and its badge, which are always accepted.
+   */
   aliases: string[];
 }
 
@@ -34,7 +37,8 @@ export const QUESTION_TYPES: Record<QuestionType, QuestionTypeInfo> = {
     tone: "bg-sky-500/20 text-sky-300",
     seconds: TIMER_DURATION,
     prompt: "Pick one",
-    aliases: ["MC", "QUIZ", "CHOICE", "SINGLE_SELECT"],
+    // "multiple" is what an Open Trivia DB export writes.
+    aliases: ["MC", "MCQ", "QUIZ", "CHOICE", "MULTIPLE", "MULTI_CHOICE", "MULTIPLE_CHOICE_QUESTION", "SINGLE_CHOICE", "SINGLE_SELECT"],
   },
   [QuestionType.MULTI_SELECT]: {
     type: QuestionType.MULTI_SELECT,
@@ -43,7 +47,7 @@ export const QUESTION_TYPES: Record<QuestionType, QuestionTypeInfo> = {
     tone: "bg-cyan-500/20 text-cyan-300",
     seconds: 20,
     prompt: "Select every right answer — a wrong pick cancels a right one",
-    aliases: ["MULTIPLE_SELECT", "SELECT_ALL", "SELECT_ALL_THAT_APPLY", "ALL_THAT_APPLY", "CHOOSE_ALL", "MULTI", "MULTISELECT", "CHECKBOX", "MULTIPLE_ANSWER", "MULTIPLE_ANSWERS"],
+    aliases: ["MULTIPLE_SELECT", "SELECT_ALL", "SELECT_ALL_THAT_APPLY", "ALL_THAT_APPLY", "CHOOSE_ALL", "MULTI", "MULTISELECT", "CHECKBOX", "CHECKBOXES", "MULTIPLE_ANSWER", "MULTIPLE_ANSWERS"],
   },
   [QuestionType.TRUE_FALSE]: {
     type: QuestionType.TRUE_FALSE,
@@ -61,7 +65,7 @@ export const QUESTION_TYPES: Record<QuestionType, QuestionTypeInfo> = {
     tone: "bg-yellow-500/20 text-yellow-300",
     seconds: 20,
     prompt: "Type it on your phone",
-    aliases: ["TYPE", "TYPED", "TEXT", "SHORT_ANSWER", "OPEN", "FREE_TEXT"],
+    aliases: ["TYPE", "TYPED", "TEXT", "TEXT_INPUT", "SHORT_ANSWER", "OPEN", "OPEN_ENDED", "FREE_TEXT", "FILL_IN", "FILL_IN_THE_BLANK", "FILL_IN_THE_BLANKS", "FILL_IN_BLANK"],
   },
   [QuestionType.SLIDER]: {
     type: QuestionType.SLIDER,
@@ -88,7 +92,7 @@ export const QUESTION_TYPES: Record<QuestionType, QuestionTypeInfo> = {
     tone: "bg-lime-500/20 text-lime-300",
     seconds: 20,
     prompt: "Type a number — closest guess scores the most",
-    aliases: ["CLOSEST", "CLOSEST_NUMBER", "ESTIMATE", "NUMERIC", "GUESS", "NEAREST"],
+    aliases: ["CLOSEST", "CLOSEST_NUMBER", "CLOSEST_GUESS", "ESTIMATE", "NUMERIC", "GUESS", "NEAREST"],
   },
   [QuestionType.PIN]: {
     type: QuestionType.PIN,
@@ -141,26 +145,47 @@ export const typeInfo = (type: QuestionType | undefined): QuestionTypeInfo =>
   QUESTION_TYPES[type ?? QuestionType.MULTIPLE_CHOICE] ??
   QUESTION_TYPES[QuestionType.MULTIPLE_CHOICE];
 
-/** A `type` cell as the importer compares it: upper case, words joined by _. */
+/**
+ * A `type` cell as the importer compares it: upper case, words joined by _.
+ * The badges separate their words with "·" ("Puzzle · order"), so a host who
+ * copies a badge off the review screen is read the same as one who types it.
+ */
 const typeKey = (value: string): string =>
-  value.trim().toUpperCase().replace(/[\s/&-]+/g, "_").replace(/_+/g, "_");
+  value
+    .trim()
+    .toUpperCase()
+    .replace(/[\s/&·•:\-–—]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_|_$/g, "");
+
+/**
+ * Every name the `type` column may use, keyed as `typeKey` writes it and again
+ * with its underscores taken out, so "multiselect" finds MULTI_SELECT. Built
+ * once: an import looks a type up for every row.
+ */
+const TYPE_NAMES: ReadonlyMap<string, QuestionType> = (() => {
+  const names = new Map<string, QuestionType>();
+  for (const info of Object.values(QUESTION_TYPES)) {
+    for (const name of [info.type, info.label, info.badge, ...info.aliases]) {
+      const key = typeKey(name);
+      for (const form of [key, key.replace(/_/g, "")]) {
+        if (!names.has(form)) names.set(form, info.type);
+      }
+    }
+  }
+  return names;
+})();
 
 /**
  * The type a spreadsheet's `type` column names, or null when it names none.
- * "true/false", "True or False", "multi-select", "Pin answer" and "anagram"
- * all resolve.
+ * "true/false", "True or False", "multi-select", "Pin answer", "anagram" and
+ * every name the app itself shows — "Typed answer", "Puzzle · sort" — all
+ * resolve.
  */
 export const parseQuestionType = (value: string | undefined | null): QuestionType | null => {
   if (!value || !value.trim()) return null;
   const key = typeKey(value);
-  const squashed = key.replace(/_/g, "");
-  for (const info of Object.values(QUESTION_TYPES)) {
-    const names = [info.type, ...info.aliases];
-    if (names.some((name) => name === key || name.replace(/_/g, "") === squashed)) {
-      return info.type;
-    }
-  }
-  return null;
+  return TYPE_NAMES.get(key) ?? TYPE_NAMES.get(key.replace(/_/g, "")) ?? null;
 };
 
 /** Shortest and longest clock a question may ask for. */

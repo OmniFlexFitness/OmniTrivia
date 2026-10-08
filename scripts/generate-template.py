@@ -86,8 +86,8 @@ HEADER_NOTES = {
     "type": "Which format the row is. Pick one from the list. Leave it blank for "
     "multiple choice, or for the shorthand: a row with no options becomes a "
     "typed answer, or true/false when the answer is True or False. Spellings "
-    "like True/False, TF or Select all that apply work too, but a word the "
-    "game does not know makes the row multiple choice.",
+    "like True/False, TF, Select all that apply or Puzzle · order work too, but "
+    "a word the game does not know leaves the row out as an unknown format.",
     "category": "Groups questions into rounds: one category per round on the wheel. "
     "Science, History, Geography, Pop Culture, Sports, Tech, Art, Literature, "
     "Music and Food get their own icon and colour; any other name works too.",
@@ -126,7 +126,7 @@ TYPE_GUIDE = [
      "—", "15s", "All or nothing", "MC, Quiz, Choice, Single select, or leave blank"),
     ("MULTI_SELECT", "Tick every right option", "The choices: three or more",
      "Every right option, joined with | or ; (Helium|Argon)", "—", "20s",
-     "A wrong tick cancels a right one", "Select all that apply, Multiple select, Checkbox"),
+     "A wrong tick cancels a right one", "Select all that apply, Multiple select, Checkboxes"),
     ("TRUE_FALSE", "Tap True or False", "True and False, or leave both empty",
      "True or False (T/F, Yes/No, Fact/Fiction and 1/0 work too)", "—", "12s",
      "All or nothing", "TF, True/False, True or False, Fact or fiction"),
@@ -134,7 +134,7 @@ TYPE_GUIDE = [
      "Every spelling you will accept. The first is the one the reveal shows",
      "Ignored once the options are filled in; with none, the answer and each part of a comma list are accepted",
      "—", "20s", "All or nothing; case and extra spaces ignored, spelling and accents not",
-     "Type, Short answer, Free text"),
+     "Typed answer, Short answer, Fill in the blank, Free text"),
     ("SLIDER", "Slide to a number",
      "Lowest, highest, step, then the lowest and highest answer that score in full",
      "The answer the reveal shows. With only three options: the answer, or a band like 1968-1970",
@@ -146,7 +146,7 @@ TYPE_GUIDE = [
      "Range slider, Bracket, Between"),
     ("NUMBER", "Type a number, no scale shown", "Optional: a tolerance that still counts as dead on",
      "The number (commas and a unit are fine: 384,400 km)", "margin, unit", "20s",
-     "Exact or within the margin scores; margin is medium unless set", "Closest, Estimate, Guess"),
+     "Exact or within the margin scores; margin is medium unless set", "Closest, Closest guess, Estimate, Guess"),
     ("PIN", "Drop a pin on a map or a picture",
      "Map: latitude, longitude, km that still score in full. Picture: % across, % down, radius %",
      "What the answer key calls the spot", "image (world, usa or https://…), margin",
@@ -154,18 +154,18 @@ TYPE_GUIDE = [
      "Pin answer, Drop pin, Map, Hotspot"),
     ("PUZZLE", "Put the items in order", "The items, in the right order: two or more, all different",
      "Ignored when the options are filled in. With none: the order, joined with |", "—", "30s",
-     "All or nothing", "Order, Sequence, Rank, Timeline"),
+     "All or nothing", "Puzzle · order, Order, Sequence, Rank, Timeline"),
     ("MATCH", "Pair each item with its partner",
      "One pair per column: item = partner (-> → => :: work too). Two or more pairs",
      "Ignored when the options are filled in: write See the pairs", "—", "30s",
-     "Pays for every pair right beyond guessing", "Matching, Pairs, Connect"),
+     "Pays for every pair right beyond guessing", "Puzzle · match, Matching, Pairs, Connect"),
     ("CATEGORIZE", "Sort items into groups",
      "One item per column: item = group. Two to four groups, spelled the same every time",
      "Ignored when the options are filled in: write See the groups", "—", "30s",
-     "Pays for every item right beyond guessing", "Sort, Group, Buckets, Classify"),
+     "Pays for every item right beyond guessing", "Puzzle · sort, Sort, Group, Buckets, Classify"),
     ("SCRAMBLE", "Rebuild a word from shuffled letters", "Leave empty: they are ignored",
      "The word or phrase, 3 to 20 letters and digits, no brackets. The question is the clue",
-     "—", "25s", "All or nothing", "Unscramble, Anagram, Jumble"),
+     "—", "25s", "All or nothing", "Puzzle · unscramble, Unscramble, Anagram, Jumble"),
     ("(blank)", "Shorthand: no type, no options", "Leave every option empty",
      "True or False makes a true/false question; anything else a typed answer", "—",
      "12s / 20s", "As true/false or typed answer", "—"),

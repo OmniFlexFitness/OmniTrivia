@@ -4,8 +4,16 @@ import { unplayableReason } from './questionQuality';
 import { parseQuestionType } from './questionTypes';
 import { MAP_FRAMES, MAP_PREFIX, geoFromPinTarget, geoPinTarget, mapKeyFor } from './mapProjection';
 
+/**
+ * What a spreadsheet puts between cells when it saves as text. Excel writes
+ * semicolons where the decimal mark is a comma, and tab-separated values is a
+ * download option in Google Sheets and Excel both.
+ */
+type Delimiter = ',' | ';' | '\t';
+const DELIMITERS: readonly Delimiter[] = [',', ';', '\t'];
+
 // Simple CSV parser that handles quoted fields
-const parseCSVLine = (line: string): string[] => {
+const parseCSVLine = (line: string, delimiter: ',' | ';' = ','): string[] => {
     const result: string[] = [];
     let current = '';
     let inQuotes = false;
@@ -18,7 +26,7 @@ const parseCSVLine = (line: string): string[] => {
             i++;
         } else if (char === '"') {
             inQuotes = !inQuotes;
-        } else if (char === ',' && !inQuotes) {
+        } else if (char === delimiter && !inQuotes) {
             result.push(current.trim());
             current = '';
         } else {
@@ -27,6 +35,58 @@ const parseCSVLine = (line: string): string[] => {
     }
     result.push(current.trim());
     return result;
+};
+
+/**
+ * One line of a tab-separated file, which has no quoting rule of its own:
+ * Excel quotes a cell the way a CSV does, and Google Sheets writes every cell
+ * as it stands, quotes and all. So the line is split at every tab first (no
+ * spreadsheet makes a tab easy to type into a cell), and a quote can never run
+ * one cell into the next. A cell is unwrapped only when it is quoted all the
+ * way round with its inner quotes doubled, as Excel writes it, and is read as
+ * written otherwise.
+ *
+ * `open` marks a line with a cell that opens a quote it never closes, or
+ * closes one it never opened: one end of a cell Excel wrote with a line break
+ * in it, or a stray inch mark at the edge of a cell. Read as a row, a cut line
+ * would be the wrong cells under the wrong headings.
+ */
+const parseTSVLine = (line: string): { cells: string[]; open: boolean } => {
+    let open = false;
+    const cells = line.split('\t').map((raw) => {
+        const cell = raw.trim();
+        const quoted = cell.match(/^"((?:[^"]|"")*)"$/);
+        if (quoted) return quoted[1].replace(/""/g, '"').trim();
+        const unpaired = (cell.match(/"/g)?.length ?? 0) % 2 === 1;
+        if (unpaired && (cell.startsWith('"') || cell.endsWith('"'))) open = true;
+        return cell;
+    });
+    return { cells, open };
+};
+
+const parseLine = (line: string, delimiter: Delimiter): { cells: string[]; open: boolean } =>
+    delimiter === '\t' ? parseTSVLine(line) : { cells: parseCSVLine(line, delimiter), open: false };
+
+const REQUIRED_COLUMNS = ['category', 'question', 'correctanswer'];
+
+/** A header line's column names, the way the columns are looked up. */
+const headings = (line: string, delimiter: Delimiter): string[] =>
+    parseLine(line.toLowerCase(), delimiter).cells.map((name) => name.replace(/\s/g, ''));
+
+/**
+ * Which delimiter a file uses, and its column names split by it: the one that
+ * finds the required columns in the header row. A comma inside one heading
+ * cannot outvote the tabs between them, and one inside quotes is not a
+ * delimiter at all. When none finds them, the one that splits the header into
+ * most cells, so the error names the column that is really missing.
+
+ */
+const detectDelimiter = (header: string): { delimiter: Delimiter; names: string[] } => {
+    const splits = DELIMITERS.map((delimiter) => ({ delimiter, names: headings(header, delimiter) }));
+    return (
+        splits.find(({ names }) => REQUIRED_COLUMNS.every((column) => names.includes(column))) ??
+        splits.reduce((best, split) => (split.names.length > best.names.length ? split : best))
+    );
 };
 
 /**
@@ -47,12 +107,32 @@ const loosen = (value: string): string =>
     normalize(value.replace(/\([^)]*\)/g, ' ')).replace(/^(the|a|an)\s+/, '');
 
 /**
+ * The words of an answer, for matching one against another. A number keeps
+ * its comma or point ("2,500", "1.5"), so "500 miles" is not a word-for-word
+ * part of "2,500 miles".
+ */
+const words = (value: string): string[] =>
+    value.match(/[\p{L}\p{N}]+(?:[.,]\p{N}+)*/gu) ?? [];
+
+/**
+ * A number, in digits or as the numeral of a sequel from "II" to "XX". A lone
+ * "V" or "X" is a letter more often than a numeral ("Lil Nas X").
+ */
+const isNumberWord = (word: string): boolean =>
+    /\p{N}/u.test(word) || /^(?:i{2,3}|iv|vi{1,3}|ix|xi{1,3}|xiv|xvi{0,3}|xix|xx)$/i.test(word);
+
+/** The letter or number an answer names an option by — "B", "b)", "(2)", "Option 3" — or null. */
+const positionLabel = (answer: string): string | null =>
+    answer.trim().match(/^(?:option\s*)?\(?([a-z]|\d{1,2})[).:]{0,2}$/i)?.[1] ?? null;
+
+/**
  * Which option the `correctAnswer` cell means.
  *
  * Exact match first. Failing that, an answer key written more fully than the
  * option it points at is resolved — "The Nile" for "Nile", "Tampa (Ybor City)"
  * for "Tampa", "Old Town Road by Lil Nas X" for "Old Town Road" — but only
- * when exactly one option can possibly be meant.
+ * when exactly one option can possibly be meant, it is there in whole words,
+ * and it is more than a letter, a two-letter code or a number.
  *
  * Returning -1 matters as much as the matching does. This used to fall back to
  * the first option, so a mismatch in the answer column did not fail the import:
@@ -64,6 +144,16 @@ const resolveCorrectIndex = (options: string[], correctAnswer: string): number =
         (option) => normalize(option) === normalize(correctAnswer),
     );
     if (exact !== -1) return exact;
+
+    // Options that all carry their own labels ("A) Paris", "B) London") are
+    // pointed at by the label, which is then part of the option's own text.
+    // All of them, so "B. B. King" among plain options is not taken for "B".
+    const label = positionLabel(correctAnswer);
+    const optionLabels = options.map((option) => option.trim().match(/^\(?([a-z]|\d{1,2})[).:]\s/i)?.[1]);
+    if (label && optionLabels.every(Boolean)) {
+        const labelled = optionLabels.flatMap((own, i) => (own!.toLowerCase() === label.toLowerCase() ? [i] : []));
+        if (labelled.length === 1) return labelled[0];
+    }
 
     const answer = loosen(correctAnswer);
     if (!answer) return -1;
@@ -79,16 +169,46 @@ const resolveCorrectIndex = (options: string[], correctAnswer: string): number =
     );
     if (equal !== -1) return equal;
 
+    // Being part of something longer counts in whole words — "Old Town Road"
+    // in "Old Town Road by Lil Nas X", not "USA" in Jerusalem or "Art" in
+    // Mozart — and only for something long enough to mean one thing. "B" is
+    // a word of "Vitamin B", "1" of "1 million" and "UN" of "UN Security
+    // Council", so a letter, a two-letter code or a bare number never matches
+    // that way, whichever side it is on. Nor does it when the words left over
+    // include a number: "Toy Story 2" is not "Toy Story", nor "Rocky IV" Rocky.
+    const answerWords = words(answer);
+    const within = (needle: string[], haystack: string[]): boolean => {
+        // Counted without punctuation, so "U.S." is as short as "US".
+        const letters = needle.join('');
+        if (letters.length <= 2 || !/\p{L}/u.test(letters)) return false;
+        const start = haystack.findIndex((_, at) => needle.every((word, i) => haystack[at + i] === word));
+        if (start === -1) return false;
+        const rest = [...haystack.slice(0, start), ...haystack.slice(start + needle.length)];
+        return !rest.some(isNumberWord);
+    };
     return only(
-        loose.reduce<number[]>(
-            (hits, option, i) =>
-                option && (option.includes(answer) || answer.includes(option))
-                    ? [...hits, i]
-                    : hits,
-            [],
-        ),
+        loose.reduce<number[]>((hits, option, i) => {
+            const optionWords = words(option);
+            return within(answerWords, optionWords) || within(optionWords, answerWords) ? [...hits, i] : hits;
+        }, []),
     );
 };
+
+/**
+ * An answer that names an option by its place instead of its text — "B",
+ * "b)", "(2)", "Option 3" — which is how a printed answer key is written, and
+ * means nothing once the options are shuffled. Only called once the answer
+ * has matched no option, so a question whose options really are A, B and AB
+ * is not caught by it.
+ */
+const isOptionPosition = (answer: string, optionCount: number): boolean => {
+    const label = positionLabel(answer);
+    if (!label) return false;
+    const position = /\d/.test(label) ? Number(label) : label.toLowerCase().charCodeAt(0) - 96;
+    return position >= 1 && position <= optionCount;
+};
+
+const POSITION_ANSWER = "the answer is an option's letter or number — write the option itself";
 
 /**
  * A bare answer cell turned into the spellings a typed answer will accept.
@@ -243,6 +363,11 @@ export interface QuestionRow {
     margin?: string;
     unit?: string;
     timeLimit?: string;
+    /**
+     * What the file put between cells. It says how far a comma or a point in
+     * a number can be trusted: see `readsTwoWays`.
+     */
+    separator?: Delimiter;
 }
 
 export type RowResult = { question: Question } | { skip: string };
@@ -295,6 +420,46 @@ const trailingUnit = (value: string): string | undefined => {
 };
 
 /**
+ * Whether the number a cell is read for could mean two different numbers, so
+ * reading it would be a guess. That is the first number in the cell, with
+ * whatever is written with it up to the next word: "8,849" of "8,849 m (29 032
+ * ft)", both ends of "36,5-37,5".
+ *
+ * The game writes decimals with a point, and in a comma-separated file a comma
+ * before exactly three digits groups thousands ("384,400"). Any other comma in
+ * a number ("26,6406", "1968,1970", ",5") is a decimal comma or a typo, and so
+ * is a second point ("1.000.000") or a point then a comma ("1.234,5"). A file
+ * separated by semicolons or tabs may come from where the comma is the decimal
+ * mark (Excel writes semicolons there), so in it any comma in a number reads
+ * two ways ("3,142"), and so does a point before exactly three digits
+ * ("10.000", "1.609"). Digits grouped by a space or an apostrophe ("384 400",
+ * "384'400"), a fraction or a date ("1/2"), and a minus written as a minus
+ * sign or a dash ("−40") are refused anywhere: the reader would misread each.
+ */
+const readsTwoWays = (cell: string | undefined, separator: Delimiter = ','): boolean => {
+    const value = cell ?? '';
+    const at = value.search(/\d/);
+    if (at === -1) return false;
+    // With the letter that ends it, so a unit written on ("384,400km") counts as
+    // the reader counts it.
+    const number = value.slice(at).match(/^[^\p{L}]*\p{L}?/u)?.[0] ?? '';
+    const before = value.slice(0, at).trimEnd().slice(-1);
+    return (
+        /[−–—,]/.test(before) ||
+        // The same thousands rule `leadingNumber` reads by.
+        /\d,(?!\d{3}\b)\d/.test(number) ||
+        /\d\.\d+[.,]\d/.test(number) ||
+        /\d[ \u00a0\u202f'’]+\d/.test(number) ||
+        /\d\/\d/.test(number) ||
+        (separator !== ',' && (/\d,\d/.test(number) || /\d\.\d{3}(?!\d)/.test(number)))
+    );
+};
+
+const TWO_WAY_NUMBER = 'a number reads two ways — write it like 26.6406 or -40, with no thousands separator';
+
+const UNCLOSED_QUOTE = 'a quote never closes — a line break or a stray " in a cell';
+
+/**
  * "Au = Gold", "France -> Paris", "Tomato → Fruit": an item and its partner.
  * Split at the first separator, so the partner may itself contain an "=".
  */
@@ -327,11 +492,18 @@ const pipeList = (value: string): string[] =>
  * screen when an import leaves rows out.
  */
 export const rowToQuestion = (row: QuestionRow, id: string): RowResult => {
-    const typeCell = (row.type ?? '').trim();
+    // A dash, N/A or none in the type column is a sheet's way of leaving it blank.
+    const typeCell = (row.type ?? '').trim().replace(/^(?:[-–—]+|n\/?a|n\.a\.?|none)$/i, '');
     const named = parseQuestionType(typeCell);
     const options = row.options.map((o) => (o ?? '').trim()).filter((o) => o !== '');
     const answer = (row.correctAnswer ?? '').trim();
     const image = (row.image ?? '').trim();
+
+    // A type the file names but the game does not know is left out, not
+    // guessed at. It used to become multiple choice, and a row written for
+    // another format then matched none of its "options" and was left out for
+    // that: a reason that sends the host to the answer column instead of this.
+    if (typeCell && !named) return { skip: `unknown format "${typeCell}"` };
 
     // What the row is, when the file does not say. A blank type column is the
     // ordinary case for a spreadsheet somebody wrote by hand.
@@ -361,7 +533,19 @@ export const rowToQuestion = (row: QuestionRow, id: string): RowResult => {
         type,
     };
     const extras: Partial<Question> = {};
-    const timeLimit = leadingNumber(row.timeLimit);
+
+    // Every number the row is read for goes through these two, so a number
+    // that could mean two things is caught wherever it is read, and the row
+    // is left out once the reading is done.
+    let twoWayNumber = false;
+    const checked = <T,>(read: (cell: string) => T) => (cell: string | undefined): T => {
+        if (readsTwoWays(cell, row.separator)) twoWayNumber = true;
+        return read(cell ?? '');
+    };
+    const numberIn = checked(leadingNumber);
+    const bandIn = checked(numberBand);
+
+    const timeLimit = numberIn(row.timeLimit);
     if (timeLimit !== null && timeLimit > 0) extras.timeLimit = Math.round(timeLimit);
     const margin = parseMargin(row.margin);
     if (margin) extras.margin = margin;
@@ -395,13 +579,13 @@ export const rowToQuestion = (row: QuestionRow, id: string): RowResult => {
         case QuestionType.RANGE: {
             // min, max, step, low, high — or min, max, step with the answer in
             // the answer column, which is how most people write one.
-            const numbers = options.map((o) => leadingNumber(o));
+            const numbers = options.slice(0, 5).map(numberIn);
             const [min, max] = numbers;
             let step = numbers[2];
             let band: [number, number] | null =
                 numbers.length >= 5 && numbers[3] !== null && numbers[4] !== null
                     ? [numbers[3]!, numbers[4]!]
-                    : numberBand(answer);
+                    : bandIn(answer);
             if (min === null || min === undefined || max === null || max === undefined || !band) {
                 return { skip: `${type === QuestionType.RANGE ? 'range' : 'slider'} is missing its scale` };
             }
@@ -417,9 +601,9 @@ export const rowToQuestion = (row: QuestionRow, id: string): RowResult => {
         }
 
         case QuestionType.NUMBER: {
-            const target = leadingNumber(answer);
+            const target = numberIn(answer);
             if (target === null) return { skip: 'no numeric answer' };
-            const tolerance = Math.abs(leadingNumber(options[0]) ?? 0);
+            const tolerance = Math.abs(numberIn(options[0]) ?? 0);
             finalOptions = [String(target), String(tolerance)];
             if (!extras.unit) {
                 const inferred = trailingUnit(answer);
@@ -433,12 +617,14 @@ export const rowToQuestion = (row: QuestionRow, id: string): RowResult => {
             // option when the sheet has no image column.
             const pictureFromOption = !image && options.length > 0 && leadingNumber(options[0]) === null;
             const picture = image || (pictureFromOption ? options[0] : '');
-            const coords = (pictureFromOption ? options.slice(1) : options).map((o) => leadingNumber(o));
+            const coords = (pictureFromOption ? options.slice(1) : options).map(numberIn);
             const mapKey = mapKeyFor(picture);
             if (!picture) return { skip: 'no picture to pin' };
             if (coords.length < 2 || coords[0] === null || coords[1] === null) {
                 return { skip: 'pin target is missing' };
             }
+            // Before the map is checked: a misread number lands off it.
+            if (twoWayNumber) return { skip: TWO_WAY_NUMBER };
 
             let pin: PinTarget | null;
             if (mapKey) {
@@ -473,7 +659,10 @@ export const rowToQuestion = (row: QuestionRow, id: string): RowResult => {
             const wanted = pipeList(answer);
             const indices = wanted.map((one) => resolveCorrectIndex(options, one));
             if (wanted.length === 0 || indices.some((index) => index === -1)) {
-                return { skip: 'an answer matches none of the options' };
+                const byPosition = wanted.some(
+                    (one, i) => indices[i] === -1 && isOptionPosition(one, options.length),
+                );
+                return { skip: byPosition ? POSITION_ANSWER : 'an answer matches none of the options' };
             }
             extras.correctIndices = [...new Set(indices)].sort((a, b) => a - b);
             correctIndex = extras.correctIndices[0];
@@ -508,11 +697,16 @@ export const rowToQuestion = (row: QuestionRow, id: string): RowResult => {
         default:
             correctIndex = resolveCorrectIndex(options, answer);
             if (correctIndex === -1) {
-                return { skip: 'the answer matches none of the options' };
+                return {
+                    skip: isOptionPosition(answer, options.length)
+                        ? POSITION_ANSWER
+                        : 'the answer matches none of the options',
+                };
             }
             break;
     }
 
+    if (twoWayNumber) return { skip: TWO_WAY_NUMBER };
     if (finalOptions.length === 0) return { skip: 'no options' };
 
     const question: Question = { ...base, options: finalOptions, correctIndex, ...extras };
@@ -543,22 +737,27 @@ export const parseImportData = (csvData: string): { [categoryId: string]: Catego
     parseImportDataWithReport(csvData).contents;
 
 export const parseImportDataWithReport = (csvData: string): ImportReport => {
-    const lines = csvData.trim().split('\n');
+    // Blank lines at either end are dropped, but not the spaces and tabs at
+    // the start of the first line: in a tab-separated file a leading tab is an
+    // empty first heading, and trimming it would move every heading one column
+    // to the left of its cells.
+    // Windows, Unix and old Mac line endings alike.
+    const lines = csvData.replace(/^\uFEFF/, '').split(/\r\n?|\n/);
+    while (lines.length > 0 && lines[0].trim() === '') lines.shift();
+    while (lines.length > 0 && lines[lines.length - 1].trim() === '') lines.pop();
     if (lines.length < 2) {
         throw new Error("Import data must have a header and at least one question row.");
     }
 
-    const header = parseCSVLine(lines[0].toLowerCase());
-    const rows = lines.slice(1).map(line => parseCSVLine(line));
+    const { delimiter, names } = detectDelimiter(lines[0]);
+    const rows = lines.slice(1).map((line) => parseLine(line, delimiter));
 
     const colMap: { [key: string]: number } = {};
-    const requiredCols = ['category', 'question', 'correctanswer'];
-
-    header.forEach((h, i) => {
-        colMap[h.trim().replace(/\s/g, '')] = i;
+    names.forEach((name, i) => {
+        colMap[name] = i;
     });
 
-    for (const col of requiredCols) {
+    for (const col of REQUIRED_COLUMNS) {
         if (colMap[col] === undefined) {
             throw new Error(`Missing required column: ${col}. Please check your file header.`);
         }
@@ -578,11 +777,20 @@ export const parseImportDataWithReport = (csvData: string): ImportReport => {
     const roundsConfig: { [categoryId: string]: CategoryContent } = {};
     const skipped: SkippedRow[] = [];
 
-    rows.forEach((row, rowIndex) => {
+    rows.forEach(({ cells: row, open }, rowIndex) => {
         try {
             const categoryName = cell(row, colMap['category']);
             const questionText = cell(row, colMap['question']);
             const correctAnswerStr = cell(row, colMap['correctanswer']);
+
+            if (open) {
+                skipped.push({
+                    row: rowIndex + 2,
+                    question: questionText || '(no question)',
+                    reason: UNCLOSED_QUOTE,
+                });
+                return;
+            }
 
             if (!categoryName || !questionText || !correctAnswerStr) {
                 // A wholly empty line is a sheet's trailing blank row, not a
@@ -613,6 +821,7 @@ export const parseImportDataWithReport = (csvData: string): ImportReport => {
                     margin: cell(row, optionalCol(OPTIONAL_COLUMNS.margin)),
                     unit: cell(row, optionalCol(OPTIONAL_COLUMNS.unit)),
                     timeLimit: cell(row, optionalCol(OPTIONAL_COLUMNS.timeLimit)),
+                    separator: delimiter,
                 },
                 `import-${categoryName}-${rowIndex}`,
             );
@@ -660,17 +869,28 @@ export const parseImportDataWithReport = (csvData: string): ImportReport => {
 /** "3 with placeholder answers, 2 slider is missing its scale" — most common first. */
 const summarizeReasons = (skipped: readonly SkippedRow[]): string => {
     const counts = new Map<string, number>();
+    // Unknown formats are one line however many different words they were,
+    // naming the first few, so a column of typos does not become a paragraph.
+    const unknown: string[] = [];
     skipped.forEach((entry) => {
-        const reason = entry.reason.includes('placeholder')
-            ? 'with placeholder answers'
-            : entry.reason === 'no options'
-              ? 'with no options to choose from'
-              : `— ${entry.reason}`;
+        const word = entry.reason.match(/^unknown format (".*")$/)?.[1];
+        if (word && !unknown.some((seen) => seen.toLowerCase() === word.toLowerCase())) unknown.push(word);
+        const reason = word
+            ? 'with an unknown format'
+            : entry.reason.includes('placeholder')
+              ? 'with placeholder answers'
+              : entry.reason === 'no options'
+                ? 'with no options to choose from'
+                : `— ${entry.reason}`;
         counts.set(reason, (counts.get(reason) ?? 0) + 1);
     });
+    const named = (reason: string): string =>
+        reason === 'with an unknown format'
+            ? `${reason} (${unknown.slice(0, 3).join(', ')}${unknown.length > 3 ? ', …' : ''})`
+            : reason;
     return [...counts.entries()]
         .sort((a, b) => b[1] - a[1])
-        .map(([reason, count]) => `${count} ${reason}`)
+        .map(([reason, count]) => `${count} ${named(reason)}`)
         .join(', ');
 };
 
