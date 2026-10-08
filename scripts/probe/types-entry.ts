@@ -57,6 +57,7 @@ import {
 } from "../../src/services/lanes";
 import { MAP_FRAMES, geoPinTarget, mapAspect } from "../../src/services/mapProjection";
 import { questionsFromGenerated } from "../../src/services/claudeService";
+import { csvCells, readWorkbook } from "./xlsx";
 
 let failures = 0;
 const check = (label: string, passed: boolean, detail = ""): void => {
@@ -220,6 +221,36 @@ check(
   refused.skipped.length === 10 &&
     Object.values(refused.contents).flatMap((c) => c.questions).length === 1,
   refusedReasons.join(" | "),
+);
+
+/* What a spreadsheet writes is what a spreadsheet meant. Excel and Sheets
+ * write a quote inside a cell as two quotes; and an answer like 1968-1970 or
+ * 98.6 is a number, not a number followed by a unit called "-1970" or ".6". */
+const written = Object.values(
+  parseImportDataWithReport(
+    [
+      "type,category,question,option1,option2,option3,option4,option5,correctAnswer,unit",
+      'TYPE_ANSWER,X,"Which Beatle was ""the quiet one""?",George Harrison,,,,,George Harrison,',
+      "SLIDER,X,When did Apollo 11 land?,1960,1980,1,,,1968-1970,",
+      "SLIDER,X,When did Apollo 11 land?,1960,1980,1,,,1968 to 1970,",
+      "NUMBER,X,Body temperature?,,,,,,98.6,",
+      "NUMBER,X,Everest?,,,,,,\"8,849\",",
+      "NUMBER,X,To the Moon?,,,,,,\"384,400 km\",",
+      "NUMBER,X,Body temperature?,,,,,,98.6 °F,",
+    ].join("\n"),
+  ).contents,
+).flatMap((c) => c.questions);
+check(
+  "a quote written into a cell survives the import",
+  written[0]?.text === 'Which Beatle was "the quiet one"?',
+  written[0]?.text,
+);
+check(
+  "a number only has a unit when one is written after it",
+  written.map((q) => q.unit ?? "").join("|") === "|||||km|°F" &&
+    written[1]?.options.slice(3).join("-") === "1968-1970" &&
+    written[2]?.options.slice(3).join("-") === "1968-1970",
+  written.map((q) => JSON.stringify(q.unit ?? "")).join(" "),
 );
 
 /* ------------------------------------------------------------------ *
@@ -625,6 +656,121 @@ check(
   [missing.length ? `missing ${missing.join(", ")}` : "", example.skipped.map((s) => `row ${s.row}: ${s.reason}`).join("; ")]
     .filter(Boolean)
     .join(" — "),
+);
+
+/* ------------------------------------------------------------------ *
+ * The template workbook
+ * ------------------------------------------------------------------ */
+
+section("The template workbook is the example file");
+
+// `questions.template.xlsx` is built from the example file by
+// scripts/generate-template.py. A host fills it in and imports its first tab,
+// so a template that drifts from what the importer reads is a broken night.
+const trimEnd = (cells: string[]): string[] => {
+  const copy = [...cells];
+  while (copy.length > 0 && copy[copy.length - 1] === "") copy.pop();
+  return copy;
+};
+const tabs = readWorkbook(readFileSync(join(repoRoot, "questions.template.xlsx")));
+const exampleRows = readFileSync(join(repoRoot, "questions.example.csv"), "utf8")
+  .split(/\r?\n/)
+  .filter((line) => line.trim() !== "")
+  .map((line) => trimEnd(csvCells(line)));
+const templateRows = (tabs[0]?.rows ?? []).map(trimEnd).filter((row) => row.length > 0);
+const firstDifference = exampleRows.findIndex(
+  (row, i) => JSON.stringify(row) !== JSON.stringify(templateRows[i]),
+);
+check(
+  "questions.template.xlsx opens with its Questions tab, holding questions.example.csv cell for cell",
+  tabs[0]?.name === "Questions" &&
+    templateRows.length === exampleRows.length &&
+    firstDifference === -1,
+  tabs[0]?.name !== "Questions"
+    ? `first tab is "${tabs[0]?.name}"`
+    : firstDifference !== -1 || templateRows.length !== exampleRows.length
+      ? `row ${firstDifference === -1 ? Math.min(templateRows.length, exampleRows.length) + 1 : firstDifference + 1} differs — run python3 scripts/generate-template.py`
+      : "",
+);
+const typeGuide = tabs.find((tab) => tab.name === "Question types")?.rows ?? [];
+const misdescribed = Object.values(QuestionType).filter(
+  (type) =>
+    !typeGuide.some(
+      (row) => row[0] === type && row.includes(`${QUESTION_TYPES[type].seconds}s`),
+    ),
+);
+check(
+  "the template's Question types tab lists every format, with the clock the game gives it",
+  misdescribed.length === 0,
+  misdescribed.join(", "),
+);
+
+/* ------------------------------------------------------------------ *
+ * The guide
+ * ------------------------------------------------------------------ */
+
+section("Every example in QUESTION_FORMAT.md imports as the format it is shown for");
+
+// A host copies these rows into a sheet. One that is left out, or that comes
+// in as a different format, teaches the wrong thing with the guide's
+// authority behind it.
+const guide = readFileSync(join(repoRoot, "QUESTION_FORMAT.md"), "utf8").split(/\r?\n/);
+const examples: { heading: string; type: string | null; csv: string }[] = [];
+let heading = "";
+for (let i = 0; i < guide.length; i += 1) {
+  if (/^#{2,3} /.test(guide[i])) heading = guide[i];
+  if (guide[i].trim() === "```csv") {
+    const end = guide.indexOf("```", i + 1);
+    examples.push({
+      heading,
+      type: heading.match(/`([A-Z_]+)`/)?.[1] ?? null,
+      csv: guide.slice(i + 1, end).join("\n"),
+    });
+    i = end;
+  }
+}
+const misread = examples.flatMap(({ heading, type, csv }) => {
+  let report: ReturnType<typeof parseImportDataWithReport>;
+  try {
+    report = parseImportDataWithReport(csv);
+  } catch (error: any) {
+    // Nothing in the block could be played at all.
+    return [`${heading.replace(/^#+ /, "")}: ${error?.message ?? error}`];
+  }
+  const parsed = Object.values(report.contents).flatMap((c) => c.questions);
+  // Outside a format's own section — the shorthand — any format will do.
+  const wrongType = type ? parsed.filter((q) => q.type !== type) : [];
+  return report.skipped.length > 0 || wrongType.length > 0 || parsed.length === 0
+    ? [`${heading.replace(/^#+ /, "")}: ${report.skipped.map((s) => s.reason).join(", ") || wrongType.map((q) => q.type).join(", ") || "nothing read"}`]
+    : [];
+});
+check(
+  "every CSV example in the guide imports, nothing left out, as its section's format",
+  new Set(examples.map((e) => e.type).filter(Boolean)).size === Object.values(QuestionType).length &&
+    misread.length === 0,
+  misread.length ? misread.join(" | ") : `${examples.length} examples`,
+);
+
+// The at-a-glance table promises other spellings for the type column, and the
+// warning under it names spellings that do not work. Both are checked.
+const glance = guide.filter((line) => /^\| `[A-Z_]+` \|/.test(line));
+const badAliases = glance.flatMap((line) => {
+  const cells = line.split("|").map((cell) => cell.trim());
+  const type = cells[1].replace(/`/g, "");
+  const aliases = [...cells[cells.length - 2].matchAll(/`([^`]+)`/g)].map((m) => m[1]);
+  return aliases.filter((alias) => parseQuestionType(alias) !== type).map((alias) => `${alias} ≠ ${type}`);
+});
+check(
+  "every other spelling the guide lists for the type column reads as its format",
+  glance.length === Object.values(QuestionType).length && badAliases.length === 0,
+  badAliases.join(", ") || `${glance.length} formats`,
+);
+const notTypes = ["Typed answer", "Closest guess", "Fill in the blank", "Puzzle · order"];
+check(
+  "the spellings the guide warns about really are not formats",
+  notTypes.every((name) => parseQuestionType(name) === null) &&
+    parseQuestionType("Sort") === QuestionType.CATEGORIZE,
+  notTypes.filter((name) => parseQuestionType(name) !== null).join(", "),
 );
 
 console.log(failures === 0 ? "\nAll question-type checks passed.\n" : `\n${failures} check(s) failed.\n`);

@@ -478,7 +478,8 @@ Pin questions on the built-in maps are written as a latitude, a longitude and
 a radius in kilometres — no picture to find and no pixels to measure. The maps
 are drawn from Natural Earth and US Census data (both public domain) through
 the same projection the game grades with; `scripts/generate-maps.mjs` redraws
-them. `QUESTION_FORMAT.md` shows how every format is written in a sheet, and
+them. `QUESTION_FORMAT.md` shows how every format is written in a sheet
+(`questions.template.xlsx` has one of each to copy), and
 **GENERATE & REVIEW** has a *Question formats* picker for which ones Claude
 writes.
 
@@ -571,8 +572,10 @@ are exactly the ones you wrote.
   Convenient for editing questions collaboratively, but it will fail offline —
   export the sheet to CSV beforehand if the venue's Wi-Fi is unreliable.
 
-`QUESTION_FORMAT.md` has the column spec; `questions.example.csv` is a working
-file with every question format in it.
+`QUESTION_FORMAT.md` is the guide to every column and format, with a picture
+of each one in the sheet and in play. `questions.template.xlsx` is a ready-made
+spreadsheet with one question of every format to overwrite (the import screen
+links to it too), and `questions.example.csv` is the same rows as plain CSV.
 
 ### Generate with Claude
 

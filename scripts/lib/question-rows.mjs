@@ -25,10 +25,11 @@ export const HEADER = [
 ].join(",");
 
 /**
- * The importer's parser splits on newlines before it looks at quotes, and it
- * treats every `"` as a delimiter toggle rather than honouring `""` escapes.
- * So: no newlines and no double quotes reach the file at all. Commas are fine
- * inside a quoted field, which is the one case that does work.
+ * The importer's parser splits on newlines before it looks at quotes, so no
+ * newline can reach the file. Double quotes are made single too: the importer
+ * reads a doubled `""` inside a quoted field, but this writer has no need of
+ * one, and a stray unescaped `"` would swallow the rest of its row. Commas are
+ * fine inside a quoted field.
  */
 export const clean = (value) =>
   String(value ?? "")
