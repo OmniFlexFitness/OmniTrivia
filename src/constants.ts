@@ -95,6 +95,16 @@ export const DEFAULT_CATEGORY_POOL: Category[] = [
 ];
 
 /**
+ * The question template and the guide to it, both in the public repository.
+ * The import screen links to them, so a host on the deployed site can start
+ * from the template without a copy of the code.
+ */
+export const QUESTION_TEMPLATE = {
+  download: 'https://github.com/OmniFlexFitness/OmniTrivia/raw/master/questions.template.xlsx',
+  guide: 'https://github.com/OmniFlexFitness/OmniTrivia/blob/master/QUESTION_FORMAT.md',
+} as const;
+
+/**
  * The premade question bank — the set a host plays when they have not written
  * anything themselves.
  *
@@ -108,16 +118,6 @@ export const DEFAULT_CATEGORY_POOL: Category[] = [
  * way has to be shared as "anyone with the link can view", or every host gets
  * a 404 instead of a game.
  */
-/**
- * The question template and the guide to it, both in the public repository.
- * The import screen links to them, so a host on the deployed site can start
- * from the template without a copy of the code.
- */
-export const QUESTION_TEMPLATE = {
-  download: 'https://github.com/OmniFlexFitness/OmniTrivia/raw/master/questions.template.xlsx',
-  guide: 'https://github.com/OmniFlexFitness/OmniTrivia/blob/master/QUESTION_FORMAT.md',
-} as const;
-
 export const DEFAULT_QUESTION_BANK = {
   name: 'the OmniTrivia question bank',
   /** What the load button calls it. */

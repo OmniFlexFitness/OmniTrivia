@@ -6,9 +6,13 @@ import { mapAspect, mapFrameFor } from "./mapProjection";
 // callers expect to find it.
 export type { Answer };
 
-/** Loose text match: case and surrounding/repeated whitespace are ignored. */
+/**
+ * Loose text match: case, curly against straight quotes, and surrounding or
+ * repeated whitespace are ignored. An iPhone types O’Neal with a curly
+ * apostrophe, and a spreadsheet's O'Neal has to match it.
+ */
 export const normalize = (value: string): string =>
-  value.toLowerCase().trim().replace(/\s+/g, " ");
+  value.toLowerCase().replace(/[‘’ʼ]/g, "'").replace(/[“”]/g, '"').trim().replace(/\s+/g, " ");
 
 /**
  * How one answer went.
@@ -123,9 +127,38 @@ const recordOf = (answer: Answer): Record<string, string> | null =>
     ? (answer as Record<string, string>)
     : null;
 
-/** Letters and digits only, lower case — how a scramble is compared. */
+/**
+ * Letters and digits only, lower case — how a scramble is compared. Upper case
+ * first, the way the tiles are made, so a word whose letters change in upper
+ * case still matches its own tiles: the ß of Straße is the tiles S and S.
+ */
 export const scrambleKey = (value: string): string =>
-  value.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+  value.toUpperCase().toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+
+/**
+ * A typed answer against its accepted spellings. One spelling is right, and
+ * so is an answer naming several items when every one of them is a spelling:
+ * "tequila, lime juice" or "salt and tequila" for a margarita, in any order.
+ * One item that is not on the list makes the whole answer wrong — it is all
+ * or nothing, like every typed answer.
+ */
+const typedAnswerIsRight = (spellings: readonly string[], answer: string): boolean => {
+  const accepted = new Set(spellings.map(normalize));
+  const whole = normalize(answer);
+  if (whole === "") return false;
+  if (accepted.has(whole)) return true;
+  // Items are split at commas and semicolons, and an item that is not a
+  // spelling itself at "and" or "&" — so "Romeo and Juliet" stays one item.
+  const items = whole.split(/[,;]/).map((item) => item.trim()).filter(Boolean);
+  return (
+    items.length > 0 &&
+    items.every((item) => {
+      if (accepted.has(item)) return true;
+      const parts = item.split(/\s+and\s+|&/).map((part) => part.trim()).filter(Boolean);
+      return parts.length > 0 && parts.every((part) => accepted.has(part));
+    })
+  );
+};
 
 /** The value a record holds for `key`, tolerating a key typed loosely. */
 const lookup = (record: Record<string, string>, key: string): string | undefined => {
@@ -169,11 +202,7 @@ export const gradeAnswer = (question: Question, answer: Answer): Grade => {
   switch (question.type) {
     case QuestionType.TYPE_ANSWER:
       // Every option is an accepted spelling of the answer.
-      return typeof answer === "string" &&
-        answer.trim() !== "" &&
-        options.some((option) => normalize(option) === normalize(answer))
-        ? RIGHT
-        : WRONG;
+      return typeof answer === "string" && typedAnswerIsRight(options, answer) ? RIGHT : WRONG;
 
     case QuestionType.SLIDER: {
       // options are [min, max, step, correctLow, correctHigh]

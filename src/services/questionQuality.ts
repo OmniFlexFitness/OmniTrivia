@@ -134,7 +134,8 @@ export const unplayableReason = (question: Question): string | null => {
     }
 
     case QuestionType.SCRAMBLE: {
-      const letters = (options[0] ?? "").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+      // Counted in upper case, the way the tiles are made: Straße is 7 tiles.
+      const letters = (options[0] ?? "").toUpperCase().replace(/[^\p{L}\p{N}]/gu, "");
       if (isPlaceholderOption(options[0])) return "no word to scramble";
       if (letters.length < 3 || letters.length > 20) return "a scramble needs 3 to 20 letters";
       return new Set(letters).size > 1 ? null : "nothing to unscramble";
