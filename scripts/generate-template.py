@@ -104,7 +104,8 @@ HEADER_NOTES = {
     "margin": "SLIDER, NUMBER and PIN only: how much a near miss still scores. "
     "none, low, medium, high or maximum.",
     "unit": "SLIDER, RANGE and NUMBER only: what the number counts, shown after it "
-    "(km, m, years, °F).",
+    "(km, m, °F, or years for a span of years). Leave it blank for a calendar "
+    "year, or 1969 shows as 1,969 years.",
     "timeLimit": "Optional: seconds on the clock for this question, 5 to 120. Blank "
     "uses the format's own clock.",
 }
@@ -132,16 +133,21 @@ TYPE_GUIDE = [
      "All or nothing", "TF, True/False, True or False, Fact or fiction"),
     ("TYPE_ANSWER", "Type the answer",
      "Every spelling you will accept. The first is the one the reveal shows",
-     "Ignored once the options are filled in; with none, the answer and each part of a comma list are accepted",
-     "—", "20s", "All or nothing; case and extra spaces ignored, spelling and accents not",
+     "Required, but not graded once the options are filled in: repeat option1. "
+     "With none, the answer and each part of a comma list are accepted",
+     "—", "20s",
+     "All or nothing. One accepted spelling, or several in any order (a, b and c) when every one is accepted; "
+     "case, curly quotes and extra spaces ignored, spelling and accents not",
      "Type, Short answer, Free text"),
     ("SLIDER", "Slide to a number",
      "Lowest, highest, step, then the lowest and highest answer that score in full",
-     "The answer the reveal shows. With only three options: the answer, or a band like 1968-1970",
+     "Required, but not graded or shown when option4 and option5 are filled in: the reveal shows that band. "
+     "With only three options: the answer, or a band like 1968-1970 with nothing after it (a unit goes in the unit column)",
      "margin, unit", "20s", "Inside the target scores in full; margin pays a near miss",
      "Slide, Scale"),
     ("RANGE", "Drag two handles to catch the answer", "Lowest, highest, step",
-     "The exact answer (or a band like 8800-8900)", "unit", "20s",
+     "The exact answer, or a band like 8800-8900 with nothing after it (a unit goes in the unit column)",
+     "unit", "20s",
      "Caught inside a tenth of the scale scores in full; wider pays less, past half pays nothing",
      "Range slider, Bracket, Between"),
     ("NUMBER", "Type a number, no scale shown", "Optional: a tolerance that still counts as dead on",
@@ -153,7 +159,8 @@ TYPE_GUIDE = [
      "25s", "Inside the ring scores in full; margin pays a near miss",
      "Pin answer, Drop pin, Map, Hotspot"),
     ("PUZZLE", "Put the items in order", "The items, in the right order: two or more, all different",
-     "Ignored when the options are filled in. With none: the order, joined with |", "—", "30s",
+     "Required, but not graded when the options are filled in: write the order again. "
+     "With none: the order, joined with | (the type column must say PUZZLE)", "—", "30s",
      "All or nothing", "Order, Sequence, Rank, Timeline"),
     ("MATCH", "Pair each item with its partner",
      "One pair per column: item = partner (-> → => :: work too). Two or more pairs",
@@ -181,12 +188,12 @@ HOW_TO = [
     ("Getting it into OmniTrivia", None),
     ("From Excel: File → Save As → CSV UTF-8 (Comma delimited), with the Questions tab open. Then HOST GAME → IMPORT MY OWN QUESTIONS → Select File. Plain \"CSV (Comma delimited)\" mangles dashes, accents and °.", None),
     ("From Google Drive: upload this file, set sharing to \"Anyone with the link can view\", and paste the share link on the import screen. The app reads the first tab, which is Questions.", None),
-    ("In Google Sheets: File → Save as Google Sheets, or File → Import into a sheet of your own, then share and paste the link the same way. To use a different tab, open it and copy the URL from the address bar.", None),
+    ("In Google Sheets: File → Save as Google Sheets, then share and paste the link the same way. If you import it into a spreadsheet you already have (File → Import → Insert new sheet(s)), open the Questions tab and paste the URL from the address bar (it ends in gid=…): a plain share link reads that spreadsheet's original tab.", None),
     ("", None),
     ("Rules that catch people out", None),
     ("• No line breaks inside a cell. A line break splits the row in two.", None),
     ("• Keep the Questions tab first, and put nothing on it but questions: every row on it is read as one.", None),
-    ("• A row that cannot be played is left out, and the import screen says which and why. Check the review screen shows the number of questions you expect.", None),
+    ("• A row that cannot be played is left out. The review screen says how many and why (the first few row numbers are in the browser's console), so check it shows the number of questions you expect.", None),
     ("• Pictures load straight from their link on every phone, so use a host that allows it, and check them on the review screen.", None),
     ("", None),
     ("The full guide, with a picture of every format:", None),
@@ -266,6 +273,8 @@ def build_questions(ws) -> None:
         type="list",
         formula1='"' + ",".join(name for name, _ in TYPES) + '"',
         allow_blank=True,
+        showErrorMessage=True,
+        showInputMessage=True,
         errorStyle="warning",
         errorTitle="Not one of the twelve names",
         error="Other spellings like TF or Select all that apply still import. "
@@ -280,6 +289,8 @@ def build_questions(ws) -> None:
         type="list",
         formula1='"' + ",".join(MARGINS) + '"',
         allow_blank=True,
+        showErrorMessage=True,
+        showInputMessage=True,
         errorStyle="warning",
         error="margin is none, low, medium, high or maximum.",
         promptTitle="Margin",
@@ -294,6 +305,8 @@ def build_questions(ws) -> None:
         formula1="5",
         formula2="120",
         allow_blank=True,
+        showErrorMessage=True,
+        showInputMessage=True,
         errorStyle="warning",
         error="The clock runs from 5 to 120 seconds.",
         promptTitle="Seconds",

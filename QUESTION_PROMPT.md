@@ -135,7 +135,7 @@ MULTIPLE_CHOICE,Science,Which planet is known as the Red Planet?,Mars,Venus,Jupi
 MULTI_SELECT,Science,Which of these are noble gases?,Helium,Nitrogen,Argon,Oxygen,,,Helium|Argon,Noble gases barely react because their outer electron shells are full.,,,,
 TRUE_FALSE,Science,Sound travels faster through water than through air.,True,False,,,,,True,"Water is far less compressible, so sound moves about four times faster in it.",,,,
 TYPE_ANSWER,Music,Which Beatle was known as the quiet one?,George Harrison,Harrison,George,,,,George Harrison,"He wrote Something, which Sinatra called the best love song of the era.",,,,
-SLIDER,History,In what year did Apollo 11 land on the Moon?,1960,1980,1,1968,1970,,1969,Armstrong stepped out six hours after touchdown because nobody could sleep.,,low,,
+SLIDER,History,In what year did Apollo 11 land on the Moon?,1940,1980,1,1968,1970,,1969,Armstrong stepped out six hours after touchdown because nobody could sleep.,,low,,
 RANGE,Geography,How tall is Mount Everest in metres?,5000,10000,10,,,,8849,It was last surveyed at 8848.86 m in 2020.,,,m,
 NUMBER,Science,How many bones are in the adult human body?,,,,,,,206,Babies start with closer to 300 and many fuse together as they grow.,,,,
 PIN,Geography,Drop a pin on Mount Kilimanjaro.,-3.0674,37.3556,400,,,,Mount Kilimanjaro,Africa's highest peak sits just south of the equator.,world,,,

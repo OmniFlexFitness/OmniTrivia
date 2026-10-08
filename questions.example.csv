@@ -9,7 +9,7 @@ MULTIPLE_CHOICE,Music,Who released the album Thriller?,Prince,Michael Jackson,Ma
 TRUE_FALSE,Music,"Freddie Mercury was born Farrokh Bulsara, true or false?",True,False,,,,,True,He was born in Zanzibar in 1946.,,,,
 TYPE_ANSWER,Music,"Which Beatle was known as ""the quiet one""?",George Harrison,Harrison,George,,,,George Harrison,He wrote Something and Here Comes the Sun.,,,,
 SCRAMBLE,Music,Unscramble the instrument.,,,,,,,Saxophone,Adolphe Sax patented it in 1846.,,,,
-SLIDER,History,In what year did Apollo 11 land on the Moon?,1960,1980,1,1968,1970,,1969,Apollo 11 touched down on 20 July 1969.,,medium,,
+SLIDER,History,In what year did Apollo 11 land on the Moon?,1940,1980,1,1968,1970,,1969,Apollo 11 touched down on 20 July 1969.,,medium,,
 PUZZLE,History,Put these conflicts in chronological order,World War I,World War II,Korean War,Vietnam War,,,World War I|World War II|Korean War|Vietnam War,"World War I began in 1914, World War II in 1939, the Korean War in 1950 and the Vietnam War in 1955.",,,,
 RANGE,Geography,"How tall is Mount Everest, in metres?",5000,10000,10,,,,8849,"China and Nepal surveyed it together at 8,848.86 m in 2020.",,,m,
 PIN,Geography,Drop a pin on Mount Kilimanjaro.,-3.0674,37.3556,400,,,,"Mount Kilimanjaro, Tanzania","Africa's highest peak, at 5,895 m, sits just south of the equator.",world,,,

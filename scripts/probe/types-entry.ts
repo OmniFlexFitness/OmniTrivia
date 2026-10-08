@@ -754,6 +754,26 @@ check(
     .filter(Boolean)
     .join(" — "),
 );
+// A slider starts mid-scale and a range's handles at 30% and 70% of it (as
+// NumberAnswers.tsx places them), so an example whose answer sits there
+// teaches hosts to give the answer away to anyone who just taps lock.
+const untouched = Object.values(example.contents)
+  .flatMap((c) => c.questions)
+  .filter((q) => q.type === QuestionType.SLIDER || q.type === QuestionType.RANGE)
+  .filter((q) => {
+    const [min, max, step] = q.options.map(Number);
+    const snap = (value: number) => Math.min(max, Math.max(min, Math.round((value - min) / step) * step + min));
+    const start =
+      q.type === QuestionType.SLIDER
+        ? snap((min + max) / 2)
+        : [snap(min + (max - min) * 0.3), snap(min + (max - min) * 0.7)];
+    return gradeAnswer(q, start).credit > 0;
+  });
+check(
+  "no slider or range in questions.example.csv scores for a player who never moves it",
+  untouched.length === 0,
+  untouched.map((q) => q.text).join(" / "),
+);
 
 /* ------------------------------------------------------------------ *
  * The template workbook
