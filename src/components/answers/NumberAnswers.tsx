@@ -54,7 +54,7 @@ export const SliderAnswer: React.FC<AnswerProps> = ({ question, onSubmit, isSubm
 
   return (
     <div className="flex flex-col items-center gap-5">
-      <MarginChip margin={question.margin} />
+      <MarginChip margin={question.margin} type={question.type} />
       <div
         className={`cyber-hud font-black text-[#00f0ff] text-neon-shadow tracking-normal tabular-nums ${
           compact ? "text-5xl" : "text-6xl"
@@ -273,7 +273,7 @@ export const NumberAnswer: React.FC<AnswerProps> = ({ question, onSubmit, isSubm
 
   return (
     <form onSubmit={submit} className="flex flex-col items-center gap-4">
-      <MarginChip margin={question.margin} />
+      <MarginChip margin={question.margin} type={question.type} />
       <div className="relative w-full max-w-md">
         <input
           type="text"
