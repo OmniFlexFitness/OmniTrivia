@@ -1,6 +1,6 @@
 import { Answer, Question, QuestionType } from "../types";
 import { mapAspect, mapFrameFor } from "./mapProjection";
-import { matchChoices, categorizeGroups, scrambleLetters } from "./snapshot";
+import { matchChoices, categorizeGroups, categorizeHomes, scrambleLetters } from "./snapshot";
 import { scrambleKey } from "./scoring";
 
 /**
@@ -92,7 +92,9 @@ export const botAnswerFor = (
     }
 
     case QuestionType.CATEGORIZE: {
-      const groups = question.pairs ?? [];
+      // The groups as the buttons spell them. Against the sheet's own
+      // spelling, a wrong pick for `fruit` could land on `Fruit` and be right.
+      const groups = categorizeHomes(question);
       const all = categorizeGroups(question);
       const answer: Record<string, string> = {};
       options.forEach((item, i) => {

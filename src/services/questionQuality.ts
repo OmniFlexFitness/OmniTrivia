@@ -1,4 +1,5 @@
 import { CategoryContent, Question, QuestionType, RoundConfig } from "../types";
+import { normalize } from "./scoring";
 
 /**
  * Which questions are fit to put in front of a room.
@@ -123,7 +124,9 @@ export const unplayableReason = (question: Question): string | null => {
       if (new Set(options.map((o) => o.trim().toLowerCase())).size !== options.length) {
         return "two items are the same";
       }
-      const partners = new Set(pairs.map((p) => p.trim().toLowerCase())).size;
+      // Counted the way the grader compares them — capitals and extra spaces
+      // aside — which is also how a sort's buttons are merged.
+      const partners = new Set(pairs.map(normalize)).size;
       if (type === QuestionType.MATCH && partners !== pairs.length) {
         return "two items share a partner";
       }

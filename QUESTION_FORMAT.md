@@ -679,10 +679,10 @@ Players tap a group for every item, then lock it in.
 
 - **Write each item in its own option column as `item = group`**, with **two
   to four groups**. Every item has to be different.
-- **Spell each group exactly the same way every time, capitals included.**
-  `Fruit` and `fruit` are graded as one group but shown to players as two
-  buttons, and a typo makes a new group — a fifth group leaves the question
-  out.
+- **Capitals and extra spaces do not make a new group.** `Fruit` and `fruit`
+  are one group, shown to players as one button and spelled the way it first
+  appears. A typo does make a new group — `Fruit` and `Friut` are two — and a
+  fifth group leaves the question out.
 - **`correctAnswer` is not graded**, but it cannot be blank: `See the groups`
   will do. Or leave the options empty and put the items in `correctAnswer`,
   joined with `|`.
@@ -840,7 +840,7 @@ screen says so instead.
 | every option needs an "item = partner" pair | A match or sort option without `=` (or `->`, `→`, `=>`, `::`) |
 | no pairs | Fewer than two pairs or items |
 | two items are the same / two items share a partner | Duplicates, ignoring capitals |
-| a sort needs two to four groups | Fewer than two or more than four group names. A typo counts as another group; a difference only in capitals does not (it shows players an extra button instead) |
+| a sort needs two to four groups | Fewer than two or more than four group names. A typo counts as another group; a difference only in capitals does not |
 | no word to scramble / a scramble needs 3 to 20 letters / nothing to unscramble | The unscramble answer is filler, too short or long, or all one letter |
 
 Then the review screen lists every round and question with its format, its
