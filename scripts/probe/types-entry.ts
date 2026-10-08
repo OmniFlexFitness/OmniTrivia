@@ -40,6 +40,7 @@ import {
 } from "../../src/services/importService";
 import { gradeAnswer, isAnswerCorrect } from "../../src/services/scoring";
 import {
+  buildReveal,
   buildSnapshot,
   categorizeGroups,
   matchChoices,
@@ -411,6 +412,36 @@ check(
     return pub.options.join() !== q.options.join() && !("pairs" in pub);
   }),
 );
+
+/* A group written two ways is still one group: the importer counts it once
+ * and the grader takes either spelling, so the buttons have to agree. */
+const mixedCaseReport = parseImportDataWithReport(
+  [
+    "type,category,question,option1,option2,option3,correctAnswer",
+    "CATEGORIZE,Food,Fruit or veg?,Tomato = Fruit,Apple = fruit,Carrot = Veg,See the groups",
+  ].join("\n"),
+);
+const mixedCase = Object.values(mixedCaseReport.contents).flatMap((c) => c.questions)[0];
+if (!mixedCase) {
+  throw new Error(`the mixed-case sort did not import — skipped: ${JSON.stringify(mixedCaseReport.skipped)}`);
+}
+const mixedShown = toPublicQuestion(mixedCase).choices ?? [];
+check(
+  "a group written Fruit and fruit is one button, spelled the way it came first",
+  mixedShown.join("|") === "Fruit|Veg",
+  mixedShown.join("|"),
+);
+check(
+  "an item the sheet put in fruit, sorted into the Fruit button, grades right",
+  gradeAnswer(mixedCase, { Tomato: "Fruit", Apple: "Fruit", Carrot: "Veg" }).credit === 1,
+);
+const mixedKey = buildReveal(mixedCase);
+check(
+  "the answer key and review card file both under that one group",
+  mixedKey.label === "Fruit: Tomato, Apple  ·  Veg: Carrot" &&
+    mixedKey.pairs?.every(([, group]) => mixedShown.includes(group)) === true,
+  mixedKey.label,
+);
 check(
   "a scramble's tiles never spell the word",
   Array.from({ length: 60 }).every((_, n) => {
@@ -433,7 +464,7 @@ check(
 
 section("4. Bots answer every type in a shape the grader accepts");
 
-const everyType = [mc, multi, tfTrue, slider, range, closest, paris, fortMyers, redSquare, order, match, sort, anagram];
+const everyType = [mc, multi, tfTrue, slider, range, closest, paris, fortMyers, redSquare, order, match, sort, mixedCase, anagram];
 check(
   "a bot meaning to be right is right, with full credit",
   everyType.every((q) => {
@@ -446,6 +477,17 @@ check(
   "a bot meaning to be wrong is wrong",
   everyType.every((q) => !gradeAnswer(q, botAnswerFor(q, false, () => 0.3)).correct),
   everyType.filter((q) => gradeAnswer(q, botAnswerFor(q, false, () => 0.3)).correct).map((q) => q.type).join(", "),
+);
+check(
+  "a bot sorts only into groups the buttons offer",
+  [sort, mixedCase].every((q) => {
+    const shown = categorizeGroups(q);
+    return [true, false].every((right) =>
+      Object.values(botAnswerFor(q, right, () => 0.3) as Record<string, string>).every((group) =>
+        shown.includes(group),
+      ),
+    );
+  }),
 );
 check(
   "a multi-select keeps its correct answers through the deal's shuffle",
