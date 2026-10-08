@@ -160,7 +160,7 @@ Worth checking specifically:
   is short, some rows were dropped for a missing required field.
 - **The ✓ is on the right answer** in each multiple choice and select-all
   question. A `correctAnswer` that does not match any option leaves the
-  question out, and the setup screen says how many were.
+  question out, and the review screen says how many were.
 - **Slider ranges** make sense, and the correct window is not so narrow that
   nobody can land in it.
 - **Puzzle items** are in the true order in the file. They are shuffled for
