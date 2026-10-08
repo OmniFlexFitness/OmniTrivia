@@ -378,7 +378,24 @@ taken at its word.
 Instead of a file, paste the sheet URL on the import screen. Sharing must be set
 to **"Anyone with the link can view"** — the app fetches
 `.../export?format=csv`. The same column rules apply. Put one quiz per tab and
-link the tab you want (the `gid=` in the URL is respected).
+link the tab you want: open that tab, then copy the URL from the address bar.
+It ends in `gid=<number>`, and the app reads that tab.
+
+A link with no `gid=` (the kind the **Share** button copies) reads tab 0: the
+tab a sheet made in Google Sheets starts with, wherever it has since been
+moved. If there is no tab 0, the app reads the leftmost tab instead.
+
+**An Excel file in Google Drive works too.** Opening a `.xlsx` from Drive shows
+it in Sheets without converting it. Its share link looks like
+`.../edit?usp=sharing&ouid=...&rtpof=true&sd=true`, with no `gid=`, and its tabs
+have long random ids instead of 0, so the app reads its first tab. To read a
+different tab, open that tab and copy the URL as above. If anything about the
+file gives trouble, use **File → Save as Google Sheets** and link the copy.
+
+The **Select File** button takes `.csv`, `.tsv` and `.txt`, not `.xlsx`. To
+upload an Excel file rather than link it, save it as CSV first: in Excel,
+**File → Save As → CSV UTF-8**; in Sheets, **File → Download → Comma-separated
+values (.csv)**, which saves only the tab that is open.
 
 This is exactly how the built-in question bank is served. To make a sheet of
 your own the app's default, point `DEFAULT_QUESTION_BANK` in
