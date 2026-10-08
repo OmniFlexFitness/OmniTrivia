@@ -71,14 +71,15 @@ that works on any venue's Wi-Fi, or none.
 - **From Excel:** **File → Save As → CSV UTF-8 (Comma delimited)**, with the
   Questions tab open. Plain **CSV (Comma delimited)** mangles dashes, accents,
   curly quotes and `°`.
-- **From Google Sheets:** **File → Download → Comma-separated values (.csv)**.
-  It saves only the tab that is open.
+- **From Google Sheets:** **File → Download → Comma-separated values (.csv)**,
+  or **Tab-separated values (.tsv)**. Either saves only the tab that is open.
 
-> [!WARNING]
-> **The file has to be comma-separated.** A `.tsv` file, or a CSV that Excel
-> wrote with semicolons (Excel does that where the decimal mark is a comma),
-> fails with `Missing required column: category`. Google Sheets always writes
-> commas, so it is the easy way round that.
+Commas, semicolons and tabs between cells all work: the app reads which one
+the file uses off its header row. So a `.tsv` file imports, and so does a CSV
+that Excel wrote with semicolons, which it does where the decimal mark is a
+comma. In a semicolon-separated file a number written with a decimal comma —
+`26,6406`, `98,6 °F` — is read as a decimal (26.6406, 98.6 °F), because that is
+what the comma means there.
 
 ### A Google Sheet
 
@@ -127,7 +128,7 @@ flowchart TD
     type -->|"blank, no options"| tfAnswer{"Is the answer<br>True or False?"}
     tfAnswer -->|yes| tf
     tfAnswer -->|no| typed["Typed answer"]
-    type -->|"a word the game<br>does not know"| mc
+    type -->|"a word the game<br>does not know"| out
     named & tf & mc & typed --> check{"Can it be played?"}
     check -->|yes| review["On the review screen"]
     check -->|no| out["Left out, and the<br>setup screen says why"]
@@ -214,28 +215,29 @@ flowchart LR
 | `type` | What players do | Clock | Scoring | Also accepted in the `type` column |
 |---|---|---|---|---|
 | `MULTIPLE_CHOICE` | Tap one option | 15s | All or nothing | `MC`, `Quiz`, `Choice`, `Single select`, or leave it blank |
-| `MULTI_SELECT` | Tick every right option | 20s | A wrong tick cancels a right one | `Select all that apply`, `Multi-select`, `Multiple select`, `Checkbox`, `Multiple answer` |
-| `TRUE_FALSE` | Tap True or False | 12s | All or nothing | `TF`, `T/F`, `True/False`, `True or False`, `Boolean`, `Fact or fiction` |
-| `TYPE_ANSWER` | Type the answer | 20s | All or nothing | `Type answer`, `Typed`, `Text`, `Short answer`, `Open`, `Free text` |
+| `MULTI_SELECT` | Tick every right option | 20s | A wrong tick cancels a right one | `Select all that apply`, `Multi-select`, `Multiple select`, `Checkbox`, `Checkboxes`, `Multiple answer` |
+| `TRUE_FALSE` | Tap True or False | 12s | All or nothing | `TF`, `T/F`, `True/False`, `True or False`, `True / false`, `Boolean`, `Fact or fiction` |
+| `TYPE_ANSWER` | Type the answer | 20s | All or nothing | `Typed answer`, `Type answer`, `Typed`, `Text`, `Short answer`, `Fill in the blank`, `Open`, `Free text` |
 | `SLIDER` | Slide to a number | 20s | Inside the target scores in full; `margin` pays a near miss | `Slide`, `Scale` |
 | `RANGE` | Drag two handles to catch the answer | 20s | The tighter the catch, the more it pays | `Range slider`, `Bracket`, `Interval`, `Between` |
-| `NUMBER` | Type a number, no scale shown | 20s | Exact scores in full; `margin` pays a near miss | `Closest`, `Closest number`, `Estimate`, `Numeric`, `Guess`, `Nearest` |
+| `NUMBER` | Type a number, no scale shown | 20s | Exact scores in full; `margin` pays a near miss | `Closest`, `Closest number`, `Closest guess`, `Estimate`, `Numeric`, `Guess`, `Nearest` |
 | `PIN` | Drop a pin on a map or a picture | 25s | Inside the ring scores in full; `margin` pays a near miss | `Pin answer`, `Drop pin`, `Map`, `Map pin`, `Hotspot`, `Pin it` |
-| `PUZZLE` | Put items in order | 30s | All or nothing | `Order`, `Sequence`, `Sort order`, `Rank`, `Timeline` |
-| `MATCH` | Pair items with their partners | 30s | Pays for every pair right beyond guessing | `Matching`, `Pairs`, `Pair`, `Connect`, `Match up` |
-| `CATEGORIZE` | Sort items into groups | 30s | Pays for every item right beyond guessing | `Categorise`, `Sort`, `Group`, `Groups`, `Buckets`, `Classify` |
-| `SCRAMBLE` | Rebuild a word from shuffled letters | 25s | All or nothing | `Unscramble`, `Anagram`, `Word scramble`, `Jumble` |
+| `PUZZLE` | Put items in order | 30s | All or nothing | `Puzzle · order`, `Order`, `Sequence`, `Sort order`, `Rank`, `Timeline` |
+| `MATCH` | Pair items with their partners | 30s | Pays for every pair right beyond guessing | `Puzzle · match`, `Matching`, `Pairs`, `Pair`, `Connect`, `Match up` |
+| `CATEGORIZE` | Sort items into groups | 30s | Pays for every item right beyond guessing | `Puzzle · sort`, `Categorise`, `Sort`, `Group`, `Groups`, `Buckets`, `Classify` |
+| `SCRAMBLE` | Rebuild a word from shuffled letters | 25s | All or nothing | `Puzzle · unscramble`, `Unscramble`, `Anagram`, `Word scramble`, `Jumble` |
 
-The `type` column ignores capitals, and treats spaces, `/`, `&` and `-` as the
-same thing, so `True/False`, `true or false` and `TRUE_FALSE` all work.
+The `type` column ignores capitals, and treats spaces, `/`, `&`, `-` and `·` as
+the same thing, so `True/False`, `true or false` and `TRUE_FALSE` all work.
+Every name the app shows for a format works too: the headings below and the
+badges on the review screen (`Typed answer`, `Puzzle · order`, `Multi-select`).
 
 > [!CAUTION]
-> **A word the game does not know makes the row multiple choice**, and a row
-> written for another format then usually matches none of its "options" and is
-> left out. The names the app shows on its badges are not all accepted:
-> `Typed answer`, `Closest guess`, `Fill in the blank` and `Puzzle · order` do
-> not work. `Sort` means `CATEGORIZE`, not putting things in order. Use the
-> template's drop-down and none of this comes up.
+> **A word the game does not know leaves the row out**, and the setup screen
+> gives the word: `unknown format "Quizz"`. It is not guessed at, so a typo in
+> the `type` column is never played as some other format. `Sort` means
+> `CATEGORIZE`, not putting things in order. Use the template's drop-down and
+> none of this comes up.
 
 **Points.** A right answer is worth 100 plus up to 150 for speed — ten a second
 on a fifteen-second question, scaled so that a full clock is worth the same on
@@ -263,7 +265,8 @@ is multiple choice.
 - **`correctAnswer` is the right option, written the way it is in its
   column.** Capitals and extra spaces do not matter.
 - An answer written a little more fully than its option still finds it, as
-  long as only one option can be meant:
+  long as only one option can be meant, and the part that matches is more than
+  a letter, a two-letter code or a number:
 
 | `correctAnswer` | Options | Marks |
 |---|---|---|
@@ -277,12 +280,13 @@ MULTIPLE_CHOICE,Science,What planet is known as the Red Planet?,Mars,Venus,Jupit
 ```
 
 > [!WARNING]
-> **Never write the option's letter or number in `correctAnswer`.** The options
-> are shuffled, so there is no "B" — and a near-match is taken if only one
-> option fits it: `B` against Boston, Chicago, Denver, Austin marks **Boston**,
-> the only one with a b in it, and `1` against 10, 20, 30, 40 marks **10**.
-> Write the answer itself, formatted the way its option is: `1,000` does not
-> match `1000`.
+> **Write the answer itself, not the option's letter or number.** The options
+> are shuffled, so there is no "B". An answer of `B`, `b)`, `(2)` or `Option 3`
+> leaves the question out as *the answer is an option's letter or number*. A
+> letter or a number is never matched to an option it is part of: `B` against
+> Boston, Chicago, Denver, Austin does not mark Boston, and `1` against 10, 20,
+> 30, 40 does not mark 10. Write a number formatted the way its option is:
+> `1,000` does not match `1000`.
 
 An answer that matches no option, or could mean two of them (`Mars and
 Venus`), leaves the question out, and the setup screen says so.
@@ -481,7 +485,8 @@ Players type a number, with no scale to hint at where it is.
 
 - **`correctAnswer` is the number.** Commas and a unit after it are fine:
   `384,400 km` reads as 384,400 with the unit `km`. Write decimals with a point:
-  `26,6406` reads as 26.
+  `26,6406` reads as 26, except in a semicolon-separated file, where it is
+  26.6406.
 - **A tolerance is optional:** the first option you fill in. Anything within
   it counts as dead on.
 - **The `type` column is required.** With it blank and no options, a number in
@@ -753,7 +758,7 @@ carries the changed value.
 | `007` | `7` | Format as text |
 | `= Au`, `+1`, `-5` at the start of a cell | a formula | Write the item first (`Gold = Au`), or start the cell with `'` |
 | a long number | `1.23457E+11` | Format as text |
-| `3,14` where the decimal mark is a comma | read by the app as 3 | Use a point: `3.14` |
+| `3,14` where the decimal mark is a comma | read by the app as 3, unless the file is semicolon-separated | Use a point: `3.14`, or save the CSV with semicolons |
 | `True` | `TRUE` | Nothing — that is fine |
 
 The leading `'` is not saved into the CSV. Two more things that only show up
@@ -777,8 +782,10 @@ console.
 | Reason shown | What to fix |
 |---|---|
 | missing category, question or answer | One of the three required cells is empty. For formats that ignore the answer, write something in it anyway |
-| the answer matches none of the options | `correctAnswer` is not one of the options, or could mean two. Also the sign of a misspelled `type`, or a select-all with a blank one |
+| unknown format "…" | The `type` cell names no format. Use a name from the table under **Choosing a format**, the template's drop-down, or leave it blank |
+| the answer matches none of the options | `correctAnswer` is not one of the options, or could mean two. Also the sign of a select-all with a blank `type` |
 | an answer matches none of the options | One of a select-all's answers is not an option |
+| the answer is an option's letter or number — write the option itself | `correctAnswer` says `B` or `2` instead of the option's text |
 | true/false answer is neither True nor False | Use True or False (or T/F, Yes/No) |
 | with placeholder answers / placeholder question | Filler text like `Option B`, `TBD`, `Placeholder` |
 | no accepted answer / no correct answer | Every spelling or answer given is filler |

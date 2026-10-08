@@ -135,9 +135,9 @@ check("type aliases resolve", [
 ].every(([q, type]) => (q as Question).type === type));
 
 check(
-  "every alias in the type table resolves to its own type",
+  "every name in the type table — the type, its label, its badge, its aliases — resolves to its own type",
   Object.values(QUESTION_TYPES).every((info) =>
-    [info.type, ...info.aliases].every((alias) => parseQuestionType(alias) === info.type),
+    [info.type, info.label, info.badge, ...info.aliases].every((alias) => parseQuestionType(alias) === info.type),
   ),
 );
 
@@ -251,6 +251,152 @@ check(
     written[1]?.options.slice(3).join("-") === "1968-1970" &&
     written[2]?.options.slice(3).join("-") === "1968-1970",
   written.map((q) => JSON.stringify(q.unit ?? "")).join(" "),
+);
+
+/* A type word the game does not know used to make the row multiple choice,
+ * which then left it out as "the answer matches none of the options" and sent
+ * the host to the wrong column. The app's own names for its formats, as its
+ * badges print them, were among the words it did not know. */
+const appNames = Object.values(QUESTION_TYPES).flatMap((info) =>
+  [info.label, info.badge].map((name) => [name, info.type] as const),
+);
+const misnamed = appNames.filter(([name, type]) => parseQuestionType(name) !== type);
+check(
+  "every label and badge the app shows for a format reads as that format",
+  misnamed.length === 0,
+  misnamed.map(([name]) => name).join(", "),
+);
+const commonNames: [string, QuestionType][] = [
+  ["Typed answer", QuestionType.TYPE_ANSWER],
+  ["Puzzle · order", QuestionType.PUZZLE],
+  ["Puzzle · match", QuestionType.MATCH],
+  ["Puzzle · sort", QuestionType.CATEGORIZE],
+  ["Puzzle · unscramble", QuestionType.SCRAMBLE],
+  ["puzzle·order", QuestionType.PUZZLE],
+  ["Closest guess", QuestionType.NUMBER],
+  ["Fill in the blank", QuestionType.TYPE_ANSWER],
+  ["Checkboxes", QuestionType.MULTI_SELECT],
+];
+check(
+  "the names people write for a format read as it",
+  commonNames.every(([name, type]) => parseQuestionType(name) === type),
+  commonNames.filter(([name, type]) => parseQuestionType(name) !== type).map(([name]) => name).join(", "),
+);
+const unknownTypes = parseImportDataWithReport(
+  [
+    "type,category,question,option1,option2,option3,option4,correctAnswer",
+    "Puzzle · order,X,Put these in order,First,Second,Third,,x",
+    "Fill in the blank,X,The capital of France is ___,,,,,Paris",
+    "Quizz,X,Which is red?,Mars,Venus,Jupiter,Mercury,Mars",
+    "Matchup game,X,Match these,Au = Gold,Ag = Silver,,,See the pairs",
+  ].join("\n"),
+);
+check(
+  "a type word the game does not know leaves the row out with that word, never guessed at",
+  unknownTypes.skipped.map((s) => s.reason).join(" | ") ===
+    'unknown format "Quizz" | unknown format "Matchup game"' &&
+    Object.values(unknownTypes.contents).flatMap((c) => c.questions).map((q) => q.type).join() ===
+      `${QuestionType.PUZZLE},${QuestionType.TYPE_ANSWER}`,
+  unknownTypes.skipped.map((s) => `row ${s.row}: ${s.reason}`).join(" | "),
+);
+
+/* "The one option that contains the answer" is how "Old Town Road by Lil Nas
+ * X" finds Old Town Road. It is also how "B" found Boston and "1" found 10. */
+// An import with nothing playable throws; a report is easier to compare.
+const importReport = (text: string): ReturnType<typeof parseImportDataWithReport> => {
+  try {
+    return parseImportDataWithReport(text);
+  } catch (error: any) {
+    return { contents: {}, skipped: [{ row: 0, question: "", reason: String(error?.message ?? error) }] };
+  }
+};
+const answerKey = (options: string[], answer: string, type = "MULTIPLE_CHOICE") => {
+  const result = importReport(
+    [
+      "type,category,question,option1,option2,option3,option4,correctAnswer",
+      [type, "X", "Which?", ...options, `"${answer}"`].join(","),
+      // So a refused row is reported by its own reason, not as an empty import.
+      "MULTIPLE_CHOICE,Y,Filler?,Red,Green,Blue,Yellow,Red",
+    ].join("\n"),
+  );
+  const q = Object.values(result.contents).flatMap((c) => c.questions).find((one) => one.text === "Which?");
+  return q
+    ? (q.correctIndices ?? [q.correctIndex]).map((i) => q.options[i]).join("|")
+    : `left out: ${result.skipped[0]?.reason}`;
+};
+const lettersAndNumbers: [string[], string, string, string?][] = [
+  [["Boston", "Chicago", "Denver", "Austin"], "B", "left out: the answer is an option's letter or number — write the option itself"],
+  [["Boston", "Chicago", "Denver", "Austin"], "b)", "left out: the answer is an option's letter or number — write the option itself"],
+  [["10", "20", "30", "40"], "1", "left out: the answer is an option's letter or number — write the option itself"],
+  [["100", "200", "300", "400"], "30", "left out: the answer matches none of the options"],
+  [["US", "UK", "UN", "EU"], "United Kingdom (UK)", "left out: the answer matches none of the options"],
+  [["Mercury", "Venus", "Earth", "Mars"], "A|C", "left out: the answer is an option's letter or number — write the option itself", "MULTI_SELECT"],
+  [["1969", "1970", "1971", "1972"], "69", "left out: the answer matches none of the options"],
+];
+const guessed = lettersAndNumbers.filter(([options, answer, expected, type]) => answerKey(options, answer, type) !== expected);
+check(
+  "a letter, a number or a two-letter code in correctAnswer is never matched to the option it is part of",
+  guessed.length === 0,
+  guessed.map(([options, answer, , type]) => `${answer} → ${answerKey(options, answer, type)}`).join(" | "),
+);
+const fuller: [string[], string, string][] = [
+  [["Amazon", "Nile", "Mississippi", "Yangtze"], "The Nile", "Nile"],
+  [["Jacksonville", "Tampa", "Miami", "Key West"], "Tampa (Ybor City)", "Tampa"],
+  [["Shape of You", "Despacito", "Old Town Road", "Rockstar"], "Old Town Road by Lil Nas X", "Old Town Road"],
+  [["The Beatles", "The Who", "Queen", "ABBA"], "Beatles", "The Beatles"],
+  [["10", "20", "30", "40"], "20", "20"],
+  [["A", "B", "AB", "O"], "AB", "AB"],
+];
+const lost = fuller.filter(([options, answer, expected]) => answerKey(options, answer) !== expected);
+check(
+  "an answer written more fully than its option still finds it",
+  lost.length === 0,
+  lost.map(([options, answer]) => `${answer} → ${answerKey(options, answer)}`).join(" | "),
+);
+
+/* A tab-separated file, or the semicolon-separated CSV Excel writes where the
+ * decimal mark is a comma, used to fail with "Missing required column". */
+const separated = (separator: string, rows: string[][]) =>
+  importReport(rows.map((row) => row.join(separator)).join("\r\n"));
+const sheetRows = [
+  ["type", "category", "question", "option1", "option2", "option3", "option4", "correctAnswer", "explanation", "image"],
+  ["MULTIPLE_CHOICE", "Science", "Which planet is red?", "Mars", "Venus", "Jupiter", "Mercury", "Mars", "Iron oxide, mostly.", ""],
+  ["PIN", "Florida", "Pin Fort Myers.", "26.6406", "-81.8723", "120", "", "Fort Myers", "", "usa"],
+  ["NUMBER", "Science", "Body temperature?", "", "", "", "", "98.6 °F", "", ""],
+  ["TYPE_ANSWER", "Music", 'Which Beatle was "the quiet one"?', "George Harrison", "", "", "", "George Harrison", "", ""],
+];
+const comma = separated(",", sheetRows.map((row) => row.map((cell) => (/[,"]/.test(cell) ? `"${cell.replace(/"/g, '""')}"` : cell))));
+const tab = separated("\t", sheetRows);
+const semicolon = separated(";", sheetRows.map((row) => row.map((cell) => (/^-?\d+\.\d+(\s*\D*)$/.test(cell) ? cell.replace(".", ",") : /[;"]/.test(cell) ? `"${cell.replace(/"/g, '""')}"` : cell))));
+const flat = (r: ReturnType<typeof parseImportDataWithReport>) =>
+  JSON.stringify(Object.values(r.contents).flatMap((c) => c.questions).map(({ id, ...q }) => q));
+check(
+  "a tab-separated file imports the same as a comma-separated one",
+  flat(tab) === flat(comma) && tab.skipped.length === 0 && flat(comma).includes("Iron oxide, mostly."),
+  tab.skipped.map((s) => s.reason).join(" | "),
+);
+check(
+  "a semicolon-separated file with decimal commas imports the same as a comma-separated one",
+  flat(semicolon) === flat(comma) && semicolon.skipped.length === 0,
+  semicolon.skipped.map((s) => s.reason).join(" | "),
+);
+const quotedSeparators = separated(";", [
+  ["category", "question", "option1", "option2", "option3", "correctAnswer", "explanation"],
+  ["X", '"Which; of these?"', "1,5", "2,5", "3,5", "2,5", "1,5 million people live there."],
+]);
+const quotedQuestion = Object.values(quotedSeparators.contents)[0]?.questions[0];
+check(
+  "a semicolon file's decimal commas are read in numbers, and left alone in sentences",
+  quotedQuestion?.options.join("|") === "1.5|2.5|3.5" &&
+    quotedQuestion?.options[quotedQuestion.correctIndex] === "2.5" &&
+    quotedQuestion?.explanation === "1,5 million people live there.",
+  JSON.stringify(quotedQuestion && { options: quotedQuestion.options, explanation: quotedQuestion.explanation }),
+);
+check(
+  "a separator inside quotes, or a comma in a comma file's header, does not decide the separator",
+  quotedSeparators.skipped.length === 0 &&
+    quotedQuestion?.text === "Which; of these?" &&
+    importReport('category,question,correctAnswer,"notes; misc"\nX,Q?,A,').skipped.length === 0,
 );
 
 /* ------------------------------------------------------------------ *
@@ -704,6 +850,22 @@ check(
   misdescribed.length === 0,
   misdescribed.join(", "),
 );
+const unreadSpellings = typeGuide.flatMap((row) =>
+  (Object.values(QuestionType) as string[]).includes(row[0])
+    ? (row[row.length - 1] ?? "")
+        .split(",")
+        .map((name) => name.trim())
+        .filter((name) => name && !/^or leave blank$/i.test(name))
+        .filter((name) => parseQuestionType(name) !== row[0])
+        .map((name) => `${name} ≠ ${row[0]}`)
+    : [],
+);
+const listedSpellings = typeGuide.filter((row) => (Object.values(QuestionType) as string[]).includes(row[0])).length;
+check(
+  "every other spelling the template's Question types tab lists reads as its format",
+  listedSpellings === Object.values(QuestionType).length && unreadSpellings.length === 0,
+  unreadSpellings.join(", ") || `${listedSpellings} formats`,
+);
 
 /* ------------------------------------------------------------------ *
  * The guide
@@ -751,8 +913,7 @@ check(
   misread.length ? misread.join(" | ") : `${examples.length} examples`,
 );
 
-// The at-a-glance table promises other spellings for the type column, and the
-// warning under it names spellings that do not work. Both are checked.
+// The at-a-glance table promises other spellings for the type column.
 const glance = guide.filter((line) => /^\| `[A-Z_]+` \|/.test(line));
 const badAliases = glance.flatMap((line) => {
   const cells = line.split("|").map((cell) => cell.trim());
@@ -765,12 +926,20 @@ check(
   glance.length === Object.values(QuestionType).length && badAliases.length === 0,
   badAliases.join(", ") || `${glance.length} formats`,
 );
-const notTypes = ["Typed answer", "Closest guess", "Fill in the blank", "Puzzle · order"];
+check("`Sort` is the sort puzzle, as the guide warns, not putting things in order", parseQuestionType("Sort") === QuestionType.CATEGORIZE);
+
+// The guide's table of reasons a row is left out is how a host reads the
+// setup screen. The two reasons this importer added have to be in it, word
+// for word as the importer gives them.
+const guideReasons = guide.filter((line) => /^\| [a-z]/.test(line)).map((line) => line.split("|")[1].trim());
+const importerReasons = [
+  unknownTypes.skipped[0]?.reason.replace(/"[^"]*"/, '"…"'),
+  answerKey(["Boston", "Chicago", "Denver", "Austin"], "B").replace(/^left out: /, ""),
+];
 check(
-  "the spellings the guide warns about really are not formats",
-  notTypes.every((name) => parseQuestionType(name) === null) &&
-    parseQuestionType("Sort") === QuestionType.CATEGORIZE,
-  notTypes.filter((name) => parseQuestionType(name) !== null).join(", "),
+  "the guide lists the reasons an unknown format and a letter answer are left out for, as the importer words them",
+  importerReasons.every((reason) => reason !== undefined && guideReasons.includes(reason)),
+  importerReasons.filter((reason) => !guideReasons.includes(reason!)).join(" | "),
 );
 
 console.log(failures === 0 ? "\nAll question-type checks passed.\n" : `\n${failures} check(s) failed.\n`);

@@ -4,21 +4,38 @@ import { unplayableReason } from './questionQuality';
 import { parseQuestionType } from './questionTypes';
 import { MAP_FRAMES, MAP_PREFIX, geoFromPinTarget, geoPinTarget, mapKeyFor } from './mapProjection';
 
+/**
+ * What a spreadsheet puts between cells when it saves as text. Excel writes
+ * semicolons where the decimal mark is a comma, and tab-separated values is a
+ * download option in Google Sheets and Excel both.
+ */
+type Delimiter = ',' | ';' | '\t';
+const DELIMITERS: readonly Delimiter[] = [',', ';', '\t'];
+
 // Simple CSV parser that handles quoted fields
-const parseCSVLine = (line: string): string[] => {
+const parseCSVLine = (line: string, delimiter: Delimiter = ','): string[] => {
     const result: string[] = [];
     let current = '';
     let inQuotes = false;
     for (let i = 0; i < line.length; i++) {
         const char = line[i];
-        if (char === '"' && inQuotes && line[i + 1] === '"') {
-            // A doubled quote inside a quoted field is one literal quote: how
-            // Excel and Google Sheets write `the "quiet" one` into a CSV.
-            current += '"';
-            i++;
-        } else if (char === '"') {
-            inQuotes = !inQuotes;
-        } else if (char === ',' && !inQuotes) {
+        if (inQuotes) {
+            if (char === '"' && line[i + 1] === '"') {
+                // A doubled quote inside a quoted field is one literal quote: how
+                // Excel and Google Sheets write `the "quiet" one` into a CSV.
+                current += '"';
+                i++;
+            } else if (char === '"') {
+                inQuotes = false;
+            } else {
+                current += char;
+            }
+        } else if (char === '"' && current.trim() === '') {
+            // A quote opens a quoted field only at the start of one. Inside a
+            // cell it is just a quote, which is how a tab-separated download
+            // writes `Which Beatle was "the quiet one"?`: as it stands.
+            inQuotes = true;
+        } else if (char === delimiter) {
             result.push(current.trim());
             current = '';
         } else {
@@ -28,6 +45,27 @@ const parseCSVLine = (line: string): string[] => {
     result.push(current.trim());
     return result;
 };
+
+/**
+ * Which delimiter a file uses, read off its header row: the one that splits it
+ * into the most cells, so one inside a quoted heading does not count. A tie,
+ * including a header of one cell, goes to the comma.
+ */
+const detectDelimiter = (header: string): Delimiter =>
+    DELIMITERS.reduce((best, delimiter) =>
+        parseCSVLine(header, delimiter).length > parseCSVLine(header, best).length ? delimiter : best,
+    );
+
+/**
+ * A number written with a decimal comma — "26,6406", "-81,87", "98,6 °F" — with
+ * a point instead. Applied to a semicolon-separated file and nothing else:
+ * Excel writes semicolons exactly where the comma is the decimal mark, so in
+ * that file "3,14" is three point one four. In a comma-separated file it could
+ * as well be a thousands separator, and is left alone. Only a number on its
+ * own or with a unit after it: a sentence that starts with one is text.
+ */
+const decimalPoint = (cell: string): string =>
+    cell.replace(/^([-+]?\d+),(\d+)(\s*[^\d\s]{1,12})?$/, '$1.$2$3');
 
 /**
  * Case, surrounding whitespace and repeated spaces ignored.
@@ -52,7 +90,8 @@ const loosen = (value: string): string =>
  * Exact match first. Failing that, an answer key written more fully than the
  * option it points at is resolved — "The Nile" for "Nile", "Tampa (Ybor City)"
  * for "Tampa", "Old Town Road by Lil Nas X" for "Old Town Road" — but only
- * when exactly one option can possibly be meant.
+ * when exactly one option can possibly be meant, and never on the strength of
+ * a letter or a number being part of an option.
  *
  * Returning -1 matters as much as the matching does. This used to fall back to
  * the first option, so a mismatch in the answer column did not fail the import:
@@ -79,16 +118,40 @@ const resolveCorrectIndex = (options: string[], correctAnswer: string): number =
     );
     if (equal !== -1) return equal;
 
+    // Being part of something longer is only evidence for something long
+    // enough to mean one thing. "B" is in Boston, "1" is in 10, "30" is in
+    // 300 and "UN" is in "United Kingdom (UK)", so a letter, a two-letter code
+    // or a bare number never matches that way, whichever side it is on.
+    const telling = (value: string): boolean => value.length > 2 && /\p{L}/u.test(value);
     return only(
         loose.reduce<number[]>(
             (hits, option, i) =>
-                option && (option.includes(answer) || answer.includes(option))
+                (telling(answer) && option.includes(answer)) ||
+                (telling(option) && answer.includes(option))
                     ? [...hits, i]
                     : hits,
             [],
         ),
     );
 };
+
+/**
+ * An answer that names an option by its place instead of its text — "B",
+ * "b)", "(2)", "Option 3" — which is how a printed answer key is written, and
+ * means nothing once the options are shuffled. Only called once the answer
+ * has matched no option, so a question whose options really are A, B and AB
+ * is not caught by it.
+ */
+const isOptionPosition = (answer: string, optionCount: number): boolean => {
+    const match = answer.trim().match(/^(?:option\s*)?\(?([a-z]|\d{1,2})[).:]?$/i);
+    if (!match) return false;
+    const position = /\d/.test(match[1])
+        ? Number(match[1])
+        : match[1].toLowerCase().charCodeAt(0) - 96;
+    return position >= 1 && position <= optionCount;
+};
+
+const POSITION_ANSWER = "the answer is an option's letter or number — write the option itself";
 
 /**
  * A bare answer cell turned into the spellings a typed answer will accept.
@@ -333,6 +396,12 @@ export const rowToQuestion = (row: QuestionRow, id: string): RowResult => {
     const answer = (row.correctAnswer ?? '').trim();
     const image = (row.image ?? '').trim();
 
+    // A type the file names but the game does not know is left out, not
+    // guessed at. It used to become multiple choice, and a row written for
+    // another format then matched none of its "options" and was left out for
+    // that: a reason that sends the host to the answer column instead of this.
+    if (typeCell && !named) return { skip: `unknown format "${typeCell}"` };
+
     // What the row is, when the file does not say. A blank type column is the
     // ordinary case for a spreadsheet somebody wrote by hand.
     let type = named ?? QuestionType.MULTIPLE_CHOICE;
@@ -473,7 +542,10 @@ export const rowToQuestion = (row: QuestionRow, id: string): RowResult => {
             const wanted = pipeList(answer);
             const indices = wanted.map((one) => resolveCorrectIndex(options, one));
             if (wanted.length === 0 || indices.some((index) => index === -1)) {
-                return { skip: 'an answer matches none of the options' };
+                const byPosition = wanted.some(
+                    (one, i) => indices[i] === -1 && isOptionPosition(one, options.length),
+                );
+                return { skip: byPosition ? POSITION_ANSWER : 'an answer matches none of the options' };
             }
             extras.correctIndices = [...new Set(indices)].sort((a, b) => a - b);
             correctIndex = extras.correctIndices[0];
@@ -508,7 +580,11 @@ export const rowToQuestion = (row: QuestionRow, id: string): RowResult => {
         default:
             correctIndex = resolveCorrectIndex(options, answer);
             if (correctIndex === -1) {
-                return { skip: 'the answer matches none of the options' };
+                return {
+                    skip: isOptionPosition(answer, options.length)
+                        ? POSITION_ANSWER
+                        : 'the answer matches none of the options',
+                };
             }
             break;
     }
@@ -543,13 +619,23 @@ export const parseImportData = (csvData: string): { [categoryId: string]: Catego
     parseImportDataWithReport(csvData).contents;
 
 export const parseImportDataWithReport = (csvData: string): ImportReport => {
-    const lines = csvData.trim().split('\n');
+    // Blank lines at either end are dropped, but not the spaces and tabs at
+    // the start of the first line: in a tab-separated file a leading tab is an
+    // empty first heading, and trimming it would move every heading one column
+    // to the left of its cells.
+    const lines = csvData.replace(/^\uFEFF/, '').split(/\r?\n/);
+    while (lines.length > 0 && lines[0].trim() === '') lines.shift();
+    while (lines.length > 0 && lines[lines.length - 1].trim() === '') lines.pop();
     if (lines.length < 2) {
         throw new Error("Import data must have a header and at least one question row.");
     }
 
-    const header = parseCSVLine(lines[0].toLowerCase());
-    const rows = lines.slice(1).map(line => parseCSVLine(line));
+    const delimiter = detectDelimiter(lines[0]);
+    const header = parseCSVLine(lines[0].toLowerCase(), delimiter);
+    const rows = lines
+        .slice(1)
+        .map((line) => parseCSVLine(line, delimiter))
+        .map((row) => (delimiter === ';' ? row.map(decimalPoint) : row));
 
     const colMap: { [key: string]: number } = {};
     const requiredCols = ['category', 'question', 'correctanswer'];
