@@ -77,10 +77,17 @@ that works on any venue's Wi-Fi, or none.
 Commas, semicolons and tabs between cells all work: the app reads which one
 the file uses off its header row. So a `.tsv` file imports, and so does a CSV
 that Excel wrote with semicolons, which it does where the decimal mark is a
-comma. Numbers in a semicolon-separated file are read that way too: a comma is
-the decimal mark and a point groups thousands, so `26,6406` is 26.6406,
-`10.000` is ten thousand and `36,5-37,5` is 36.5 to 37.5. Text is left exactly
-as written.
+comma.
+
+> [!WARNING]
+> **Numbers need a decimal point.** The app never guesses which way a number
+> was meant. One that could be read two ways leaves its question out as *a
+> number reads two ways*: a decimal comma (`26,6406`, `3,14`) or a band
+> written with a comma (`1968,1970`) in any file, and in a file separated by
+> semicolons or tabs any comma in a number (`3,142`), and with semicolons a
+> point before three digits too (`10.000`, `1.609`). Only cells read as
+> numbers count; text is left exactly as written. Where Excel writes decimal
+> commas, format the number columns as text and type the numbers with points.
 
 ### A Google Sheet
 
@@ -236,9 +243,9 @@ badges on the review screen (`Typed answer`, `Puzzle · order`, `Multi-select`).
 > [!CAUTION]
 > **A word the game does not know leaves the row out**, and the setup screen
 > gives the word: `unknown format "Quizz"`. It is not guessed at, so a typo in
-> the `type` column is never played as some other format. `Sort` means
-> `CATEGORIZE`, not putting things in order. Use the template's drop-down and
-> none of this comes up.
+> the `type` column is never played as some other format. A `-` or `N/A`
+> counts as blank. `Sort` means `CATEGORIZE`, not putting things in order. Use
+> the template's drop-down and none of this comes up.
 
 **Points.** A right answer is worth 100 plus up to 150 for speed — ten a second
 on a fifteen-second question, scaled so that a full clock is worth the same on
@@ -486,11 +493,9 @@ Players type a number, with no scale to hint at where it is.
 ![A closest-number question in the template](docs/images/question-format/number-sheet.png)
 
 - **`correctAnswer` is the number.** Commas and a unit after it are fine:
-  `384,400 km` reads as 384,400 with the unit `km`. A comma before exactly
-  three digits groups thousands; any other comma between digits is a decimal
-  mark, so `26,6406` is 26.6406. Write decimals with a point all the same:
-  `1,250` is one thousand two hundred and fifty. In a semicolon-separated file
-  every comma is a decimal mark, so there it is 1.25.
+  `384,400 km` reads as 384,400 with the unit `km`. Write decimals with a
+  point: a number that could be read two ways, like `26,6406`, leaves the
+  question out (see **A CSV file**).
 - **A tolerance is optional:** the first option you fill in. Anything within
   it counts as dead on.
 - **The `type` column is required.** With it blank and no options, a number in
@@ -762,7 +767,7 @@ carries the changed value.
 | `007` | `7` | Format as text |
 | `= Au`, `+1`, `-5` at the start of a cell | a formula | Write the item first (`Gold = Au`), or start the cell with `'` |
 | a long number | `1.23457E+11` | Format as text |
-| `1,250` where the decimal mark is a comma | read by the app as 1250, unless the file is semicolon-separated (`3,14` is 3.14 either way) | Use a point: `1.25` |
+| `3,14` where the decimal mark is a comma | a number the app will not guess at: the question is left out | Use a point: `3.14` |
 | `True` | `TRUE` | Nothing — that is fine |
 
 The leading `'` is not saved into the CSV. Two more things that only show up
@@ -771,9 +776,11 @@ in the file:
 - **No line breaks inside a cell.** The app reads the file a line at a time, so
   a cell with a line break cuts its row off at the break. Its leftover lines
   are left out with a reason, and the rows after it are fine. A tab-separated
-  file from Google Sheets is the exception: it writes the break with nothing
-  around it to show where the cell ends, so its leftover line can import as a
-  question of its own. Save as CSV if a cell might hold a line break.
+  file from Google Sheets is the exception: it puts no quotes around a cell,
+  so nothing shows where a cell with a line break ends, and its leftover line
+  can import as a question of its own. Its quotation marks are dropped too
+  (`"Hey Jude" was…` reads `Hey Jude was…`). Download a CSV when cells hold
+  line breaks or quotes.
 - **Quotes are fine.** A spreadsheet saves a cell like `the "quiet" one` as
   `"the ""quiet"" one"`, and the app reads it back with its quotes.
 
@@ -789,7 +796,7 @@ console.
 | Reason shown | What to fix |
 |---|---|
 | missing category, question or answer | One of the three required cells is empty. For formats that ignore the answer, write something in it anyway |
-| a line break inside a cell | A cell in a tab-separated file runs over two lines. Take the line break out |
+| a number reads two ways — write it with a decimal point and no thousands separator | A decimal comma (`26,6406`), a band written with a comma (`1968,1970`), or, in a file separated by semicolons or tabs, any comma in a number, and with semicolons a point before three digits |
 | unknown format "…" | The `type` cell names no format. Use a name from the table under **Choosing a format**, the template's drop-down, or leave it blank |
 | the answer matches none of the options | `correctAnswer` is not one of the options, or could mean two. Also the sign of a select-all with a blank `type` |
 | an answer matches none of the options | One of a select-all's answers is not an option |

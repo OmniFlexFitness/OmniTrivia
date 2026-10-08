@@ -13,7 +13,7 @@ type Delimiter = ',' | ';' | '\t';
 const DELIMITERS: readonly Delimiter[] = [',', ';', '\t'];
 
 // Simple CSV parser that handles quoted fields
-const parseCSVLine = (line: string, delimiter: ',' | ';' = ','): string[] => {
+const parseCSVLine = (line: string, delimiter: Delimiter = ','): string[] => {
     const result: string[] = [];
     let current = '';
     let inQuotes = false;
@@ -37,60 +37,32 @@ const parseCSVLine = (line: string, delimiter: ',' | ';' = ','): string[] => {
     return result;
 };
 
-/**
- * One line of a tab-separated file, which has no quoting rule of its own:
- * Google Sheets writes every cell as it stands, quotes and all, and Excel
- * wraps a cell holding a quote or a comma in quotes the way a CSV does. So a
- * cell is unwrapped only when it is quoted all the way round with every quote
- * inside it doubled, which is what Excel writes, and is otherwise read as
- * written: `"Hey Jude" was by which band?` keeps its quotes, and a quote that
- * never closes cannot swallow the cells after it.
- */
-const parseTSVLine = (line: string): string[] =>
-    line.split('\t').map((cell) => {
-        const quoted = cell.trim().match(/^"((?:[^"]|"")*)"$/);
-        return quoted ? quoted[1].replace(/""/g, '"').trim() : cell.trim();
-    });
-
-const parseLine = (line: string, delimiter: Delimiter): string[] =>
-    delimiter === '\t' ? parseTSVLine(line) : parseCSVLine(line, delimiter);
-
-/**
- * Whether a tab-separated line is one end of a cell with a line break in it.
- * Excel writes that cell in quotes, so the line the break starts ends with a
- * cell that opens a quote and never closes it, and the next line starts with
- * one that closes a quote it never opened. Read as rows, they would be the
- * wrong cells under the wrong headings. (A CSV parser runs the quote on to the
- * end of the line instead, and the row comes up short.)
- */
-const cutByLineBreak = (line: string): boolean => {
-    const cells = line.split('\t').map((cell) => cell.trim());
-    const unpaired = (cell: string): boolean => (cell.match(/"/g)?.length ?? 0) % 2 === 1;
-    const first = cells[0];
-    const last = cells[cells.length - 1];
-    return (unpaired(first) && !first.startsWith('"')) || (unpaired(last) && last.startsWith('"'));
-};
-
 const REQUIRED_COLUMNS = ['category', 'question', 'correctanswer'];
 
 /** A header line's column names, the way the columns are looked up. */
 const headings = (line: string, delimiter: Delimiter): string[] =>
-    parseLine(line.toLowerCase(), delimiter).map((name) => name.trim().replace(/\s/g, ''));
+    parseCSVLine(line.toLowerCase(), delimiter).map((name) => name.replace(/\s/g, ''));
 
 /**
- * Which delimiter a file uses, read off its header row: the one that finds
- * the required columns there. A comma inside one heading cannot outvote the
- * tabs between them, and one inside quotes is not a delimiter at all. When
- * none finds them, the one that splits the header into most cells, so the
- * error names the column that is really missing.
+ * Which delimiter a file uses, and its column names split by it: the one that
+ * finds the required columns in the header row. A comma inside one heading
+ * cannot outvote the tabs between them, and one inside quotes is not a
+ * delimiter at all. When none finds them, the one that splits the header into
+ * most cells, so the error names the column that is really missing.
+ *
+ * Quotes are read the same way whatever the delimiter, so a cell cut by a
+ * line break comes up short and is left out in any of them. Excel quotes a
+ * cell in a tab-separated file the way it does in a CSV. Google Sheets writes
+ * one as it stands, and the quotation marks in it are read as quoting and
+ * dropped: the text survives, the marks do not.
  */
-const detectDelimiter = (header: string): Delimiter =>
-    DELIMITERS.find((delimiter) =>
-        REQUIRED_COLUMNS.every((column) => headings(header, delimiter).includes(column)),
-    ) ??
-    DELIMITERS.reduce((best, delimiter) =>
-        headings(header, delimiter).length > headings(header, best).length ? delimiter : best,
+const detectDelimiter = (header: string): { delimiter: Delimiter; names: string[] } => {
+    const splits = DELIMITERS.map((delimiter) => ({ delimiter, names: headings(header, delimiter) }));
+    return (
+        splits.find(({ names }) => REQUIRED_COLUMNS.every((column) => names.includes(column))) ??
+        splits.reduce((best, split) => (split.names.length > best.names.length ? split : best))
     );
+};
 
 /**
  * Case, surrounding whitespace and repeated spaces ignored.
@@ -151,8 +123,10 @@ const resolveCorrectIndex = (options: string[], correctAnswer: string): number =
     // that way, whichever side it is on.
     const words = (value: string): string[] => value.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
     const within = (part: string, whole: string): boolean => {
-        if (part.length <= 2 || !/\p{L}/u.test(part)) return false;
         const needle = words(part);
+        // Counted without punctuation, so "U.S." is as short as "US".
+        const letters = needle.join('');
+        if (letters.length <= 2 || !/\p{L}/u.test(letters)) return false;
         const haystack = words(whole);
         return (
             needle.length > 0 &&
@@ -176,7 +150,7 @@ const resolveCorrectIndex = (options: string[], correctAnswer: string): number =
  * is not caught by it.
  */
 const isOptionPosition = (answer: string, optionCount: number): boolean => {
-    const match = answer.trim().match(/^(?:option\s*)?\(?([a-z]|\d{1,2})[).:]?$/i);
+    const match = answer.trim().match(/^(?:option\s*)?\(?([a-z]|\d{1,2})[).:]{0,2}$/i);
     if (!match) return false;
     const position = /\d/.test(match[1])
         ? Number(match[1])
@@ -340,10 +314,10 @@ export interface QuestionRow {
     unit?: string;
     timeLimit?: string;
     /**
-     * The file writes numbers with a decimal comma and groups thousands with
-     * a point — `8.849,5` — as Excel does where it saves CSV with semicolons.
+     * What the file put between cells. It says how far a comma or a point in
+     * a number can be trusted: see `readsTwoWays`.
      */
-    decimalComma?: boolean;
+    separator?: Delimiter;
 }
 
 export type RowResult = { question: Question } | { skip: string };
@@ -360,37 +334,25 @@ export const parseMargin = (value: string | undefined): AnswerMargin | undefined
     return undefined;
 };
 
-/**
- * The numbers in a cell written plainly: thousands ungrouped, decimal mark a
- * point. A comma before exactly three digits groups thousands ("384,400") and
- * any other comma between digits is a decimal mark ("26,6406", "3,14"), since
- * it cannot be a thousands separator. In a decimal-comma file every such comma
- * is the decimal mark and a point before three digits groups thousands, so
- * "8.849" is 8849 and "384,400" is 384.4. Text in the cell is left as it is.
- */
-const plainNumbers = (value: string, decimalComma = false): string =>
-    decimalComma
-        ? value.replace(/(\d)\.(?=\d{3}(?!\d))/g, '$1').replace(/(\d),(?=\d)/g, '$1.')
-        : value.replace(/(\d),(?=\d{3}(?!\d))/g, '$1').replace(/(\d),(?=\d)/g, '$1.');
-
 /** The first number in a cell — "About 384,000 km" reads as 384000. */
-const leadingNumber = (value: string | undefined, decimalComma = false): number | null => {
-    const match = plainNumbers(value ?? '', decimalComma).match(/-?\d*\.?\d+(?:e[+-]?\d+)?/i);
+const leadingNumber = (value: string | undefined): number | null => {
+    const match = (value ?? '').replace(/(\d),(?=\d{3}\b)/g, '$1').match(/-?\d*\.?\d+(?:e[+-]?\d+)?/i);
     if (!match) return null;
     const parsed = Number(match[0]);
     return Number.isFinite(parsed) ? parsed : null;
 };
 
 /** "1968-1970", "1968 – 1970", "1968 to 1970", or one number for both ends. */
-const numberBand = (value: string, decimalComma = false): [number, number] | null => {
-    const band = plainNumbers(value, decimalComma)
+const numberBand = (value: string): [number, number] | null => {
+    const band = value
+        .replace(/(\d),(?=\d{3}\b)/g, '$1')
         .match(/^\s*(-?\d*\.?\d+)\s*(?:-|–|—|to)\s*(-?\d*\.?\d+)\s*$/i);
     if (band) {
         const low = Number(band[1]);
         const high = Number(band[2]);
         return [Math.min(low, high), Math.max(low, high)];
     }
-    const single = leadingNumber(value, decimalComma);
+    const single = leadingNumber(value);
     return single === null ? null : [single, single];
 };
 
@@ -400,12 +362,34 @@ const numberBand = (value: string, decimalComma = false): [number, number] | nul
  * like one and has no digits in it: so "1968-1970", "1968 to 1970", "98.6" and
  * "8,849" have no unit, rather than "-1970", "to 1970", ".6" and ",849".
  */
-const trailingUnit = (value: string, decimalComma = false): string | undefined => {
-    const match = plainNumbers(value, decimalComma)
+const trailingUnit = (value: string): string | undefined => {
+    const match = value
         .trim()
         .match(/^(?=-?\.?\d)-?(?:\d[\d,\s]*)?(?:\.\d+)?\s*([^\d\s.,\-–—][^\d]{0,11})$/);
     return match ? match[1].trim() : undefined;
 };
+
+/**
+ * Whether a number cell could mean two different numbers, so reading it would
+ * be a guess. The game writes decimals with a point, and in a comma-separated
+ * file a comma before exactly three digits groups thousands ("384,400"). Any
+ * other comma between digits ("26,6406", "3,14", "1968,1970") is a decimal
+ * comma or a typo. A file separated by semicolons or tabs may come from where
+ * the comma is the decimal mark (Excel writes semicolons there), so in it any
+ * comma between digits reads two ways ("3,142"), and with semicolons a point
+ * before exactly three digits does too ("10.000", "1.609").
+ */
+const readsTwoWays = (cell: string | undefined, separator: Delimiter = ','): boolean => {
+    const value = cell ?? '';
+    return (
+        // The same thousands rule `leadingNumber` reads by.
+        /\d,(?!\d{3}\b)\d/.test(value) ||
+        (separator !== ',' && /\d,\d/.test(value)) ||
+        (separator === ';' && /\d\.\d{3}(?!\d)/.test(value))
+    );
+};
+
+const TWO_WAY_NUMBER = 'a number reads two ways — write it with a decimal point and no thousands separator';
 
 /**
  * "Au = Gold", "France -> Paris", "Tomato → Fruit": an item and its partner.
@@ -440,12 +424,12 @@ const pipeList = (value: string): string[] =>
  * screen when an import leaves rows out.
  */
 export const rowToQuestion = (row: QuestionRow, id: string): RowResult => {
-    const typeCell = (row.type ?? '').trim();
+    // A dash or N/A in the type column is a sheet's way of leaving it blank.
+    const typeCell = (row.type ?? '').trim().replace(/^(?:[-–—]+|n\/a)$/i, '');
     const named = parseQuestionType(typeCell);
     const options = row.options.map((o) => (o ?? '').trim()).filter((o) => o !== '');
     const answer = (row.correctAnswer ?? '').trim();
     const image = (row.image ?? '').trim();
-    const decimalComma = row.decimalComma === true;
 
     // A type the file names but the game does not know is left out, not
     // guessed at. It used to become multiple choice, and a row written for
@@ -481,7 +465,8 @@ export const rowToQuestion = (row: QuestionRow, id: string): RowResult => {
         type,
     };
     const extras: Partial<Question> = {};
-    const timeLimit = leadingNumber(row.timeLimit, decimalComma);
+    if (readsTwoWays(row.timeLimit, row.separator)) return { skip: TWO_WAY_NUMBER };
+    const timeLimit = leadingNumber(row.timeLimit);
     if (timeLimit !== null && timeLimit > 0) extras.timeLimit = Math.round(timeLimit);
     const margin = parseMargin(row.margin);
     if (margin) extras.margin = margin;
@@ -515,13 +500,16 @@ export const rowToQuestion = (row: QuestionRow, id: string): RowResult => {
         case QuestionType.RANGE: {
             // min, max, step, low, high — or min, max, step with the answer in
             // the answer column, which is how most people write one.
-            const numbers = options.map((o) => leadingNumber(o, decimalComma));
+            if ([...options, answer].some((cell) => readsTwoWays(cell, row.separator))) {
+                return { skip: TWO_WAY_NUMBER };
+            }
+            const numbers = options.map((o) => leadingNumber(o));
             const [min, max] = numbers;
             let step = numbers[2];
             let band: [number, number] | null =
                 numbers.length >= 5 && numbers[3] !== null && numbers[4] !== null
                     ? [numbers[3]!, numbers[4]!]
-                    : numberBand(answer, decimalComma);
+                    : numberBand(answer);
             if (min === null || min === undefined || max === null || max === undefined || !band) {
                 return { skip: `${type === QuestionType.RANGE ? 'range' : 'slider'} is missing its scale` };
             }
@@ -530,19 +518,22 @@ export const rowToQuestion = (row: QuestionRow, id: string): RowResult => {
             }
             finalOptions = [min, max, step, band[0], band[1]].map(String);
             if (!extras.unit) {
-                const inferred = trailingUnit(answer, decimalComma);
+                const inferred = trailingUnit(answer);
                 if (inferred) extras.unit = inferred;
             }
             break;
         }
 
         case QuestionType.NUMBER: {
-            const target = leadingNumber(answer, decimalComma);
+            if (readsTwoWays(answer, row.separator) || readsTwoWays(options[0], row.separator)) {
+                return { skip: TWO_WAY_NUMBER };
+            }
+            const target = leadingNumber(answer);
             if (target === null) return { skip: 'no numeric answer' };
-            const tolerance = Math.abs(leadingNumber(options[0], decimalComma) ?? 0);
+            const tolerance = Math.abs(leadingNumber(options[0]) ?? 0);
             finalOptions = [String(target), String(tolerance)];
             if (!extras.unit) {
-                const inferred = trailingUnit(answer, decimalComma);
+                const inferred = trailingUnit(answer);
                 if (inferred) extras.unit = inferred;
             }
             break;
@@ -551,9 +542,11 @@ export const rowToQuestion = (row: QuestionRow, id: string): RowResult => {
         case QuestionType.PIN: {
             // The picture comes from the image column, or from the first
             // option when the sheet has no image column.
-            const pictureFromOption = !image && options.length > 0 && leadingNumber(options[0], decimalComma) === null;
+            const pictureFromOption = !image && options.length > 0 && leadingNumber(options[0]) === null;
             const picture = image || (pictureFromOption ? options[0] : '');
-            const coords = (pictureFromOption ? options.slice(1) : options).map((o) => leadingNumber(o, decimalComma));
+            const coordCells = pictureFromOption ? options.slice(1) : options;
+            if (coordCells.some((cell) => readsTwoWays(cell, row.separator))) return { skip: TWO_WAY_NUMBER };
+            const coords = coordCells.map((o) => leadingNumber(o));
             const mapKey = mapKeyFor(picture);
             if (!picture) return { skip: 'no picture to pin' };
             if (coords.length < 2 || coords[0] === null || coords[1] === null) {
@@ -681,14 +674,11 @@ export const parseImportDataWithReport = (csvData: string): ImportReport => {
         throw new Error("Import data must have a header and at least one question row.");
     }
 
-    const delimiter = detectDelimiter(lines[0]);
-    const rows = lines.slice(1).map((line) => parseLine(line, delimiter));
-    const cutLines = lines.slice(1).map((line) => delimiter === '\t' && cutByLineBreak(line));
-    // Excel writes semicolons exactly where the comma is the decimal mark.
-    const decimalComma = delimiter === ';';
+    const { delimiter, names } = detectDelimiter(lines[0]);
+    const rows = lines.slice(1).map((line) => parseCSVLine(line, delimiter));
 
     const colMap: { [key: string]: number } = {};
-    headings(lines[0], delimiter).forEach((name, i) => {
+    names.forEach((name, i) => {
         colMap[name] = i;
     });
 
@@ -717,15 +707,6 @@ export const parseImportDataWithReport = (csvData: string): ImportReport => {
             const categoryName = cell(row, colMap['category']);
             const questionText = cell(row, colMap['question']);
             const correctAnswerStr = cell(row, colMap['correctanswer']);
-
-            if (cutLines[rowIndex]) {
-                skipped.push({
-                    row: rowIndex + 2,
-                    question: questionText || '(no question)',
-                    reason: 'a line break inside a cell',
-                });
-                return;
-            }
 
             if (!categoryName || !questionText || !correctAnswerStr) {
                 // A wholly empty line is a sheet's trailing blank row, not a
@@ -756,7 +737,7 @@ export const parseImportDataWithReport = (csvData: string): ImportReport => {
                     margin: cell(row, optionalCol(OPTIONAL_COLUMNS.margin)),
                     unit: cell(row, optionalCol(OPTIONAL_COLUMNS.unit)),
                     timeLimit: cell(row, optionalCol(OPTIONAL_COLUMNS.timeLimit)),
-                    decimalComma,
+                    separator: delimiter,
                 },
                 `import-${categoryName}-${rowIndex}`,
             );
