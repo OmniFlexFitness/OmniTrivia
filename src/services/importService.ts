@@ -12,12 +12,8 @@ import { MAP_FRAMES, MAP_PREFIX, geoFromPinTarget, geoPinTarget, mapKeyFor } fro
 type Delimiter = ',' | ';' | '\t';
 const DELIMITERS: readonly Delimiter[] = [',', ';', '\t'];
 
-/**
- * One line's cells, and whether a quote in it was still open at the end of
- * the line: a cell with a line break in it, or a stray " like an inch mark.
- * Either way the cells after it ran together, so the line cannot be trusted.
- */
-const parseCSVLine = (line: string, delimiter: Delimiter = ','): { cells: string[]; open: boolean } => {
+// Simple CSV parser that handles quoted fields
+const parseCSVLine = (line: string, delimiter: ',' | ';' = ','): string[] => {
     const result: string[] = [];
     let current = '';
     let inQuotes = false;
@@ -38,14 +34,44 @@ const parseCSVLine = (line: string, delimiter: Delimiter = ','): { cells: string
         }
     }
     result.push(current.trim());
-    return { cells: result, open: inQuotes };
+    return result;
 };
+
+/**
+ * One line of a tab-separated file, which has no quoting rule of its own:
+ * Excel quotes a cell the way a CSV does, and Google Sheets writes every cell
+ * as it stands, quotes and all. So the line is split at every tab first (no
+ * spreadsheet makes a tab easy to type into a cell), and a quote can never run
+ * one cell into the next. A cell is unwrapped only when it is quoted all the
+ * way round with its inner quotes doubled, as Excel writes it, and is read as
+ * written otherwise.
+ *
+ * `open` marks a line with a cell that opens a quote it never closes, or
+ * closes one it never opened: one end of a cell Excel wrote with a line break
+ * in it, or a stray inch mark at the edge of a cell. Read as a row, a cut line
+ * would be the wrong cells under the wrong headings.
+ */
+const parseTSVLine = (line: string): { cells: string[]; open: boolean } => {
+    let open = false;
+    const cells = line.split('\t').map((raw) => {
+        const cell = raw.trim();
+        const quoted = cell.match(/^"((?:[^"]|"")*)"$/);
+        if (quoted) return quoted[1].replace(/""/g, '"').trim();
+        const unpaired = (cell.match(/"/g)?.length ?? 0) % 2 === 1;
+        if (unpaired && (cell.startsWith('"') || cell.endsWith('"'))) open = true;
+        return cell;
+    });
+    return { cells, open };
+};
+
+const parseLine = (line: string, delimiter: Delimiter): { cells: string[]; open: boolean } =>
+    delimiter === '\t' ? parseTSVLine(line) : { cells: parseCSVLine(line, delimiter), open: false };
 
 const REQUIRED_COLUMNS = ['category', 'question', 'correctanswer'];
 
 /** A header line's column names, the way the columns are looked up. */
 const headings = (line: string, delimiter: Delimiter): string[] =>
-    parseCSVLine(line.toLowerCase(), delimiter).cells.map((name) => name.replace(/\s/g, ''));
+    parseLine(line.toLowerCase(), delimiter).cells.map((name) => name.replace(/\s/g, ''));
 
 /**
  * Which delimiter a file uses, and its column names split by it: the one that
@@ -53,12 +79,7 @@ const headings = (line: string, delimiter: Delimiter): string[] =>
  * cannot outvote the tabs between them, and one inside quotes is not a
  * delimiter at all. When none finds them, the one that splits the header into
  * most cells, so the error names the column that is really missing.
- *
- * Quotes are read the same way whatever the delimiter, so a line whose quote
- * never closes is left out in any of them. Excel quotes a cell in a
- * tab-separated file the way it does in a CSV. Google Sheets writes one as it
- * stands, and a pair of quotation marks in it is read as quoting and dropped:
- * the text survives, the marks do not.
+
  */
 const detectDelimiter = (header: string): { delimiter: Delimiter; names: string[] } => {
     const splits = DELIMITERS.map((delimiter) => ({ delimiter, names: headings(header, delimiter) }));
@@ -100,6 +121,10 @@ const words = (value: string): string[] =>
 const isNumberWord = (word: string): boolean =>
     /\p{N}/u.test(word) || /^(?:i{2,3}|iv|vi{1,3}|ix|xi{1,3}|xiv|xvi{0,3}|xix|xx)$/i.test(word);
 
+/** The letter or number an answer names an option by — "B", "b)", "(2)", "Option 3" — or null. */
+const positionLabel = (answer: string): string | null =>
+    answer.trim().match(/^(?:option\s*)?\(?([a-z]|\d{1,2})[).:]{0,2}$/i)?.[1] ?? null;
+
 /**
  * Which option the `correctAnswer` cell means.
  *
@@ -119,6 +144,16 @@ const resolveCorrectIndex = (options: string[], correctAnswer: string): number =
         (option) => normalize(option) === normalize(correctAnswer),
     );
     if (exact !== -1) return exact;
+
+    // Options that all carry their own labels ("A) Paris", "B) London") are
+    // pointed at by the label, which is then part of the option's own text.
+    // All of them, so "B. B. King" among plain options is not taken for "B".
+    const label = positionLabel(correctAnswer);
+    const optionLabels = options.map((option) => option.trim().match(/^\(?([a-z]|\d{1,2})[).:]\s/i)?.[1]);
+    if (label && optionLabels.every(Boolean)) {
+        const labelled = optionLabels.flatMap((own, i) => (own!.toLowerCase() === label.toLowerCase() ? [i] : []));
+        if (labelled.length === 1) return labelled[0];
+    }
 
     const answer = loosen(correctAnswer);
     if (!answer) return -1;
@@ -167,11 +202,9 @@ const resolveCorrectIndex = (options: string[], correctAnswer: string): number =
  * is not caught by it.
  */
 const isOptionPosition = (answer: string, optionCount: number): boolean => {
-    const match = answer.trim().match(/^(?:option\s*)?\(?([a-z]|\d{1,2})[).:]{0,2}$/i);
-    if (!match) return false;
-    const position = /\d/.test(match[1])
-        ? Number(match[1])
-        : match[1].toLowerCase().charCodeAt(0) - 96;
+    const label = positionLabel(answer);
+    if (!label) return false;
+    const position = /\d/.test(label) ? Number(label) : label.toLowerCase().charCodeAt(0) - 96;
     return position >= 1 && position <= optionCount;
 };
 
@@ -387,34 +420,42 @@ const trailingUnit = (value: string): string | undefined => {
 };
 
 /**
- * Whether a number cell could mean two different numbers, so reading it would
- * be a guess. The game writes decimals with a point, and in a comma-separated
- * file a comma before exactly three digits groups thousands ("384,400"). Any
- * other comma between digits ("26,6406", "3,14", "1968,1970") is a decimal
- * comma or a typo. A file separated by semicolons or tabs may come from where
- * the comma is the decimal mark (Excel writes semicolons there), so in it any
- * comma between digits reads two ways ("3,142"), and with semicolons a point
- * before exactly three digits does too ("10.000", "1.609"). Digits grouped
- * with a space or an apostrophe, as French and Swiss Excel write them, are
- * refused anywhere: the reader would stop at the first group.
+ * Whether the number a cell is read for could mean two different numbers, so
+ * reading it would be a guess. That is the first number in the cell, with
+ * whatever is written with it up to the next word: "8,849" of "8,849 m (29 032
+ * ft)", both ends of "36,5-37,5".
+ *
+ * The game writes decimals with a point, and in a comma-separated file a comma
+ * before exactly three digits groups thousands ("384,400"). Any other comma in
+ * a number ("26,6406", "1968,1970", ",5") is a decimal comma or a typo, and so
+ * is a second point ("1.000.000") or a point then a comma ("1.234,5"). A file
+ * separated by semicolons or tabs may come from where the comma is the decimal
+ * mark (Excel writes semicolons there), so in it any comma in a number reads
+ * two ways ("3,142"), and so does a point before exactly three digits
+ * ("10.000", "1.609"). Digits grouped by a space or an apostrophe ("384 400",
+ * "384'400"), a fraction or a date ("1/2"), and a minus written as a minus
+ * sign or a dash ("−40") are refused anywhere: the reader would misread each.
  */
 const readsTwoWays = (cell: string | undefined, separator: Delimiter = ','): boolean => {
     const value = cell ?? '';
+    const at = value.search(/\d/);
+    if (at === -1) return false;
+    // With the letter that ends it, so a unit written on ("384,400km") counts as
+    // the reader counts it.
+    const number = value.slice(at).match(/^[^\p{L}]*\p{L}?/u)?.[0] ?? '';
+    const before = value.slice(0, at).trimEnd().slice(-1);
     return (
+        /[−–—,]/.test(before) ||
         // The same thousands rule `leadingNumber` reads by.
-        /\d,(?!\d{3}\b)\d/.test(value) ||
-        // "1.234,5" and ",5": a decimal comma, whatever the thousands look like.
-        /\d\.\d+,\d/.test(value) ||
-        /(?<!\d),\d/.test(value) ||
-        // Digits grouped by a space or an apostrophe ("384 400", "384'400"),
-        // which the number reader would stop at.
-        /\d[ \u00a0\u202f'’]+\d/.test(value) ||
-        (separator !== ',' && /\d,\d/.test(value)) ||
-        (separator === ';' && /\d\.\d{3}(?!\d)/.test(value))
+        /\d,(?!\d{3}\b)\d/.test(number) ||
+        /\d\.\d+[.,]\d/.test(number) ||
+        /\d[ \u00a0\u202f'’]+\d/.test(number) ||
+        /\d\/\d/.test(number) ||
+        (separator !== ',' && (/\d,\d/.test(number) || /\d\.\d{3}(?!\d)/.test(number)))
     );
 };
 
-const TWO_WAY_NUMBER = 'a number reads two ways — write it with a decimal point and no thousands separator';
+const TWO_WAY_NUMBER = 'a number reads two ways — write it like 26.6406 or -40, with no thousands separator';
 
 const UNCLOSED_QUOTE = 'a quote never closes — a line break or a stray " in a cell';
 
@@ -451,8 +492,8 @@ const pipeList = (value: string): string[] =>
  * screen when an import leaves rows out.
  */
 export const rowToQuestion = (row: QuestionRow, id: string): RowResult => {
-    // A dash or N/A in the type column is a sheet's way of leaving it blank.
-    const typeCell = (row.type ?? '').trim().replace(/^(?:[-–—]+|n\/a)$/i, '');
+    // A dash, N/A or none in the type column is a sheet's way of leaving it blank.
+    const typeCell = (row.type ?? '').trim().replace(/^(?:[-–—]+|n\/?a|n\.a\.?|none)$/i, '');
     const named = parseQuestionType(typeCell);
     const options = row.options.map((o) => (o ?? '').trim()).filter((o) => o !== '');
     const answer = (row.correctAnswer ?? '').trim();
@@ -497,14 +538,12 @@ export const rowToQuestion = (row: QuestionRow, id: string): RowResult => {
     // that could mean two things is caught wherever it is read, and the row
     // is left out once the reading is done.
     let twoWayNumber = false;
-    const numberIn = (cell: string | undefined): number | null => {
+    const checked = <T,>(read: (cell: string) => T) => (cell: string | undefined): T => {
         if (readsTwoWays(cell, row.separator)) twoWayNumber = true;
-        return leadingNumber(cell);
+        return read(cell ?? '');
     };
-    const bandIn = (cell: string): [number, number] | null => {
-        if (readsTwoWays(cell, row.separator)) twoWayNumber = true;
-        return numberBand(cell);
-    };
+    const numberIn = checked(leadingNumber);
+    const bandIn = checked(numberBand);
 
     const timeLimit = numberIn(row.timeLimit);
     if (timeLimit !== null && timeLimit > 0) extras.timeLimit = Math.round(timeLimit);
@@ -711,8 +750,7 @@ export const parseImportDataWithReport = (csvData: string): ImportReport => {
     }
 
     const { delimiter, names } = detectDelimiter(lines[0]);
-    const parsed = lines.slice(1).map((line) => parseCSVLine(line, delimiter));
-    const rows = parsed.map((line) => line.cells);
+    const rows = lines.slice(1).map((line) => parseLine(line, delimiter));
 
     const colMap: { [key: string]: number } = {};
     names.forEach((name, i) => {
@@ -739,13 +777,13 @@ export const parseImportDataWithReport = (csvData: string): ImportReport => {
     const roundsConfig: { [categoryId: string]: CategoryContent } = {};
     const skipped: SkippedRow[] = [];
 
-    rows.forEach((row, rowIndex) => {
+    rows.forEach(({ cells: row, open }, rowIndex) => {
         try {
             const categoryName = cell(row, colMap['category']);
             const questionText = cell(row, colMap['question']);
             const correctAnswerStr = cell(row, colMap['correctanswer']);
 
-            if (parsed[rowIndex].open) {
+            if (open) {
                 skipped.push({
                     row: rowIndex + 2,
                     question: questionText || '(no question)',
@@ -836,7 +874,7 @@ const summarizeReasons = (skipped: readonly SkippedRow[]): string => {
     const unknown: string[] = [];
     skipped.forEach((entry) => {
         const word = entry.reason.match(/^unknown format (".*")$/)?.[1];
-        if (word && !unknown.includes(word)) unknown.push(word);
+        if (word && !unknown.some((seen) => seen.toLowerCase() === word.toLowerCase())) unknown.push(word);
         const reason = word
             ? 'with an unknown format'
             : entry.reason.includes('placeholder')

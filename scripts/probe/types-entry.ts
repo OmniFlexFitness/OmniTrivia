@@ -287,6 +287,7 @@ const commonNames: [string, QuestionType][] = [
   ["Multi-choice", QuestionType.MULTIPLE_CHOICE],
   ["Open-Ended", QuestionType.TYPE_ANSWER],
   ["Text input", QuestionType.TYPE_ANSWER],
+  ["Multi–select", QuestionType.MULTI_SELECT],
 ];
 check(
   "the names people write for a format read as it",
@@ -303,6 +304,8 @@ const unknownTypes = parseImportDataWithReport(
     // A dash or N/A is a sheet's way of leaving the cell blank.
     "-,X,Which is blue?,Neptune,Mars,Venus,Mercury,Neptune",
     "N/A,X,Which is largest?,Jupiter,Mars,Venus,Mercury,Jupiter",
+    "NA,X,Which has rings?,Saturn,Mars,Venus,Mercury,Saturn",
+    "none,X,Which is closest?,Mercury,Mars,Venus,Saturn,Mercury",
   ].join("\n"),
 );
 check(
@@ -310,7 +313,7 @@ check(
   unknownTypes.skipped.map((s) => s.reason).join(" | ") ===
     'unknown format "Quizz" | unknown format "Matchup game"' &&
     Object.values(unknownTypes.contents).flatMap((c) => c.questions).map((q) => q.type).join() ===
-      `${QuestionType.PUZZLE},${QuestionType.TYPE_ANSWER},${QuestionType.MULTIPLE_CHOICE},${QuestionType.MULTIPLE_CHOICE}`,
+      `${QuestionType.PUZZLE},${QuestionType.TYPE_ANSWER},${QuestionType.MULTIPLE_CHOICE},${QuestionType.MULTIPLE_CHOICE},${QuestionType.MULTIPLE_CHOICE},${QuestionType.MULTIPLE_CHOICE}`,
   unknownTypes.skipped.map((s) => `row ${s.row}: ${s.reason}`).join(" | "),
 );
 
@@ -351,6 +354,8 @@ const lettersAndNumbers: [string[], string, string, string?][] = [
   // A dotted code is as short as an undotted one.
   [["U.S. Virgin Islands", "Puerto Rico", "Guam", "Samoa"], "U.S.", "left out: the answer matches none of the options"],
   [["Vitamin A", "Vitamin B", "Vitamin C", "Vitamin D"], "B.)", "left out: the answer is an option's letter or number — write the option itself"],
+  // A label counts only when every option carries one.
+  [["B. B. King", "Muddy Waters", "Howlin' Wolf", "Lead Belly"], "B", "left out: the answer is an option's letter or number — write the option itself"],
   // Part of a word is not the word.
   [["Jerusalem", "Paris", "Rome", "London"], "USA", "left out: the answer matches none of the options"],
   [["Mozart", "Bach", "Liszt", "Haydn"], "Art", "left out: the answer matches none of the options"],
@@ -376,6 +381,8 @@ const fuller: [string[], string, string][] = [
   [["Jacksonville", "Tampa", "Miami", "Key West"], "Tampa (Ybor City)", "Tampa"],
   [["Shape of You", "Despacito", "Old Town Road", "Rockstar"], "Old Town Road by Lil Nas X", "Old Town Road"],
   [["Shape of You", "Despacito", "Old Town Road", "Rockstar"], "Lil Nas X's Old Town Road", "Old Town Road"],
+  // Options that carry their own labels are pointed at by the label.
+  [["A) Paris", "B) London", "C) Rome", "D) Oslo"], "B", "B) London"],
   [["The Beatles", "The Who", "Queen", "ABBA"], "Beatles", "The Beatles"],
   [["10", "20", "30", "40"], "20", "20"],
   [["A", "B", "AB", "O"], "AB", "AB"],
@@ -445,7 +452,7 @@ const numberRow = (separator: string, row: string[]): string => {
   }
   return q.options.join(",");
 };
-const twoWays = "left out: a number reads two ways — write it with a decimal point and no thousands separator";
+const twoWays = "left out: a number reads two ways — write it like 26.6406 or -40, with no thousands separator";
 const fortMyersRow = ["PIN", "X", "Pin Fort Myers.", "26.6406", "-81.8723", "120", "Fort Myers", "usa"];
 const fortMyersPin = numberRow(",", fortMyersRow);
 const numberCases: [string, string[], string][] = [
@@ -455,6 +462,12 @@ const numberCases: [string, string[], string][] = [
   [",", ["NUMBER", "X", "To the Moon?", "", "", "", "384 400 km", ""], twoWays],
   [",", ["NUMBER", "X", "Pi times a thousand?", "", "", "", "1.234,567", ""], twoWays],
   [",", ["NUMBER", "X", "A half?", "", "", "", ",5", ""], twoWays],
+  [",", ["NUMBER", "X", "A half?", "", "", "", "1/2", ""], twoWays],
+  [",", ["NUMBER", "X", "How many?", "", "", "", "1.234.567", ""], twoWays],
+  [",", ["NUMBER", "X", "Coldest?", "", "", "", "\u221240 °C", ""], twoWays],
+  [",", ["NUMBER", "X", "Coldest?", "", "", "", "-40 °C", ""], "-40,0"],
+  // Only the number read counts, not one written after it.
+  [",", ["NUMBER", "X", "How tall is Everest?", "", "", "", "8,849 m (29 032 ft)", ""], "8849,0"],
   [",", ["SLIDER", "X", "Apollo 11?", "1950", "1990", "1", "1968,1970", ""], twoWays],
   [",", ["RANGE", "X", "Body temperature?", "30", "45", "0.1", "36,5-37,5", ""], twoWays],
   [";", ["NUMBER", "X", "Pi?", "", "", "", "3,142", ""], twoWays],
@@ -466,6 +479,8 @@ const numberCases: [string, string[], string][] = [
   [";", ["TYPE_ANSWER", "X", "Which herbicide?", "", "", "", "2,4-D", ""], "2,4-D"],
   [";", ["MULTI_SELECT", "X", "Which are under 3?", "1,5", "2,5", "3,5", "1,5|2,5", ""], "1,5|2,5"],
   ["\t", ["NUMBER", "X", "Pi?", "", "", "", "3,142", ""], twoWays],
+  ["\t", ["NUMBER", "X", "How many?", "", "", "", "10.000", ""], twoWays],
+  ["\t", ["NUMBER", "X", "How many?", "", "", "", "1.000.000", ""], twoWays],
   ["\t", ["NUMBER", "X", "To the Moon?", "", "", "", "384'400 km", ""], twoWays],
   [";", ["NUMBER", "X", "To the Moon?", "", "", "", "384\u00a0400 km", ""], twoWays],
   ["\t", ["NUMBER", "X", "To the Moon?", "", "", "", "384400 km", ""], "384400,0"],
@@ -490,9 +505,13 @@ check(
   displayAnswer?.options.join(","),
 );
 
-/* Quotes are read the same way whatever the delimiter: a quoted cell can hold
- * the delimiter, and a line whose quote never closes — a cell cut by a line
- * break, or a stray inch mark — is left out, never read as a question. */
+/* Quotes. A CSV is read the way it always has been: a quoted cell can hold a
+ * comma, and a cell cut by a line break cuts its row there, the rest of it
+ * left out with a reason. A tab-separated file is split at its tabs first, so
+ * a quote cannot run one cell into the next: Excel's quoted cells are
+ * unwrapped, Google Sheets' unquoted ones read as written, and a line with a
+ * quote left open at a cell's edge (a cut cell, or a stray inch mark) is left
+ * out. */
 const unclosedQuote = 'a quote never closes — a line break or a stray " in a cell';
 const commaQuotes = importReport(
   [
@@ -500,15 +519,18 @@ const commaQuotes = importReport(
     'Music,"Which band',
     'recorded Bohemian Rhapsody?",Queen,Fun fact',
     'X,Name the "Fab Four, of Liverpool",Beatles,',
+    'X,A line break in the explanation?,Still imports,"Its first line',
+    'is all the reveal shows",',
     "X,A real question?,A real answer,",
   ].join("\n"),
 );
 const commaQuoted = Object.values(commaQuotes.contents).flatMap((c) => c.questions);
 check(
-  "in a CSV, a cell cut by a line break is left out, and a quoted phrase may hold a comma",
-  commaQuoted.map((q) => `${q.text} = ${q.options[0]}`).join(" | ") ===
-    "Name the Fab Four, of Liverpool = Beatles | A real question? = A real answer" &&
-    commaQuotes.skipped.map((s) => s.reason).join(" | ") === `${unclosedQuote} | ${unclosedQuote}`,
+  "in a CSV, a cell cut by a line break cuts its row there, and a quoted phrase may hold a comma",
+  commaQuoted.map((q) => `${q.text} = ${q.options[0]} (${q.explanation})`).join(" | ") ===
+    "Name the Fab Four, of Liverpool = Beatles () | A line break in the explanation? = Still imports (Its first line) | A real question? = A real answer ()" &&
+    commaQuotes.skipped.length === 3 &&
+    commaQuotes.skipped.every((s) => s.reason === "missing category, question or answer"),
   `${commaQuoted.map((q) => `${q.text} = ${q.options[0]}`).join(" | ")} · left out: ${commaQuotes.skipped.map((s) => s.reason).join(", ")}`,
 );
 const tabQuotes = importReport(
@@ -518,20 +540,25 @@ const tabQuotes = importReport(
     'Music\t"""Let It Be"" was by which band?"\tThe Beatles\t"Recorded in 1969, released in 1970."',
     'Music\t"Which band',
     'recorded Bohemian Rhapsody?"\tQueen\tFun fact',
-    // Google Sheets writes a cell as it stands: the marks are lost, the text is not.
+    // Google Sheets writes a cell as it stands, quotes and all.
     'Music\t"Hey Jude" was by which band?\tThe Beatles\t',
-    // A quote that never closes leaves its row out rather than shifting it,
-    // after the answer column as much as before it.
-    'Music\t"Unclosed start\tThe Beatles\tSwallowed',
     'Music\tHow wide is an LP?\t12 inches\tAn LP is 12" across',
+    'Music\tWhich is bigger, a 7" single or a 12" LP?\tThe LP\tBy five inches',
+    // A quote left open at the edge of a cell leaves its row out.
+    'Music\t"Unclosed start\tThe Beatles\tNot swallowed',
   ].join("\n"),
 );
 const tabQuoted = Object.values(tabQuotes.contents).flatMap((c) => c.questions);
 check(
-  "in a TSV, an Excel-quoted cell is unwrapped, and a cut cell or a stray quote anywhere leaves its row out",
+  "in a TSV, Excel's quoted cells are unwrapped, Google's quotes are kept, no quote moves a column, and a cut cell leaves its row out",
   tabQuoted.map((q) => `${q.text} = ${q.options[0]} (${q.explanation})`).join(" | ") ===
-    '"Let It Be" was by which band? = The Beatles (Recorded in 1969, released in 1970.) | Hey Jude was by which band? = The Beatles ()' &&
-    tabQuotes.skipped.length === 4 &&
+    [
+      '"Let It Be" was by which band? = The Beatles (Recorded in 1969, released in 1970.)',
+      '"Hey Jude" was by which band? = The Beatles ()',
+      'How wide is an LP? = 12 inches (An LP is 12" across)',
+      'Which is bigger, a 7" single or a 12" LP? = The LP (By five inches)',
+    ].join(" | ") &&
+    tabQuotes.skipped.length === 3 &&
     tabQuotes.skipped.every((s) => s.reason === unclosedQuote),
   `${tabQuoted.map((q) => `${q.text} = ${q.options[0]} (${q.explanation})`).join(" | ")} · left out: ${tabQuotes.skipped.map((s) => s.reason).join(", ")}`,
 );
@@ -542,12 +569,14 @@ const macEndings = importReport("category,question,correctAnswer\rGeo,Capital of
 const manyUnknown = importReport(
   ["type,category,question,option1,option2,correctAnswer", ...Array.from({ length: 5 }, (_, i) => `Level ${i},X,Q${i}?,A,B,A`), "MC,X,Fine?,A,B,A"].join("\n"),
 );
+const caseOnly = importReport("type,category,question,option1,option2,correctAnswer\nQuizz,X,Q1?,A,B,A\nquizz,X,Q2?,A,B,A\nMC,X,Fine?,A,B,A");
 check(
   "a file with old Mac line endings imports, and unknown formats are one line on the setup screen",
   Object.values(macEndings.contents).flatMap((c) => c.questions).length === 2 &&
     describeSkipped(manyUnknown.skipped) ===
-      '5 questions were left out automatically (5 with an unknown format ("Level 0", "Level 1", "Level 2", …)).',
-  describeSkipped(manyUnknown.skipped) ?? "",
+      '5 questions were left out automatically (5 with an unknown format ("Level 0", "Level 1", "Level 2", …)).' &&
+    describeSkipped(caseOnly.skipped) === '2 questions were left out automatically (2 with an unknown format ("Quizz")).',
+  `${describeSkipped(manyUnknown.skipped)} · ${describeSkipped(caseOnly.skipped)}`,
 );
 
 /* ------------------------------------------------------------------ *

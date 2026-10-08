@@ -82,12 +82,18 @@ comma.
 > [!WARNING]
 > **Numbers need a decimal point.** The app never guesses which way a number
 > was meant. One that could be read two ways leaves its question out as *a
-> number reads two ways*: a decimal comma (`26,6406`, `3,14`) or a band
-> written with a comma (`1968,1970`) in any file, and in a file separated by
-> semicolons or tabs any comma in a number (`3,142`), and with semicolons a
-> point before three digits too (`10.000`, `1.609`). Digits grouped with a
-> space or an apostrophe (`384 400`, `384'400`) are refused in any file. Only
-> cells read as numbers count; text is left exactly as written. Where Excel writes decimal
+> number reads two ways*:
+>
+> - in any file: a decimal comma (`26,6406`, `3,14`, `,5`), a band written
+>   with a comma (`1968,1970`), two points (`1.000.000`), digits grouped by a
+>   space or an apostrophe (`384 400`, `384'400`), a fraction (`1/2`), or a
+>   minus written as a dash or a minus sign (`−40`: type `-40`);
+> - in a file separated by semicolons or tabs, which may come from where the
+>   comma is the decimal mark: any comma in a number (`3,142`, `384,400`) and
+>   a point before exactly three digits (`10.000`, `1.609`).
+>
+> Only the number a cell is read for counts (`8,849 m (29 032 ft)` is fine),
+> and only cells read as numbers; text is left exactly as written. Where Excel writes decimal
 > commas, format the number columns as text and type the numbers with points.
 
 ### A Google Sheet
@@ -244,8 +250,8 @@ badges on the review screen (`Typed answer`, `Puzzle · order`, `Multi-select`).
 > [!CAUTION]
 > **A word the game does not know leaves the row out**, and the setup screen
 > gives the word: `unknown format "Quizz"`. It is not guessed at, so a typo in
-> the `type` column is never played as some other format. A `-` or `N/A`
-> counts as blank. `Sort` means `CATEGORIZE`, not putting things in order. Use
+> the `type` column is never played as some other format. A `-`, `N/A`, `NA`
+> or `none` counts as blank. `Sort` means `CATEGORIZE`, not putting things in order. Use
 > the template's drop-down and none of this comes up.
 
 **Points.** A right answer is worth 100 plus up to 150 for speed — ten a second
@@ -777,17 +783,19 @@ The leading `'` is not saved into the CSV. Two more things that only show up
 in the file:
 
 - **No line breaks inside a cell.** The app reads the file a line at a time, so
-  a cell with a line break cuts its row off at the break. A spreadsheet puts
-  that cell in quotes, so both lines end with a quote still open and are left
-  out as *a quote never closes*, and the rows after them are fine. A
-  tab-separated file from Google Sheets is the exception: it puts no quotes
-  around a cell, so nothing shows where a cell with a line break ends, and its
-  leftover line can import as a question of its own. In that file a single
-  `"` (an inch mark) leaves its row out the same way, and a pair of them is
-  dropped (`"Hey Jude" was…` reads `Hey Jude was…`). Download a CSV when cells
-  hold line breaks or quotes.
+  a cell with a line break cuts its row off at the break. Its leftover lines
+  are left out with a reason, and the rows after it are fine. A cell with two
+  line breaks has a middle line with nothing to show it is part of a cell, so
+  it can be read as a row of its own. In a tab-separated file, a line with a
+  quote left open at the edge of a cell is left out as *a quote never closes*.
+  A tab-separated file from Google Sheets puts no quotes around a cell at all,
+  so its line breaks cannot be caught. Download a CSV when cells hold line
+  breaks.
 - **Quotes are fine.** A spreadsheet saves a cell like `the "quiet" one` as
-  `"the ""quiet"" one"`, and the app reads it back with its quotes.
+  `"the ""quiet"" one"`, and the app reads it back with its quotes. In a
+  tab-separated file Google Sheets writes it as it stands, and the app reads
+  that as written too; only a lone `"` at the very start or end of a cell
+  (`12"`) leaves the row out, since that is how a cut cell looks.
 
 ## Checking your file
 
@@ -801,8 +809,8 @@ console.
 | Reason shown | What to fix |
 |---|---|
 | missing category, question or answer | One of the three required cells is empty. For formats that ignore the answer, write something in it anyway |
-| a quote never closes — a line break or a stray " in a cell | A cell has a line break in it, or a lone `"` such as an inch mark. Take the line break out, or write `in` |
-| a number reads two ways — write it with a decimal point and no thousands separator | A decimal comma (`26,6406`), a band written with a comma (`1968,1970`), or, in a file separated by semicolons or tabs, any comma in a number, and with semicolons a point before three digits |
+| a quote never closes — a line break or a stray " in a cell | In a tab-separated file: a cell has a line break in it, or starts or ends with a lone `"` such as an inch mark. Take the line break out, or write `in` |
+| a number reads two ways — write it like 26.6406 or -40, with no thousands separator | A number cell the app would have to guess at: a decimal comma, a grouping space, two points, a fraction, a `−` minus sign. The full list is under **A CSV file** |
 | unknown format "…" | The `type` cell names no format. Use a name from the table under **Choosing a format**, the template's drop-down, or leave it blank |
 | the answer matches none of the options | `correctAnswer` is not one of the options, or could mean two. Also the sign of a select-all with a blank `type` |
 | an answer matches none of the options | One of a select-all's answers is not an option |

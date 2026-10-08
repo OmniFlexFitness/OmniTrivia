@@ -154,7 +154,7 @@ const typeKey = (value: string): string =>
   value
     .trim()
     .toUpperCase()
-    .replace(/[\s/&·•:-]+/g, "_")
+    .replace(/[\s/&·•:\-–—]+/g, "_")
     .replace(/_+/g, "_")
     .replace(/^_|_$/g, "");
 
