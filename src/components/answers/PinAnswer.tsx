@@ -29,7 +29,7 @@ export const PinAnswer: React.FC<AnswerProps> = ({ question, onSubmit, isSubmitt
 
   return (
     <div className="flex flex-col items-center gap-3">
-      <MarginChip margin={question.margin} />
+      <MarginChip margin={question.margin} type={question.type} />
       <PinBoard
         image={image}
         pins={spot ? [{ x: spot[0], y: spot[1], tone: "mine" }] : []}

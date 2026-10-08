@@ -1,6 +1,6 @@
 import React from "react";
 import { Lock } from "lucide-react";
-import { Answer, AnswerMargin, PublicQuestion } from "../../types";
+import { Answer, AnswerMargin, PublicQuestion, QuestionType } from "../../types";
 import Button from "../Button";
 
 /**
@@ -43,12 +43,23 @@ const MARGIN_WORDS: Record<AnswerMargin, string> = {
   low: "Close counts a little",
   medium: "Close counts",
   high: "Close counts a lot",
+  // True of a slider (the whole scale) and a pin (the whole picture).
   maximum: "Every answer scores — closer scores more",
 };
 
+/**
+ * A closest-number margin is a share of the answer itself, so even `maximum`
+ * has an edge: for an answer of 206, a guess of 412 or more, or of 0 or less,
+ * scores nothing. `npm run check-question-types` holds the grader to this.
+ */
+const NUMBER_MARGIN_WORDS: Partial<Record<AnswerMargin, string>> = {
+  maximum: "Any guess between zero and double the answer scores",
+};
+
 /** How forgiving the question is, said before anyone answers. */
-export const MarginChip: React.FC<{ margin?: AnswerMargin; className?: string }> = ({
+export const MarginChip: React.FC<{ margin?: AnswerMargin; type: QuestionType; className?: string }> = ({
   margin,
+  type,
   className = "",
 }) =>
   margin ? (
@@ -59,7 +70,7 @@ export const MarginChip: React.FC<{ margin?: AnswerMargin; className?: string }>
           : "border-[#f5ff3b]/60 text-[#f5ff3b] shadow-[0_0_10px_rgba(245,255,59,0.25)]"
       } ${className}`}
     >
-      {MARGIN_WORDS[margin]}
+      {(type === QuestionType.NUMBER && NUMBER_MARGIN_WORDS[margin]) || MARGIN_WORDS[margin]}
     </span>
   ) : null;
 

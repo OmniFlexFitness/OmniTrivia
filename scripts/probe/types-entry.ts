@@ -268,6 +268,22 @@ check(
   `400,000 → ${grade(closest, 400000).credit}`,
 );
 {
+  // The phone's margin chip tells players a closest-number question at
+  // `maximum` scores any guess between zero and double the answer
+  // (src/components/answers/shared.tsx). If this fails, the grader has changed
+  // what `maximum` reaches, and the chip has to change with it.
+  const atMaximum = (answer: number): Question => ({ ...closest, options: [String(answer)], margin: "maximum" });
+  const edges = [206, 384400, -89].map((answer) => {
+    const q = atMaximum(answer);
+    return { answer, double: grade(q, answer * 2).credit, zero: grade(q, 0).credit, half: grade(q, answer * 1.5).credit };
+  });
+  check(
+    "closest number at maximum: double the answer scores nothing, as the phone's chip says",
+    edges.every(({ double, zero, half }) => double === 0 && zero === 0 && near(half, 0.5)),
+    edges.map(({ answer, double, zero, half }) => `${answer}: ×2 → ${double}, 0 → ${zero}, ×1.5 → ${half}`).join("; "),
+  );
+}
+{
   const world = MAP_FRAMES.world;
   const at = (lat: number, lng: number) => {
     const target = geoPinTarget(world, lat, lng, 1)!;
