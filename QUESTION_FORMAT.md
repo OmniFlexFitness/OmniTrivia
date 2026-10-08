@@ -85,8 +85,9 @@ comma.
 > number reads two ways*: a decimal comma (`26,6406`, `3,14`) or a band
 > written with a comma (`1968,1970`) in any file, and in a file separated by
 > semicolons or tabs any comma in a number (`3,142`), and with semicolons a
-> point before three digits too (`10.000`, `1.609`). Only cells read as
-> numbers count; text is left exactly as written. Where Excel writes decimal
+> point before three digits too (`10.000`, `1.609`). Digits grouped with a
+> space or an apostrophe (`384 400`, `384'400`) are refused in any file. Only
+> cells read as numbers count; text is left exactly as written. Where Excel writes decimal
 > commas, format the number columns as text and type the numbers with points.
 
 ### A Google Sheet
@@ -274,7 +275,8 @@ is multiple choice.
   column.** Capitals and extra spaces do not matter.
 - An answer written a little more fully than its option still finds it, as
   long as only one option can be meant, the option is there in whole words
-  (`USA` is not found in Jerusalem), and the part that matches is more than a
+  (`USA` is not found in Jerusalem), the words left over are not a number
+  (`Toy Story 2` is not `Toy Story`), and the part that matches is more than a
   letter, a two-letter code or a number:
 
 | `correctAnswer` | Options | Marks |
@@ -493,9 +495,10 @@ Players type a number, with no scale to hint at where it is.
 ![A closest-number question in the template](docs/images/question-format/number-sheet.png)
 
 - **`correctAnswer` is the number.** Commas and a unit after it are fine:
-  `384,400 km` reads as 384,400 with the unit `km`. Write decimals with a
-  point: a number that could be read two ways, like `26,6406`, leaves the
-  question out (see **A CSV file**).
+  `384,400 km` reads as 384,400 with the unit `km` in a comma-separated file.
+  Write decimals with a point: a number that could be read two ways, like
+  `26,6406`, or `384,400` in a file separated by semicolons or tabs, leaves
+  the question out (see **A CSV file**).
 - **A tolerance is optional:** the first option you fill in. Anything within
   it counts as dead on.
 - **The `type` column is required.** With it blank and no options, a number in
@@ -774,13 +777,15 @@ The leading `'` is not saved into the CSV. Two more things that only show up
 in the file:
 
 - **No line breaks inside a cell.** The app reads the file a line at a time, so
-  a cell with a line break cuts its row off at the break. Its leftover lines
-  are left out with a reason, and the rows after it are fine. A tab-separated
-  file from Google Sheets is the exception: it puts no quotes around a cell,
-  so nothing shows where a cell with a line break ends, and its leftover line
-  can import as a question of its own. Its quotation marks are dropped too
-  (`"Hey Jude" was…` reads `Hey Jude was…`). Download a CSV when cells hold
-  line breaks or quotes.
+  a cell with a line break cuts its row off at the break. A spreadsheet puts
+  that cell in quotes, so both lines end with a quote still open and are left
+  out as *a quote never closes*, and the rows after them are fine. A
+  tab-separated file from Google Sheets is the exception: it puts no quotes
+  around a cell, so nothing shows where a cell with a line break ends, and its
+  leftover line can import as a question of its own. In that file a single
+  `"` (an inch mark) leaves its row out the same way, and a pair of them is
+  dropped (`"Hey Jude" was…` reads `Hey Jude was…`). Download a CSV when cells
+  hold line breaks or quotes.
 - **Quotes are fine.** A spreadsheet saves a cell like `the "quiet" one` as
   `"the ""quiet"" one"`, and the app reads it back with its quotes.
 
@@ -796,6 +801,7 @@ console.
 | Reason shown | What to fix |
 |---|---|
 | missing category, question or answer | One of the three required cells is empty. For formats that ignore the answer, write something in it anyway |
+| a quote never closes — a line break or a stray " in a cell | A cell has a line break in it, or a lone `"` such as an inch mark. Take the line break out, or write `in` |
 | a number reads two ways — write it with a decimal point and no thousands separator | A decimal comma (`26,6406`), a band written with a comma (`1968,1970`), or, in a file separated by semicolons or tabs, any comma in a number, and with semicolons a point before three digits |
 | unknown format "…" | The `type` cell names no format. Use a name from the table under **Choosing a format**, the template's drop-down, or leave it blank |
 | the answer matches none of the options | `correctAnswer` is not one of the options, or could mean two. Also the sign of a select-all with a blank `type` |

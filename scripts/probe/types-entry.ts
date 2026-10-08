@@ -34,6 +34,7 @@ import {
 } from "../../src/types";
 import { REVEAL_DURATION, TIMER_DURATION } from "../../src/constants";
 import {
+  describeSkipped,
   exportRoundsToCSV,
   parseImportData,
   parseImportDataWithReport,
@@ -327,7 +328,7 @@ const answerKey = (options: string[], answer: string, type = "MULTIPLE_CHOICE") 
   const result = importReport(
     [
       "type,category,question,option1,option2,option3,option4,correctAnswer",
-      [type, "X", "Which?", ...options, `"${answer}"`].join(","),
+      [type, "X", "Which?", ...options, answer].map((cell) => `"${cell}"`).join(","),
       // So a refused row is reported by its own reason, not as an empty import.
       "MULTIPLE_CHOICE,Y,Filler?,Red,Green,Blue,Yellow,Red",
     ].join("\n"),
@@ -353,6 +354,14 @@ const lettersAndNumbers: [string[], string, string, string?][] = [
   // Part of a word is not the word.
   [["Jerusalem", "Paris", "Rome", "London"], "USA", "left out: the answer matches none of the options"],
   [["Mozart", "Bach", "Liszt", "Haydn"], "Art", "left out: the answer matches none of the options"],
+  // A number is one word, commas and points included.
+  [["500 miles", "1,000 miles", "5,000 miles", "10,000 miles"], "2,500 miles", "left out: the answer matches none of the options"],
+  [["1.5 million", "3 million", "10 million", "20 million"], "5 million", "left out: the answer matches none of the options"],
+  [["384,400 km", "150,000 km", "1,000 km", "40,000 km"], "400 km", "left out: the answer matches none of the options"],
+  // A sequel is not the original.
+  [["Toy Story", "Shrek 2", "Cars", "Up"], "Toy Story 2", "left out: the answer matches none of the options"],
+  [["Rocky", "Rocky II", "Rocky III", "Creed"], "Rocky IV", "left out: the answer matches none of the options"],
+  [["Toy Story 2", "Shrek", "Cars", "Up"], "Toy Story", "left out: the answer matches none of the options"],
   // Two options in the answer is no answer.
   [["Mars", "Venus", "Jupiter", "Mercury"], "Mars and Venus", "left out: the answer matches none of the options"],
 ];
@@ -443,6 +452,9 @@ const numberCases: [string, string[], string][] = [
   [",", ["NUMBER", "X", "To the Moon?", "", "", "", "384,400 km", ""], "384400,0"],
   [",", ["NUMBER", "X", "Fort Myers latitude?", "", "", "", "26,6406", ""], twoWays],
   [",", ["NUMBER", "X", "To the Moon?", "", "", "", "384,400km", ""], twoWays],
+  [",", ["NUMBER", "X", "To the Moon?", "", "", "", "384 400 km", ""], twoWays],
+  [",", ["NUMBER", "X", "Pi times a thousand?", "", "", "", "1.234,567", ""], twoWays],
+  [",", ["NUMBER", "X", "A half?", "", "", "", ",5", ""], twoWays],
   [",", ["SLIDER", "X", "Apollo 11?", "1950", "1990", "1", "1968,1970", ""], twoWays],
   [",", ["RANGE", "X", "Body temperature?", "30", "45", "0.1", "36,5-37,5", ""], twoWays],
   [";", ["NUMBER", "X", "Pi?", "", "", "", "3,142", ""], twoWays],
@@ -454,6 +466,8 @@ const numberCases: [string, string[], string][] = [
   [";", ["TYPE_ANSWER", "X", "Which herbicide?", "", "", "", "2,4-D", ""], "2,4-D"],
   [";", ["MULTI_SELECT", "X", "Which are under 3?", "1,5", "2,5", "3,5", "1,5|2,5", ""], "1,5|2,5"],
   ["\t", ["NUMBER", "X", "Pi?", "", "", "", "3,142", ""], twoWays],
+  ["\t", ["NUMBER", "X", "To the Moon?", "", "", "", "384'400 km", ""], twoWays],
+  [";", ["NUMBER", "X", "To the Moon?", "", "", "", "384\u00a0400 km", ""], twoWays],
   ["\t", ["NUMBER", "X", "To the Moon?", "", "", "", "384400 km", ""], "384400,0"],
   ["\t", fortMyersRow, fortMyersPin],
 ];
@@ -463,10 +477,23 @@ check(
   fortMyersPin.startsWith("pin ") && misreadNumbers.length === 0,
   misreadNumbers.map(([separator, row]) => `${JSON.stringify(separator)} ${row[6]} → ${numberRow(separator, row)}`).join(" | "),
 );
+// With the band in option4 and option5 the answer cell is only shown, never
+// read as a number, so it is not held to the number rules.
+const displayAnswer = Object.values(
+  importReport(
+    'type,category,question,option1,option2,option3,option4,option5,correctAnswer\nSLIDER,X,Apollo 11?,1950,1990,1,1968,1970,"July 20,1969"',
+  ).contents,
+).flatMap((c) => c.questions)[0];
+check(
+  "a slider's answer is held to the number rules only when it is read as the band",
+  displayAnswer?.options.join(",") === "1950,1990,1,1968,1970",
+  displayAnswer?.options.join(","),
+);
 
 /* Quotes are read the same way whatever the delimiter: a quoted cell can hold
- * the delimiter, and a cell cut by a line break comes up short and is left
- * out, never read as a question. */
+ * the delimiter, and a line whose quote never closes — a cell cut by a line
+ * break, or a stray inch mark — is left out, never read as a question. */
+const unclosedQuote = 'a quote never closes — a line break or a stray " in a cell';
 const commaQuotes = importReport(
   [
     "category,question,correctAnswer,explanation",
@@ -481,7 +508,7 @@ check(
   "in a CSV, a cell cut by a line break is left out, and a quoted phrase may hold a comma",
   commaQuoted.map((q) => `${q.text} = ${q.options[0]}`).join(" | ") ===
     "Name the Fab Four, of Liverpool = Beatles | A real question? = A real answer" &&
-    commaQuotes.skipped.length === 2,
+    commaQuotes.skipped.map((s) => s.reason).join(" | ") === `${unclosedQuote} | ${unclosedQuote}`,
   `${commaQuoted.map((q) => `${q.text} = ${q.options[0]}`).join(" | ")} · left out: ${commaQuotes.skipped.map((s) => s.reason).join(", ")}`,
 );
 const tabQuotes = importReport(
@@ -493,17 +520,34 @@ const tabQuotes = importReport(
     'recorded Bohemian Rhapsody?"\tQueen\tFun fact',
     // Google Sheets writes a cell as it stands: the marks are lost, the text is not.
     'Music\t"Hey Jude" was by which band?\tThe Beatles\t',
-    // A quote that never closes leaves its row out rather than shifting it.
+    // A quote that never closes leaves its row out rather than shifting it,
+    // after the answer column as much as before it.
     'Music\t"Unclosed start\tThe Beatles\tSwallowed',
+    'Music\tHow wide is an LP?\t12 inches\tAn LP is 12" across',
   ].join("\n"),
 );
 const tabQuoted = Object.values(tabQuotes.contents).flatMap((c) => c.questions);
 check(
-  "in a TSV, an Excel-quoted cell is unwrapped, and a cut cell or a stray quote leaves its row out",
+  "in a TSV, an Excel-quoted cell is unwrapped, and a cut cell or a stray quote anywhere leaves its row out",
   tabQuoted.map((q) => `${q.text} = ${q.options[0]} (${q.explanation})`).join(" | ") ===
     '"Let It Be" was by which band? = The Beatles (Recorded in 1969, released in 1970.) | Hey Jude was by which band? = The Beatles ()' &&
-    tabQuotes.skipped.length === 3,
+    tabQuotes.skipped.length === 4 &&
+    tabQuotes.skipped.every((s) => s.reason === unclosedQuote),
   `${tabQuoted.map((q) => `${q.text} = ${q.options[0]} (${q.explanation})`).join(" | ")} · left out: ${tabQuotes.skipped.map((s) => s.reason).join(", ")}`,
+);
+
+/* Old Mac line endings, and a setup screen that stays readable when a type
+ * column is full of words the game does not know. */
+const macEndings = importReport("category,question,correctAnswer\rGeo,Capital of France?,Paris\rGeo,Capital of Italy?,Rome");
+const manyUnknown = importReport(
+  ["type,category,question,option1,option2,correctAnswer", ...Array.from({ length: 5 }, (_, i) => `Level ${i},X,Q${i}?,A,B,A`), "MC,X,Fine?,A,B,A"].join("\n"),
+);
+check(
+  "a file with old Mac line endings imports, and unknown formats are one line on the setup screen",
+  Object.values(macEndings.contents).flatMap((c) => c.questions).length === 2 &&
+    describeSkipped(manyUnknown.skipped) ===
+      '5 questions were left out automatically (5 with an unknown format ("Level 0", "Level 1", "Level 2", …)).',
+  describeSkipped(manyUnknown.skipped) ?? "",
 );
 
 /* ------------------------------------------------------------------ *
@@ -1043,9 +1087,10 @@ const importerReasons = [
   unknownTypes.skipped[0]?.reason.replace(/"[^"]*"/, '"…"'),
   answerKey(["Boston", "Chicago", "Denver", "Austin"], "B").replace(/^left out: /, ""),
   twoWays.replace(/^left out: /, ""),
+  unclosedQuote,
 ];
 check(
-  "the guide lists the reasons an unknown format, a letter answer and a two-way number are left out for, as the importer words them",
+  "the guide lists the reasons the importer's own checks leave a row out for, as the importer words them",
   importerReasons.every((reason) => reason !== undefined && guideReasons.includes(reason)),
   importerReasons.filter((reason) => !guideReasons.includes(reason!)).join(" | "),
 );
