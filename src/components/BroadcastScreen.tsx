@@ -800,11 +800,13 @@ const BroadcastOptions: React.FC<{ snapshot: BroadcastSnapshot }> = ({
           </div>
           <div className="font-hud flex justify-between mt-3 text-3xl text-slate-300">
             <span>{formatNumber(min)}</span>
-            <span className="cyber-hud text-sm self-center text-slate-500">
-              {isRange ? "catch the answer — the tighter, the more it pays" : "slide to your guess"}
-              {question.unit ? <span style={{ textTransform: "none" }}> · {question.unit}</span> : null}
-            </span>
             <span>{formatNumber(max)}</span>
+          </div>
+          {/* Its own line: on a 1280-wide screen the range caption is wider
+              than the gap between the two numbers and ran into both. */}
+          <div className="cyber-hud text-center text-sm text-slate-500 mt-2">
+            {isRange ? "catch the answer — the tighter, the more it pays" : "slide to your guess"}
+            {question.unit ? <span style={{ textTransform: "none" }}> · {question.unit}</span> : null}
           </div>
         </div>
       );
