@@ -1,10 +1,10 @@
 import React, { useState, useRef } from 'react';
 import { useGame } from '../context/GameContext';
 import { fetchFromGoogleSheet } from '../services/importService';
-import { DEFAULT_QUESTION_BANK } from '../constants';
+import { DEFAULT_QUESTION_BANK, QUESTION_TEMPLATE } from '../constants';
 import Button from './Button';
 import Instructions from './Instructions';
-import { ArrowLeft, Upload, Link, Library, Loader2, AlertTriangle, ExternalLink } from 'lucide-react';
+import { ArrowLeft, Upload, Link, Library, Loader2, AlertTriangle, ExternalLink, Download } from 'lucide-react';
 
 const ImportScreen: React.FC = () => {
   const {
@@ -146,13 +146,15 @@ const ImportScreen: React.FC = () => {
               type="file"
               ref={fileInputRef}
               onChange={handleFileChange}
-              accept=".csv,.tsv,.txt"
+              // Comma-separated only: the importer splits on commas, so a
+              // tab-separated file would read as one long column.
+              accept=".csv,.txt"
               className="hidden"
               disabled={busy}
             />
             <Upload size={40} className="mx-auto text-slate-500 mb-4" />
             <h3 className="text-lg font-bold text-white">Upload a File</h3>
-            <p className="text-sm text-slate-400 mb-4">CSV, TSV, or TXT files are supported.</p>
+            <p className="text-sm text-slate-400 mb-4">A CSV file, comma-separated and saved as UTF-8.</p>
             <Button onClick={triggerFileSelect} variant="secondary" disabled={busy}>
               {loading ? <Loader2 className="animate-spin" /> : 'Select File'}
             </Button>
@@ -187,12 +189,31 @@ const ImportScreen: React.FC = () => {
               <strong>Required columns:</strong> category, question, correctAnswer.
             </p>
             <p>
-              <strong>Optional columns:</strong> type, option1–option5, explanation.
+              <strong>Optional columns:</strong> type, option1, option2 … (as
+              many as you need), explanation, image, margin, unit, timeLimit.
             </p>
             <p>
               Leave the option columns empty and the row is read as a typed
               answer — or as a true/false question when correctAnswer says True
               or False.
+            </p>
+            {/* The template is the quickest way to get every format right,
+                and a host on the deployed site has no other way to it. */}
+            <p className="flex flex-wrap gap-x-5 gap-y-1 pt-2">
+              <a
+                href={QUESTION_TEMPLATE.download}
+                className="text-neon-blue hover:underline inline-flex items-center gap-1.5"
+              >
+                <Download size={13} /> Download the question template (.xlsx)
+              </a>
+              <a
+                href={QUESTION_TEMPLATE.guide}
+                target="_blank"
+                rel="noreferrer"
+                className="text-slate-400 hover:text-neon-blue inline-flex items-center gap-1.5"
+              >
+                How every format is written <ExternalLink size={13} />
+              </a>
             </p>
         </div>
       </div>

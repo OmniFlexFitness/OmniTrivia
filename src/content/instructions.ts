@@ -174,7 +174,7 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
     points: [
       "LOAD THE QUESTION BANK is the premade set — hundreds of questions, thirty-odd categories, no API key and nothing to write. Everything below is for bringing your own.",
       "Required columns: category, question, correctAnswer. Optional: type, option1, option2 … (as many as you need), explanation, image, margin, unit, timeLimit.",
-      "Twelve formats: multiple choice, select-all, true/false, typed answer, slider, range, closest number, pin answer on a picture or a built-in world or US map, and four puzzles — order, match, sort and unscramble. QUESTION_FORMAT.md shows how each one is written.",
+      "Twelve formats: multiple choice, select-all, true/false, typed answer, slider, range, closest number, pin answer on a picture or a built-in world or US map, and four puzzles — order, match, sort and unscramble. The question template at the bottom of this screen has one of each, ready to overwrite.",
       "Leave the option columns empty and the row is read as a typed answer, or as true/false when correctAnswer says True or False. A row whose correctAnswer matches none of its options is dropped rather than guessed at, and so is any question with placeholder answers (\"Placeholder 1\", \"Option A\") or nothing to choose between.",
       "A Google Sheet has to be shared as 'anyone with the link can view' before it can be read.",
       "Bring the whole file. You choose how much of it to play on the next screen, so a library of twenty categories is fine for a three-round night.",

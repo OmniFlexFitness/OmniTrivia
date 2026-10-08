@@ -11,7 +11,12 @@ const parseCSVLine = (line: string): string[] => {
     let inQuotes = false;
     for (let i = 0; i < line.length; i++) {
         const char = line[i];
-        if (char === '"') {
+        if (char === '"' && inQuotes && line[i + 1] === '"') {
+            // A doubled quote inside a quoted field is one literal quote: how
+            // Excel and Google Sheets write `the "quiet" one` into a CSV.
+            current += '"';
+            i++;
+        } else if (char === '"') {
             inQuotes = !inQuotes;
         } else if (char === ',' && !inQuotes) {
             result.push(current.trim());
@@ -276,9 +281,16 @@ const numberBand = (value: string): [number, number] | null => {
     return single === null ? null : [single, single];
 };
 
-/** A short unit written after the answer — "384,400 km" gives "km". */
+/**
+ * A short unit written after the answer — "384,400 km" gives "km", "98.6 °F"
+ * gives "°F". The number has to be everything before it, and a unit starts
+ * like one and has no digits in it: so "1968-1970", "1968 to 1970", "98.6" and
+ * "8,849" have no unit, rather than "-1970", "to 1970", ".6" and ",849".
+ */
 const trailingUnit = (value: string): string | undefined => {
-    const match = value.trim().match(/^-?[\d.,\s]+\s*([^\d\s].{0,11})$/);
+    const match = value
+        .trim()
+        .match(/^(?=-?\.?\d)-?(?:\d[\d,\s]*)?(?:\.\d+)?\s*([^\d\s.,\-–—][^\d]{0,11})$/);
     return match ? match[1].trim() : undefined;
 };
 
