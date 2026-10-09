@@ -779,13 +779,14 @@ check(
 {
   // Round two of a night where Di went out in round one: Ada plays Bo, Cy has
   // the bye, and Di should still have a seat — on the Redemption Table. Ada
-  // carries the 300 she answered her way to in round one, on her total and
-  // her redemption points both.
+  // carries the 300 she answered her way to in round one on her redemption
+  // points, and on her total with the 150 win bonus she was paid for that
+  // round on top — so the room's copy of the two numbers can be told apart.
   const knockedOut = players.map((p) =>
     p.id === "p4"
       ? { ...p, eliminated: true, redemptionScore: 0 }
       : p.id === "p1"
-        ? { ...p, score: 300, redemptionScore: 300 }
+        ? { ...p, score: 450, redemptionScore: 300 }
         : p,
   );
   const roundTwo: GameState = {
@@ -832,7 +833,7 @@ check(
   check(
     "a point banked in the bracket counts towards the redemption score too",
     ada.roundScore > 0 &&
-      ada.score === 300 + ada.roundScore &&
+      ada.score === 450 + ada.roundScore &&
       ada.redemptionScore === 300 + ada.roundScore,
     `round ${ada.roundScore}, score ${ada.score}, redemption ${ada.redemptionScore}`,
   );
@@ -849,7 +850,7 @@ check(
   const adaInRoom = published.players.find((p) => p.id === "p1");
   check(
     "a bracket player's redemption points are held back mid-match, like their total",
-    adaInRoom?.redemptionScore === 300 && adaInRoom?.score === 300,
+    adaInRoom?.redemptionScore === 300 && adaInRoom?.score === 450,
     `room sees redemption ${adaInRoom?.redemptionScore}, score ${adaInRoom?.score}`,
   );
 

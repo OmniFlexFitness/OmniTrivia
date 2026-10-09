@@ -415,6 +415,15 @@ const playWildNight = (
       : 0;
     if (byeOnWildSide && eligible && sideSize >= 3) missedWildcards += 1;
 
+    // The win bonus goes on the total, as the app pays it, and never on
+    // redemption, so the night's two numbers come apart the way a real
+    // night's do. (The draw is random, so whether this night alone catches a
+    // podium ranked on the total depends on it; the `allGame` fixture below
+    // is the check that always does.)
+    players = players.map((p) =>
+      outcome.bonuses[p.id] ? { ...p, score: p.score + outcome.bonuses[p.id] } : p,
+    );
+
     const knocked = new Set(outcome.eliminatedIds);
     const dropped = new Set(outcome.losersIds);
     const wild = new Set(outcome.wildcardIds);
@@ -609,7 +618,7 @@ const playWildNight = (
       .map((p) => p.redemptionScore ?? 0),
   );
   check(
-    "the redemption prize goes to the most redemption points off the podium",
+    "the redemption prize goes to the most redemption points outside the top two",
     places.redemptionId !== null &&
       places.redemptionId !== places.championId &&
       places.redemptionId !== places.runnerUpId &&
@@ -631,12 +640,14 @@ const playWildNight = (
   );
 
   // Third place is the most points answered all game, not the most banked
-  // after going out: Di was never knocked out and outscored Ada, who was.
+  // after going out, and not the biggest total: Di was never knocked out and
+  // answered more than Ada, who was — though Ada's win bonuses give her the
+  // bigger total, so a podium ranked on the total would pick her instead.
   const allGame = makePlayers(4).map((p, i) => ({
     ...p,
-    score: [150, 600, 450, 300][i],
+    score: [330, 600, 450, 300][i],
     eliminated: i === 0,
-    redemptionScore: [100, 400, 300, 200][i],
+    redemptionScore: [220, 400, 300, 250][i],
   }));
   const allGamePlaces = podium(allGame, [buildFirstRound(allGame)], "p2");
   check(

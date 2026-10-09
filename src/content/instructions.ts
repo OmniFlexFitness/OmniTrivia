@@ -266,7 +266,7 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
       "Every format has its own clock: a true/false is quick, a puzzle or a pin gets longer. Sliders, pins and closest-number guesses pay part of the points for a near miss — shown as ≈ close when your results land.",
       "The last question of the round counts double. However the match has gone, it is not over until that one is in.",
       "You and your opponent answer the same questions; whoever has more points at the end of the round wins the matchup — and in every round, the winner's points count ×1.5 on their total.",
-      "Every point you score, in every round, also goes on your redemption points — the most of them off the podium takes third place, so a lost matchup never makes your answers worth less.",
+      "Every point you score, in every round, also goes on your redemption points — the most of them, by anybody who is not champion or runner-up, takes third place, so a lost matchup never makes your answers worth less.",
       "Out of the bracket? You are on the Redemption Table: the same questions, no opponent, and your redemption points keep building. The best round there can earn a wildcard back into the bracket.",
       "The big screen is behind you on purpose. It only moves when the slowest player in the room is through a question, and it never shows an answer mid-round.",
     ],

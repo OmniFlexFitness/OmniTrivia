@@ -390,13 +390,11 @@ const toPublicPlayer = (player: Player, midMatch: boolean): PublicPlayer => ({
   eliminated: player.eliminated,
   losersBracket: player.losersBracket,
   // Held back the same way as the total: every point anybody banks, in a
-  // matchup or on the Redemption Table, lands on this number too. Never below
-  // zero: a round resumed from a save by an older build, which only counted
-  // the table, has bracket points in the round score and none in here.
-  redemptionScore: Math.max(
-    0,
+  // matchup or on the Redemption Table, lands on this number too. (A save
+  // from before that was true is brought up to date on resume, in
+  // `hostSession.ts`, so this never goes below zero.)
+  redemptionScore:
     (player.redemptionScore ?? 0) - (midMatch ? player.roundScore : 0),
-  ),
   wildcardUsed: player.wildcardUsed,
 });
 

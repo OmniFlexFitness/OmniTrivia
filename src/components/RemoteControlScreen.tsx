@@ -810,7 +810,17 @@ const Standings: React.FC<{
           }`}
         >
           <AvatarDisplay avatar={player.avatar} color={player.avatarColor} size="sm" />
-          <span className="flex-1 truncate font-bold">{player.name}</span>
+          {/* Redemption under the name rather than beside it, so the name
+              keeps the row's width. */}
+          <div className="flex-1 min-w-0 leading-tight">
+            <div className="truncate font-bold">{player.name}</div>
+            <div
+              className="text-[9px] font-mono uppercase text-orange-300"
+              title="Redemption points — every point answered all game"
+            >
+              R {player.redemptionScore ?? 0}
+            </div>
+          </div>
           {showCodes && codes.get(player.id) && (
             <span className="font-mono text-xs tracking-[0.2em] text-neon-yellow">
               {codes.get(player.id)}
@@ -826,12 +836,6 @@ const Standings: React.FC<{
               WC
             </span>
           )}
-          <span
-            className="text-[9px] font-mono uppercase text-orange-300"
-            title="Redemption points — every point answered all game"
-          >
-            R {player.redemptionScore ?? 0}
-          </span>
           <span className="font-mono font-bold text-neon-pink">{player.score}</span>
         </div>
       ))}

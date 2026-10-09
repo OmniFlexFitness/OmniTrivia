@@ -1131,21 +1131,26 @@ const StandingsList: React.FC<{
             accessory={player.avatarAccessory}
             size="md"
           />
-          <div className="flex-1 text-2xl font-bold text-white truncate">
-            {player.name}
-            <span className="ml-3 text-xs font-mono uppercase tracking-widest text-orange-300">
+          {/* Redemption on a line of its own under the name: every row has
+              one, and beside the name it crowded out the status labels. The
+              two lines are the avatar's height, so the row does not grow. */}
+          <div className="flex-1 min-w-0">
+            <div className="text-2xl font-bold text-white truncate">
+              {player.name}
+              {!player.eliminated && player.wildcardUsed && (
+                <span className="ml-3 text-xs font-mono uppercase tracking-widest text-[#f5ff3b]">
+                  wildcard
+                </span>
+              )}
+              {!player.eliminated && player.losersBracket && (
+                <span className="ml-3 text-xs font-mono uppercase tracking-widest text-orange-300">
+                  loser's bracket
+                </span>
+              )}
+            </div>
+            <div className="text-xs font-mono uppercase tracking-widest text-orange-300">
               redemption · {player.redemptionScore ?? 0}
-            </span>
-            {!player.eliminated && player.wildcardUsed && (
-              <span className="ml-3 text-xs font-mono uppercase tracking-widest text-[#f5ff3b]">
-                wildcard
-              </span>
-            )}
-            {!player.eliminated && player.losersBracket && (
-              <span className="ml-3 text-xs font-mono uppercase tracking-widest text-orange-300">
-                loser's bracket
-              </span>
-            )}
+            </div>
           </div>
           {showRoundScore && (
             <div className="text-xl font-mono text-neon-green">

@@ -1137,12 +1137,16 @@ const PlayerScreen: React.FC = () => {
                       accessory={player.avatarAccessory}
                       size="sm"
                     />
-                    <span className="flex-1 truncate font-bold text-white">
-                      {player.name}
-                    </span>
-                    <span className="font-mono text-[10px] uppercase tracking-widest text-orange-300">
-                      R {player.redemptionScore ?? 0}
-                    </span>
+                    {/* Redemption under the name rather than beside it, so
+                        the name keeps the row's width on a narrow phone. */}
+                    <div className="flex-1 min-w-0 leading-tight">
+                      <div className="truncate font-bold text-white">
+                        {player.name}
+                      </div>
+                      <div className="font-mono text-[10px] uppercase tracking-widest text-orange-300">
+                        R {player.redemptionScore ?? 0}
+                      </div>
+                    </div>
                     {!player.eliminated && player.wildcardUsed && (
                       <span className="font-mono text-[10px] uppercase tracking-widest text-neon-yellow">
                         wildcard

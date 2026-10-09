@@ -1325,9 +1325,17 @@ const HostControlScreen: React.FC = () => {
                         index + 1
                       )}
                     </span>
-                    <span className="flex-1 truncate font-bold">
-                      {player.name}
-                    </span>
+                    {/* Redemption under the name rather than beside it, so
+                        the name keeps the row's width in a narrow column. */}
+                    <div className="flex-1 min-w-0 leading-tight">
+                      <div className="truncate font-bold">{player.name}</div>
+                      <div
+                        className="font-mono text-[10px] text-orange-300"
+                        title="Redemption points — every point answered all game, before the win bonus. The most, among everybody but the champion and runner-up, takes third place."
+                      >
+                        R {player.redemptionScore ?? 0}
+                      </div>
+                    </div>
                     {showCodes && player.rejoinCode && (
                       <span className="font-mono text-xs tracking-[0.2em] text-neon-yellow">
                         {player.rejoinCode}
@@ -1349,12 +1357,6 @@ const HostControlScreen: React.FC = () => {
                         WC
                       </span>
                     )}
-                    <span
-                      className="font-mono text-[10px] text-orange-300"
-                      title="Redemption points — every point answered all game, before the win bonus. The most off the podium takes third place."
-                    >
-                      R {player.redemptionScore ?? 0}
-                    </span>
                     <span className="font-mono text-neon-green text-xs">
                       +{player.roundScore}
                     </span>
