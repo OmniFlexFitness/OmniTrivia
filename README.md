@@ -124,7 +124,8 @@ Table alike — before the ×1.5 win bonus, which goes on the total only.
 Everybody plays every round's questions, so it compares the whole room like
 for like, and losing a matchup never makes your answers worth less. It is held
 back with the rest of a player's score until their match is over, and every
-standings list shows it as **R**.
+standings list shows it under each player's name (**R** on the host's desk, the
+remote and phones).
 
 **Wildcards instead of byes.** When a side of the bracket has an odd field of
 three or more, the spare seat used to be a free pass. Now it goes to the best

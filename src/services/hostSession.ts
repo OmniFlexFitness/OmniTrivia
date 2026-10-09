@@ -1,4 +1,5 @@
-import { GamePhase, GameState } from "../types";
+import { GamePhase, GameState, Player } from "../types";
+import { winBonuses } from "./bracket";
 
 /**
  * The game a host can come back to.
@@ -198,6 +199,41 @@ export const parseHostEnvelope = (
   }
 };
 
+/**
+ * Every player's redemption points, as this build counts them: every point
+ * they have answered their way to all game.
+ *
+ * A game saved by a build from before redemption counted every round only has
+ * the points banked on the Redemption Table in there, and resuming it as it
+ * was would decide third place on two rules at once — the rounds before the
+ * save on the old one, the rounds after it on the new. So they are worked out
+ * again from the total, which has always carried every answer point: the
+ * score less the win bonuses already paid, which the resolved rounds of the
+ * bracket record. A save from this build comes back exactly as it was,
+ * because there the two are already the same number.
+ */
+const withRedemptionFromScore = (
+  players: Player[],
+  bracket: PersistedHostState["bracket"],
+): Player[] => {
+  const paid = new Map<string, number>();
+  bracket
+    .filter((round) => round.resolved)
+    .forEach((round) =>
+      Object.entries(winBonuses(round)).forEach(([id, bonus]) =>
+        paid.set(id, (paid.get(id) ?? 0) + bonus),
+      ),
+    );
+
+  return players.map((player) => ({
+    ...player,
+    redemptionScore: Math.max(
+      player.redemptionScore ?? 0,
+      player.score - (paid.get(player.id) ?? 0),
+    ),
+  }));
+};
+
 /** The game, put back together around the state the window already has. */
 export const applyHostState = (
   previous: GameState,
@@ -206,6 +242,7 @@ export const applyHostState = (
 ): GameState => ({
   ...previous,
   ...state,
+  players: withRedemptionFromScore(state.players, state.bracket),
   // A game saved before the loser's bracket existed was single elimination.
   losersBracket: state.losersBracket === true,
   // A game saved before qualifying rounds existed was elimination from round

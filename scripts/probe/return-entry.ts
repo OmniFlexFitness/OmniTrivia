@@ -620,6 +620,98 @@ check(
     ),
 );
 
+section("Redemption points on a game saved by an older build");
+
+// Round two, mid-match. Ada beat Bo in round one on 300 (a 150 win bonus on
+// her total) and has 200 so far this round; Bo went out on 250 and has banked
+// 100 on the Redemption Table since; Cy took round one's bye on 280 and has
+// 50 so far. A build from before redemption counted every round only added
+// the table's points, so its save says Ada 0, Bo 100, Cy 0.
+const redemptionRounds: BracketRound[] = [
+  {
+    roundNumber: 1,
+    resolved: true,
+    matchups: [
+      {
+        id: "r1-m1",
+        roundNumber: 1,
+        playerAId: "ada",
+        playerBId: "bo",
+        winnerId: "ada",
+        scoreA: 300,
+        scoreB: 250,
+        tiebreak: null,
+        winBonus: 150,
+      },
+      {
+        id: "r1-m2",
+        roundNumber: 1,
+        playerAId: "cy",
+        playerBId: null,
+        winnerId: "cy",
+        scoreA: 280,
+        scoreB: null,
+        tiebreak: "Bye",
+      },
+    ],
+  },
+  {
+    roundNumber: 2,
+    resolved: false,
+    matchups: [
+      {
+        id: "r2-m1",
+        roundNumber: 2,
+        playerAId: "ada",
+        playerBId: "cy",
+        winnerId: null,
+        scoreA: null,
+        scoreB: null,
+        tiebreak: null,
+      },
+    ],
+  },
+];
+const savedRedemption = (redemption: [number, number, number]): GameState => ({
+  ...liveGame(),
+  currentRound: 2,
+  players: [
+    player("ada", "Ada", { score: 650, roundScore: 200, redemptionScore: redemption[0] }),
+    player("bo", "Bo", { score: 350, roundScore: 100, redemptionScore: redemption[1], eliminated: true }),
+    player("cy", "Cy", { score: 330, roundScore: 50, redemptionScore: redemption[2] }),
+  ],
+  bracket: redemptionRounds,
+});
+const redemptionOf = (state: GameState) =>
+  state.players.map((p) => `${p.name}:${p.redemptionScore}`).join(" ");
+
+const fromOldBuild = applyHostState(
+  { ...liveGame(), phase: GamePhase.START, isHost: false },
+  captureHostState(savedRedemption([0, 100, 0])),
+  PIN,
+);
+check(
+  "an older build's save has its redemption points rebuilt from every answer",
+  redemptionOf(fromOldBuild) === "Ada:500 Bo:350 Cy:330",
+  `${redemptionOf(fromOldBuild)} — wanted the totals less the 150 win bonus Ada was paid`,
+);
+
+const fromThisBuild = applyHostState(
+  { ...liveGame(), phase: GamePhase.START, isHost: false },
+  captureHostState(savedRedemption([500, 350, 330])),
+  PIN,
+);
+check(
+  "a save from this build comes back exactly as it was",
+  redemptionOf(fromThisBuild) === "Ada:500 Bo:350 Cy:330",
+  redemptionOf(fromThisBuild),
+);
+check(
+  "and nobody in a match is shown less than nothing",
+  fromOldBuild.players.every((p) => (p.redemptionScore ?? 0) >= p.roundScore),
+  redemptionOf(fromOldBuild),
+);
+
 clearHostSession();
 check("ending a game closes the door behind it", readHostSession() === null);
 

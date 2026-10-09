@@ -1033,8 +1033,8 @@ export interface Podium {
   championId: string | null;
   runnerUpId: string | null;
   /**
-   * Third place: most redemption points, among players not already on the
-   * podium.
+   * Third place: most redemption points, among everybody who is not
+   * champion or runner-up.
    */
   redemptionId: string | null;
 }

@@ -26,7 +26,7 @@ phone show the same three names:
 | --- | --- | --- |
 | **Champion** | Last player standing in the bracket — or, if the rounds run out first, the top of the standings (unbeaten players ahead of the loser's bracket, then total score). | The main event. |
 | **Runner-up** | The finalist who lost the best-of-3 series. If the rounds ran out, the next player in the same order the champion was picked in. | Rewards a deep run, and gives the semi-finalists something real to play for. |
-| **Redemption** (third place) | Most **redemption points** — every point a player answered their way to, in every round of the game, before the win bonus — among players who are *not champion or runner-up*. | Rewards the best night of trivia outside the final, and keeps everybody who loses early playing hard: every point they score still counts. |
+| **Redemption** (third place) | Most **redemption points** — every point a player answered their way to, in every round of the game, before the win bonus — among players who are *not champion or runner-up*. | Rewards the best night of trivia by anybody who is not champion or runner-up, and keeps everybody who loses early playing hard: every point they score still counts. |
 
 Two things about Redemption matter for prize design:
 
@@ -137,8 +137,8 @@ starts winning every week.**
 A prize nobody knows about changes nobody's behaviour. Say it out loud:
 
 - **Before game 1:** "Every point you score tonight, in every round, counts
-  towards your redemption points — the most of them outside the final takes
-  third place. Knocked out early? Don't leave. You keep playing every round on
+  towards your redemption points — the most of them, by anybody who is not
+  champion or runner-up, takes third place. Knocked out early? Don't leave. You keep playing every round on
   the Redemption Table, still building them, and the best round there can get
   you back into the bracket as a wildcard."
 - **Before game 2:** "Game 2 is worth more than game 1." Say the numbers.
