@@ -416,8 +416,10 @@ const playWildNight = (
     if (byeOnWildSide && eligible && sideSize >= 3) missedWildcards += 1;
 
     // The win bonus goes on the total, as the app pays it, and never on
-    // redemption — so the two numbers come apart, and a podium that ranked
-    // third place on the total would be caught.
+    // redemption, so the night's two numbers come apart the way a real
+    // night's do. (The draw is random, so whether this night alone catches a
+    // podium ranked on the total depends on it; the `allGame` fixture below
+    // is the check that always does.)
     players = players.map((p) =>
       outcome.bonuses[p.id] ? { ...p, score: p.score + outcome.bonuses[p.id] } : p,
     );

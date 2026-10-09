@@ -780,8 +780,8 @@ check(
   // Round two of a night where Di went out in round one: Ada plays Bo, Cy has
   // the bye, and Di should still have a seat — on the Redemption Table. Ada
   // carries the 300 she answered her way to in round one on her redemption
-  // points, and on her total with the 150 win bonus for beating Bo on top —
-  // so the room's copy of the two numbers can be told apart.
+  // points, and on her total with the 150 win bonus she was paid for that
+  // round on top — so the room's copy of the two numbers can be told apart.
   const knockedOut = players.map((p) =>
     p.id === "p4"
       ? { ...p, eliminated: true, redemptionScore: 0 }

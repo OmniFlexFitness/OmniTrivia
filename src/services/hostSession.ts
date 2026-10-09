@@ -242,7 +242,13 @@ export const applyHostState = (
 ): GameState => ({
   ...previous,
   ...state,
-  players: withRedemptionFromScore(state.players, state.bracket),
+  // Not a game that is already over, though: its places were called on the
+  // screens before this window went away, and a reload is no reason to give
+  // third place to somebody else after the prize has been handed out.
+  players:
+    state.phase === GamePhase.GAME_OVER
+      ? state.players
+      : withRedemptionFromScore(state.players, state.bracket),
   // A game saved before the loser's bracket existed was single elimination.
   losersBracket: state.losersBracket === true,
   // A game saved before qualifying rounds existed was elimination from round

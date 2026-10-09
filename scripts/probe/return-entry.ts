@@ -712,6 +712,20 @@ check(
   redemptionOf(fromOldBuild),
 );
 
+// A game that had already ended called its three places on every screen
+// before the window went away. Reloading it must not hand third place to
+// somebody else after the prize is given out.
+const finishedOnOldBuild = applyHostState(
+  { ...liveGame(), phase: GamePhase.START, isHost: false },
+  captureHostState({ ...savedRedemption([0, 100, 0]), phase: GamePhase.GAME_OVER }),
+  PIN,
+);
+check(
+  "a game that was already over comes back with the places it was called on",
+  redemptionOf(finishedOnOldBuild) === "Ada:0 Bo:100 Cy:0",
+  redemptionOf(finishedOnOldBuild),
+);
+
 clearHostSession();
 check("ending a game closes the door behind it", readHostSession() === null);
 
