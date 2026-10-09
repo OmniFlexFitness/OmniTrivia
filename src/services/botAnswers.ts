@@ -1,6 +1,7 @@
 import { Answer, Question, QuestionType } from "../types";
 import { mapAspect, mapFrameFor } from "./mapProjection";
 import { matchChoices, categorizeGroups, categorizeHomes, scrambleLetters } from "./snapshot";
+import { scrambleKey } from "./scoring";
 
 /**
  * What a bot answers, built to be right or wrong on purpose.
@@ -109,9 +110,7 @@ export const botAnswerFor = (
       if (shouldBeCorrect) return word;
       // The letters, reversed — right tiles, wrong word.
       const reversed = [...scrambleLetters(word)].reverse().join("");
-      return reversed.toLowerCase() === word.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "")
-        ? `${reversed}X`
-        : reversed;
+      return scrambleKey(reversed) === scrambleKey(word) ? `${reversed}X` : reversed;
     }
 
     default: {

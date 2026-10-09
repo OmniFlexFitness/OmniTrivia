@@ -46,6 +46,7 @@ import {
   categorizeGroups,
   matchChoices,
   publicOptions,
+  scrambleLetters,
   toPublicQuestion,
 } from "../../src/services/snapshot";
 import { botAnswerFor } from "../../src/services/botAnswers";
@@ -253,6 +254,24 @@ check(
     written[1]?.options.slice(3).join("-") === "1968-1970" &&
     written[2]?.options.slice(3).join("-") === "1968-1970",
   written.map((q) => JSON.stringify(q.unit ?? "")).join(" "),
+);
+/* An area or a volume typed without superscripts has a digit in its unit. */
+const digitUnits = Object.values(
+  parseImportDataWithReport(
+    [
+      "type,category,question,correctAnswer",
+      'NUMBER,X,Greenland?,"2,166,086 km2"',
+      "NUMBER,X,A room?,10 m^2",
+      "NUMBER,X,Gravity?,9.8 m/s2",
+      "NUMBER,X,A million?,1e6",
+      "NUMBER,X,Small?,2.5e-3 m",
+    ].join("\n"),
+  ).contents,
+).flatMap((c) => c.questions);
+check(
+  "a digit after a letter or ^ stays in the unit (km2, m^2), and an exponent is not a unit",
+  digitUnits.map((q) => q.unit ?? "").join("|") === "km2|m^2|m/s2||",
+  digitUnits.map((q) => JSON.stringify(q.unit ?? "")).join(" "),
 );
 
 /* A type word the game does not know used to make the row multiple choice,
@@ -693,6 +712,84 @@ check(
     grade(scramble, "NEWYORK").correct &&
     !grade(scramble, "YORKNEW").correct,
 );
+{
+  // ß is the tiles S S, and Turkish ı is the tile I, which reads back as i: a
+  // word is graded, and its letters counted, the way its tiles show it.
+  const tiled = parseImportDataWithReport(
+    [
+      "type,category,question,correctAnswer",
+      "SCRAMBLE,X,A street,Straße",
+      "SCRAMBLE,X,A city,Iğdır",
+      "SCRAMBLE,X,Twenty tiles,ABCDEFGHIJKLMNOPQRß",
+      "SCRAMBLE,X,Twenty-one tiles,ABCDEFGHIJKLMNOPQRSß",
+    ].join("\n"),
+  );
+  const words = Object.values(tiled.contents).flatMap((c) => c.questions);
+  check(
+    "scramble: a word whose letters change in upper case is right from its own tiles, and counted as its tiles",
+    words.length === 3 &&
+      words.every((q) => grade(q, scrambleLetters(q.options[0]).join("")).correct) &&
+      words.every((q) => !grade(q, botAnswerFor(q, false)).correct) &&
+      tiled.skipped.map((s) => s.reason).join() === "a scramble needs 3 to 20 letters",
+    words.map((q) => `${q.options[0]}: ${scrambleLetters(q.options[0]).join("")}`).join(", "),
+  );
+}
+
+/* A typed answer takes one accepted spelling, or a list of items when every
+ * one of them is accepted: "name as many as you can" is answered with a list. */
+const typed = Object.values(
+  parseImportDataWithReport(
+    [
+      "type,category,question,option1,option2,correctAnswer",
+      ',Food,Name as many ingredients in a classic margarita as you can.,,,"Tequila, lime juice, triple sec, salt"',
+      ",Science,Which is the longest bone in the body?,,,Femur",
+      "TYPE_ANSWER,Literature,Name a Shakespeare play.,Romeo and Juliet,Hamlet,Romeo and Juliet",
+      ",Sports,Who was known as the Diesel?,,,Shaquille O'Neal",
+    ].join("\n"),
+  ).contents,
+).flatMap((c) => c.questions);
+const typedQ = (fragment: string): Question => typed.find((q) => q.text.includes(fragment))!;
+const margarita = typedQ("margarita");
+const femur = typedQ("longest bone");
+const plays = typedQ("Shakespeare");
+const diesel = typedQ("Diesel");
+const rightLists = [
+  "tequila",
+  "Tequila, lime juice",
+  "salt, tequila, lime juice, triple sec",
+  "tequila,lime juice,triple sec,salt",
+  "tequila and lime juice",
+  "Tequila, lime juice, triple sec, salt",
+];
+check(
+  "typed answer: one item or several, in any order and any spacing, when every one is on the list",
+  rightLists.every((answer) => grade(margarita, answer).correct && grade(margarita, answer).credit === 1),
+  rightLists.filter((answer) => !grade(margarita, answer).correct).join(" / "),
+);
+check(
+  "typed answer: one item that is not on the list makes the whole answer wrong",
+  !grade(margarita, "tequila, vodka").correct &&
+    grade(margarita, "tequila, vodka").credit === 0 &&
+    !grade(femur, "femur, tibia").correct &&
+    grade(femur, "Femur").correct &&
+    [",", " ; ", "and", ""].every((answer) => !grade(margarita, answer).correct),
+);
+check(
+  "typed answer: a spelling with \"and\" in it matches on its own and as one item of a list",
+  grade(plays, "Romeo and Juliet").correct &&
+    grade(plays, "romeo and juliet, hamlet").correct &&
+    grade(plays, "Hamlet; Romeo and Juliet").correct,
+);
+check(
+  "typed answer: a curly apostrophe matches a straight one",
+  grade(diesel, "Shaquille O’Neal").correct && grade(diesel, "shaquille o'neal").correct,
+);
+check(
+  "a bot's typed answers are still right when meant and wrong when not",
+  [margarita, femur, plays, diesel].every(
+    (q) => grade(q, botAnswerFor(q, true)).correct && !grade(q, botAnswerFor(q, false)).correct,
+  ),
+);
 check(
   "a malformed answer is wrong, not an error",
   [mc, multi, slider, range, closest, paris, order, match, sort, scramble].every((q) =>
@@ -1041,6 +1138,26 @@ check(
     .filter(Boolean)
     .join(" — "),
 );
+// A slider starts mid-scale and a range's handles at 30% and 70% of it (as
+// NumberAnswers.tsx places them), so an example whose answer sits there
+// teaches hosts to give the answer away to anyone who just taps lock.
+const untouched = Object.values(example.contents)
+  .flatMap((c) => c.questions)
+  .filter((q) => q.type === QuestionType.SLIDER || q.type === QuestionType.RANGE)
+  .filter((q) => {
+    const [min, max, step] = q.options.map(Number);
+    const snap = (value: number) => Math.min(max, Math.max(min, Math.round((value - min) / step) * step + min));
+    const start =
+      q.type === QuestionType.SLIDER
+        ? snap((min + max) / 2)
+        : [snap(min + (max - min) * 0.3), snap(min + (max - min) * 0.7)];
+    return gradeAnswer(q, start).credit > 0;
+  });
+check(
+  "no slider or range in questions.example.csv scores for a player who never moves it",
+  untouched.length === 0,
+  untouched.map((q) => q.text).join(" / "),
+);
 
 /* ------------------------------------------------------------------ *
  * The template workbook
@@ -1120,7 +1237,11 @@ let heading = "";
 for (let i = 0; i < guide.length; i += 1) {
   if (/^#{2,3} /.test(guide[i])) heading = guide[i];
   if (guide[i].trim() === "```csv") {
-    const end = guide.indexOf("```", i + 1);
+    const end = guide.findIndex((line, j) => j > i && /^`{3,}$/.test(line.trim()));
+    if (end === -1) {
+      check("every csv block in the guide is closed", false, heading);
+      break;
+    }
     examples.push({
       heading,
       type: heading.match(/`([A-Z_]+)`/)?.[1] ?? null,
@@ -1167,7 +1288,7 @@ check(
 check("`Sort` is the sort puzzle, as the guide warns, not putting things in order", parseQuestionType("Sort") === QuestionType.CATEGORIZE);
 
 // The guide's table of reasons a row is left out is how a host reads the
-// setup screen. The reasons added with the importer's own checks have to be
+// review screen. The reasons added with the importer's own checks have to be
 // in it, word for word as the importer gives them.
 const guideReasons = guide.filter((line) => /^\| [a-z]/.test(line)).map((line) => line.split("|")[1].trim());
 const importerReasons = [

@@ -1,6 +1,8 @@
 /**
  * Draws the pictures in QUESTION_FORMAT.md.
  *
+ *   Needs Node 22.18 or later, which runs src/services/mapProjection.ts
+ *   directly (as scripts/generate-maps.mjs does).
  *   npm i --no-save playwright@1.56    # once; it does not touch package.json
  *   npx playwright install chromium    # once, if no Chromium is installed
  *   node scripts/generate-format-images.mjs            # everything
@@ -163,7 +165,7 @@ const FORMATS = [
     badge: "Type answer",
     tone: ["#fef9c3", "#a16207"],
     notes: {
-      type: "TYPE_ANSWER",
+      type: "TYPE_ANSWER. Required: a blank type reads as multiple choice",
       option1: "Every spelling you accept. option1 is the one the reveal shows",
       correctAnswer: "Required, but once options are filled in they are the answer",
     },
@@ -458,7 +460,10 @@ const ANSWERS = {
     lock: (p) => lockButton(p, /^lock it in$/i),
   },
   SLIDER: {
-    fill: (p) => p.getByRole("button", { name: "Down a step" }).click(),
+    // The slider starts mid-scale, at 1960 on 1940–1980: nine steps up is 1969.
+    fill: async (p) => {
+      for (let i = 0; i < 9; i += 1) await p.getByRole("button", { name: "Up a step" }).click();
+    },
     lock: (p) => lockButton(p, /^lock it in$/i),
   },
   RANGE: {
@@ -562,6 +567,9 @@ const shootPhone = async (p) => {
     const room = document.documentElement.scrollHeight - window.innerHeight;
     window.scrollTo(0, Math.max(0, Math.min(room, top - 180)));
   });
+  // Off whatever the last click left the pointer over: a hovered option is
+  // drawn like a picked one.
+  await p.mouse.move(0, 0);
   await p.waitForTimeout(300);
   return p.screenshot();
 };

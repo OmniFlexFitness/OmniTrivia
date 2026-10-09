@@ -90,13 +90,14 @@ const detectDelimiter = (header: string): { delimiter: Delimiter; names: string[
 };
 
 /**
- * Case, surrounding whitespace and repeated spaces ignored.
+ * Case, curly against straight quotes, surrounding whitespace and repeated
+ * spaces ignored.
  *
  * Deliberately the same comparison the scoring service makes, so an answer the
  * importer treats as matching is an answer the game marks correct.
  */
 const normalize = (value: string): string =>
-    value.toLowerCase().trim().replace(/\s+/g, ' ');
+    value.toLowerCase().replace(/[‘’ʼ]/g, "'").replace(/[“”]/g, '"').trim().replace(/\s+/g, ' ');
 
 /**
  * The same, minus the two things that stop a hand-written answer key matching
@@ -215,8 +216,9 @@ const POSITION_ANSWER = "the answer is an option's letter or number — write th
  *
  * The answer as written comes first, because that is what the reveal puts on
  * the big screen. What follows is how a player is actually going to type it:
- * one item out of a list ("name as many as you can" is a round nobody answers
- * in full), the answer without its parenthetical gloss, and the gloss alone.
+ * items out of a list ("name as many as you can" is a round nobody answers in
+ * full, and the grader takes one item or several), the answer without its
+ * parenthetical gloss, and the gloss alone.
  */
 export const acceptedSpellings = (correctAnswer: string): string[] => {
     const canonical = correctAnswer.trim();
@@ -233,8 +235,8 @@ export const acceptedSpellings = (correctAnswer: string): string[] => {
         }
     };
 
-    // A list answer accepts any one of its items. Marking a player wrong for
-    // naming three theme parks out of ten is worse than marking them right,
+    // A list answer accepts its items, one or several. Marking a player wrong
+    // for naming three theme parks out of ten is worse than marking them right,
     // and the host has the full list on the reveal either way. Skipped when the
     // commas are thousands separators rather than list separators.
     if (/[,;]/.test(canonical) && !/\d[,.]\d/.test(canonical)) {
@@ -409,13 +411,16 @@ const numberBand = (value: string): [number, number] | null => {
 /**
  * A short unit written after the answer — "384,400 km" gives "km", "98.6 °F"
  * gives "°F". The number has to be everything before it, and a unit starts
- * like one and has no digits in it: so "1968-1970", "1968 to 1970", "98.6" and
+ * like one, and a digit in it has to follow a letter or ^ (km2, m^2) and
+ * cannot be an exponent (1e6): so "1968-1970", "1968 to 1970", "98.6" and
  * "8,849" have no unit, rather than "-1970", "to 1970", ".6" and ",849".
+ *
+ * No lookbehind in the pattern: Safari before 16.4 cannot compile one.
  */
 const trailingUnit = (value: string): string | undefined => {
     const match = value
         .trim()
-        .match(/^(?=-?\.?\d)-?(?:\d[\d,\s]*)?(?:\.\d+)?\s*([^\d\s.,\-–—][^\d]{0,11})$/);
+        .match(/^(?=-?\.?\d)-?(?:\d[\d,\s]*)?(?:\.\d+)?\s*((?!e[+-]?\d)(?:[a-z^]\d+|[^\d\s.,\-–—])(?:[a-z^]\d+|[^\d]){0,11})$/i);
     return match ? match[1].trim() : undefined;
 };
 
@@ -488,7 +493,7 @@ const pipeList = (value: string): string[] =>
  *
  * Everything a type needs is read here and nowhere else, so the import, the
  * question bank and generated questions all agree on what a row means. The
- * reason given for a skip is worded for a host: it ends up on the setup
+ * reason given for a skip is worded for a host: it ends up on the review
  * screen when an import leaves rows out.
  */
 export const rowToQuestion = (row: QuestionRow, id: string): RowResult => {
@@ -923,13 +928,16 @@ const sheetFetchError = (status: number): Error =>
  * tried first because on a native sheet "no tab" means the leftmost tab, which
  * need not be tab 0 (on the question bank they are different tabs), so links
  * that work today would start importing something else.
+ *
+ * Drive's own Share button gives that file a `drive.google.com/file/d/<id>`
+ * link instead. The id is the same one Sheets uses, so it exports the same way.
  */
 export const fetchFromGoogleSheet = async (url: string): Promise<string> => {
-    if (!url.includes('docs.google.com/spreadsheets/d/')) {
+    if (!/docs\.google\.com\/spreadsheets\/d\/|drive\.google\.com\/file\/d\//.test(url)) {
         throw new Error("Invalid Google Sheet URL.");
     }
 
-    const sheetIdRegex = /spreadsheets\/d\/([a-zA-Z0-9-_]+)/;
+    const sheetIdRegex = /(?:spreadsheets|file)\/d\/([a-zA-Z0-9-_]+)/;
     const gidRegex = /gid=([0-9]+)/;
 
     const sheetIdMatch = url.match(sheetIdRegex);

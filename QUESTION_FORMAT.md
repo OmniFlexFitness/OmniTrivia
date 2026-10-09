@@ -113,23 +113,23 @@ A Google Sheet is fetched from `docs.google.com` when you import it, so it
 needs internet access at that moment. Download a CSV beforehand if the venue's
 Wi-Fi is unreliable.
 
+> [!NOTE]
+> The built-in question bank is served the same way: a public Google Sheet,
+> linked to the tab it reads. To make a sheet of your own the app's default,
+> point `DEFAULT_QUESTION_BANK` in `src/constants.ts` at it and run
+> `npm run check-question-bank` to confirm every row still parses.
+
 ### An Excel file in Google Drive
 
 Upload the `.xlsx` to Drive, share it as **"Anyone with the link can view"**,
 and paste its share link. Opening a `.xlsx` from Drive shows it in Sheets
-without converting it. Its share link looks like
-`.../edit?usp=sharing&ouid=...&rtpof=true&sd=true`, with no `gid=`, and its
-tabs have long random ids instead of 0, so the app reads its first tab. That is
-why the template's Questions tab comes first.
+without converting it. Its share link (`drive.google.com/file/d/...` from
+Drive, or `.../edit?usp=sharing&ouid=...&rtpof=true&sd=true` from Sheets) has
+no `gid=`, and its tabs have long random ids instead of 0, so the app reads its
+first tab. That is why the template's Questions tab comes first.
 
 To read a different tab, open that tab and copy the URL. If anything about the
 file gives trouble, use **File → Save as Google Sheets** and link the copy.
-
-> [!NOTE]
-> This is exactly how the built-in question bank is served. To make a sheet of
-> your own the app's default, point `DEFAULT_QUESTION_BANK` in
-> `src/constants.ts` at it and run `npm run check-question-bank` to confirm
-> every row still parses.
 
 ## How a row becomes a question
 
@@ -146,7 +146,7 @@ flowchart TD
     type -->|"a word the game<br>does not know"| out
     named & tf & mc & typed --> check{"Can it be played?"}
     check -->|yes| review["On the review screen"]
-    check -->|no| out["Left out, and the<br>setup screen says why"]
+    check -->|no| out["Left out, and the<br>review screen says why"]
 ```
 
 ### The columns
@@ -167,7 +167,7 @@ skipped, so a `notes` column is fine.
 | `explanation` | no | Shown with the answer after the round |
 | `image` | no | A picture with the question: an `https://` link, or `world` / `usa` for a built-in map. Required for a `PIN` question, where it is what gets pinned |
 | `margin` | no | How much a near miss on a `SLIDER`, `NUMBER` or `PIN` question still scores: `none`, `low`, `medium`, `high` or `maximum` |
-| `unit` | no | What a `SLIDER`, `RANGE` or `NUMBER` answer counts, shown after the number: `km`, `°F`, `years` |
+| `unit` | no | What a `SLIDER`, `RANGE` or `NUMBER` answer counts, shown after the number: `km`, `°F`, `years` for a span (blank for a calendar year, which would show as `1,969 years`) |
 | `timeLimit` | no | Seconds on the clock for this question, 5 to 120. Each format has its own default |
 
 The optional columns answer to a few other names: `picture`, `image url`,
@@ -186,25 +186,29 @@ The optional columns answer to a few other names: `picture`, `image url`,
 - **Option columns must be named `option1`, `option2` and so on** (`Option 1`
   works). Columns named `Option A`, `Option B` are not read at all.
 - **Placeholder text leaves a question out**: a question starting with
-  `Placeholder`, `TBD`, `TODO` or `Lorem ipsum`, or an option like `Option B`,
-  `Answer 3`, `TBD` or `??`.
+  `Placeholder`, `TBD`, `TODO` or `Lorem ipsum`, or, on a multiple-choice,
+  select-all or puzzle question, an option like `Option B`, `Answer 3`, `TBD`
+  or `??`. On a typed answer such an option is just another accepted spelling,
+  so take it out.
 - **`timeLimit` reads the first number in the cell**, so `45` and `45s` both
-  work, and a value outside 5 to 120 is pulled in to the nearest end when the
-  question is played.
+  work. A value under 5 plays as 5 and one above 120 as 120; 0 or less is
+  ignored and the format's own clock is used.
 
 **Categories.** Each distinct category becomes one category the wheel can land
 on. A category matching a built-in name — **Science, History, Geography, Pop
 Culture, Sports, Tech, Art, Literature, Music, Food** — gets that category's
-icon and colour on the wheel (and `Entertainment` joins Pop Culture). Any other
-name works and gets an icon and colour of its own. Names that differ only in
-capitals or spaces are one category.
+icon and colour on the wheel. (`Entertainment` and `Pop Culture` in one file
+become a single category, named and styled after whichever comes first.) Any
+other name works and gets an icon and colour of its own. Names that differ
+only in capitals are one category.
 
 **The order in the file is not the order it is played.** After the file is
-read you are shown **WHAT TO PLAY**: tick the categories you want, and the
-rounds and questions-per-round numbers you set on the setup screen trim the
-rest away. Whatever survives is shuffled — categories, the questions inside
-each one, and the options under each multiple-choice and select-all question —
-and which category comes up in which round is then decided by the wheel, live.
+read you are shown **WHAT TO PLAY**: tick the categories you want and set its
+**Rounds** and **Questions per round** sliders (they start at what you chose on
+the setup screen); that trims the rest away. Whatever survives is shuffled —
+categories, the questions inside each one, and the options under each
+multiple-choice and select-all question — and which category comes up in which
+round is then decided by the wheel, live.
 So a file can hold far more than one night's worth, and the same file gives a
 different game each time.
 
@@ -248,11 +252,11 @@ Every name the app shows for a format works too: the headings below and the
 badges on the review screen (`Typed answer`, `Puzzle · order`, `Multi-select`).
 
 > [!CAUTION]
-> **A word the game does not know leaves the row out**, and the setup screen
+> **A word the game does not know leaves the row out**, and the review screen
 > gives the word: `unknown format "Quizz"`. It is not guessed at, so a typo in
 > the `type` column is never played as some other format. A `-`, `N/A`, `NA`
-> or `none` counts as blank. `Sort` means `CATEGORIZE`, not putting things in order. Use
-> the template's drop-down and none of this comes up.
+> or `none` counts as blank. `Sort` means `CATEGORIZE`, not putting things in
+> order. Use the template's drop-down and none of this comes up.
 
 **Points.** A right answer is worth 100 plus up to 150 for speed — ten a second
 on a fifteen-second question, scaled so that a full clock is worth the same on
@@ -260,11 +264,12 @@ every format. A near miss earns its share of that, and is shown as **≈ close**
 rather than ✓: it scores, but it is not a right answer and does not keep a
 streak going. The last question of a round counts double.
 
-**What players are told.** A phone shows the question, the clock and the
-answer controls; it never names the format, and never says whether an answer
-was right until that player's match is over. The big screen shows the question
-to the room while anyone is still on it. The answers go up on the big screen,
-as an answer key, when the round ends.
+**What players are told.** While a question is open, a phone shows the
+question, the clock and the answer controls, with no format badge (a
+select-all question does say "Select all that apply" over its options), and it
+never says whether an answer was right until that player's match is over. The
+big screen shows the question to the room while anyone is still on it. The
+answers go up on the big screen, as an answer key, when the round ends.
 
 ## The formats
 
@@ -306,7 +311,7 @@ MULTIPLE_CHOICE,Science,What planet is known as the Red Planet?,Mars,Venus,Jupit
 > `1,000` does not match `1000`.
 
 An answer that matches no option, or could mean two of them (`Mars and
-Venus`), leaves the question out, and the setup screen says so.
+Venus`), leaves the question out, and the review screen says so.
 
 ![Multiple choice played: the phone, the big screen and the answer key](docs/images/question-format/multiple-choice-play.jpg)
 
@@ -388,10 +393,17 @@ Players type the answer on their phone.
 - **Once the options are filled in, they are the whole list.** `correctAnswer`
   is not added to them, so repeat it as an option. The column still cannot be
   blank.
-- **Matching ignores capitals, and spaces at the ends or doubled in the
-  middle.** Nothing else: `George Harrison.` with a full stop, `Beatles` for
-  `The Beatles` and `Pele` for `Pelé` are all wrong. List the variants you will
-  take.
+- **The `type` column is required once the options are filled in.** With it
+  blank the row is read as multiple choice: the spellings become the choices
+  on every phone, only `option1` scores, and nothing warns you.
+- **Matching ignores capitals, curly versus straight quotes and apostrophes,
+  and spaces at the ends or doubled in the middle.** Nothing else:
+  `George Harrison.` with a full stop, `Beatles` for `The Beatles` and `Pele`
+  for `Pelé` are all wrong. List the variants you will take.
+- **A player can name one item or several.** Several items, split by commas,
+  semicolons, `and` or `&`, are right when every one of them is on the list,
+  in any order and however they are spaced. One that is not on the list makes
+  the whole answer wrong.
 - **Leave the options empty** and the accepted spellings are worked out from
   `correctAnswer` instead — see the **shorthand**.
 
@@ -406,7 +418,8 @@ quoted cell, and a spreadsheet writes them for you.
 
 ![Typed answer played: the phone, the big screen and the answer key](docs/images/question-format/type-answer-play.jpg)
 
-All or nothing.
+All or nothing: there is no partial credit for a list with one wrong item in
+it.
 
 ### Slider · `SLIDER`
 
@@ -421,25 +434,33 @@ Players drag to a number on a scale, then lock it in.
 - **With `option4` and `option5` filled in, `correctAnswer` is not graded**,
   but it cannot be blank: write the answer.
 - **The shorter way:** give only the lowest, highest and step, and put the
-  answer — or a band like `1968-1970` or `1968 to 1970` — in `correctAnswer`.
-  In this form the step can be blank too: 1 for whole numbers, 0.1 otherwise.
+  answer in `correctAnswer` — or a band like `1968-1970` or `1968 to 1970`,
+  with nothing after it (a unit goes in the `unit` column). In this form the
+  step can be blank too: 1 for whole numbers, 0.1 otherwise — so write the
+  step yourself when the answer has two or more decimals.
 - **`unit` puts a unit after the number.** Leave it blank for years: a year
   shows as `1969` with no unit and as `1,969 years` with one.
 
+> [!CAUTION]
+> **Keep the target away from the middle of the scale.** The slider starts at
+> the midpoint, so a target that includes it scores in full for a player who
+> never touches it, and a midpoint inside the margin pays a near miss for
+> nothing.
+
 ```csv
 type,category,question,option1,option2,option3,option4,option5,correctAnswer,explanation,margin
-SLIDER,History,In what year did Apollo 11 land on the Moon?,1960,1980,1,1968,1970,1969,Apollo 11 touched down on 20 July 1969.,medium
-SLIDER,History,In what year did Apollo 11 land on the Moon?,1960,1980,1,,,1968-1970,Apollo 11 touched down on 20 July 1969.,medium
+SLIDER,History,In what year did Apollo 11 land on the Moon?,1940,1980,1,1968,1970,1969,Apollo 11 touched down on 20 July 1969.,medium
+SLIDER,History,In what year did Apollo 11 land on the Moon?,1940,1980,1,,,1968-1970,Apollo 11 touched down on 20 July 1969.,medium
 ```
 
 > [!CAUTION]
 > **Never leave `option3` blank when `option4` and `option5` are filled in.**
-> Empty option cells are skipped, so `1960, 1980, (blank), 1968, 1970` reads
-> as a step of 1968, and the slider can only stop at 1960 or 1980. Two more
-> mistakes the importer cannot catch for you: `option4` must not be above
-> `option5` (the question is left out as "slider is missing its scale"), and
-> the target has to sit on the step — a 0–100 slider in steps of 10 can never
-> land on 15, so nobody scores in full.
+> Empty option cells are skipped, so `1940, 1980, (blank), 1968, 1970` reads
+> as a step of 1968, and the slider can only stop at 1940 or 1980. `option4`
+> above `option5` leaves the question out ("slider is missing its scale"). One
+> mistake the importer cannot catch for you: the target has to sit on the step
+> — a 0–100 slider in steps of 10 can never land on 15, so nobody scores in
+> full.
 
 ![A slider played: the phone, the big screen and the answer key](docs/images/question-format/slider-play.jpg)
 
@@ -449,16 +470,16 @@ Kahoot's "margin of accuracy" does. Credit falls in a straight line from full
 at the edge of the target to nothing at the edge of the margin, measured as a
 share of the slider's whole scale:
 
-| `margin` | A miss still scores within… | On 1960–1980, target 1968–1970: 1971 | 1972 | 1975 | 1980 |
+| `margin` | A miss still scores within… | On 1940–1980, target 1968–1970: 1971 | 1972 | 1975 | 1980 |
 |---|---|---|---|---|---|
 | `none` (default) | nothing — inside the target or no points | 0 | 0 | 0 | 0 |
-| `low` | 5% of the scale | 0 | 0 | 0 | 0 |
-| `medium` | 15% of the scale | 67% | 33% | 0 | 0 |
-| `high` | 30% of the scale | 83% | 67% | 17% | 0 |
-| `maximum` | the whole scale — every answer scores, closer scores more | 95% | 90% | 75% | 50% |
+| `low` | 5% of the scale | 50% | 0 | 0 | 0 |
+| `medium` | 15% of the scale | 83% | 67% | 17% | 0 |
+| `high` | 30% of the scale | 92% | 83% | 58% | 17% |
+| `maximum` | the whole scale — nearly every answer scores, closer scores more | 98% | 95% | 88% | 75% |
 
-On a narrow scale `low` buys nothing: 5% of 20 years is one year, and a miss
-of exactly the margin scores nothing. Widen the scale or raise the margin.
+On a narrow scale `low` buys little: 5% of 40 years is two years, so only 1967
+and 1971 score, at half points. Widen the scale or raise the margin.
 
 ### Range · `RANGE`
 
@@ -468,8 +489,10 @@ in. The tighter the catch, the more it pays.
 ![A range in the template](docs/images/question-format/range-sheet.png)
 
 - **The options are a slider's first three:** lowest, highest, step.
-- **`correctAnswer` is the exact answer.** A band (`8800-8900`) works too, as
-  does `option4` and `option5` the way a slider takes them.
+- **`correctAnswer` is the exact answer.** A band (`8800-8900`) works too,
+  with nothing after it: `8800-8900 m` is read as exactly 8800, so put the
+  unit in the `unit` column. `option4` and `option5` work the way a slider
+  takes them.
 - **`margin` does nothing on a range** — the width of the catch is the margin.
 
 ```csv
@@ -479,9 +502,12 @@ RANGE,Geography,"How tall is Mount Everest, in metres?",5000,10000,10,8849,Surve
 
 ![A range played: the phone, the big screen and the answer key](docs/images/question-format/range-play.jpg)
 
-The handles start at 30% and 70% of the scale. While dragging, players see a
-meter of what their range would be worth if the answer is inside it — worked
-out from its width alone, so it gives nothing away.
+The handles start at 30% and 70% of the scale. So an answer in the middle of
+the scale is caught by a player who never moves them, for 40% and a ✓: put
+the answer in the outer 30% at either end (8,849 on 5,000–10,000 sits at 77%),
+or move the scale. While dragging, players see a meter of what their range
+would be worth if the answer is inside it — worked out from its width alone,
+so it gives nothing away.
 
 | The answer is inside a range as wide as… | Scores |
 |---|---|
@@ -577,10 +603,12 @@ PIN,Art,Where is the red square?,40,30,5,The red square,,https://example.com/gri
 > [!WARNING]
 > **Check every pin on the review screen.** Some mistakes cannot be caught:
 > latitude and longitude swapped can still land on the map, somewhere else
-> entirely, and a misspelled map name (`wrold`) is read as a picture link that
-> never loads. Always put the map or the link in the `image` column. Putting it
-> in `option1` instead only works when it has no digits in it, and most links
-> do.
+> entirely, and a misspelled map name (`wrold`) turns the latitude and
+> longitude into percents of a picture that never loads: often the row is left
+> out as "pin target is off the picture", and otherwise it is kept, with a km
+> radius read as a percent (500 km is a ring five pictures wide). Always put
+> the map or the link in the `image` column. Putting it in `option1` instead
+> only works when it has no digits in it, and most links do.
 
 ![A pin question played: the phone, the big screen and the answer key](docs/images/question-format/pin-play.jpg)
 
@@ -592,7 +620,7 @@ A near miss is measured beyond the ring, as a share of the picture's width:
 | `low` (default) | 5% of the width | ≈ 2,000 km | ≈ 235 km |
 | `medium` | 10% | ≈ 4,000 km | ≈ 470 km |
 | `high` | 20% | ≈ 8,000 km | ≈ 940 km |
-| `maximum` | the whole width | everywhere | everywhere |
+| `maximum` | the whole width | almost everywhere | almost everywhere |
 
 The ring's kilometres are true north–south. On the world map it gets narrower
 east–west away from the equator: a 500 km ring at Paris reaches about 330 km
@@ -610,6 +638,9 @@ Players drag items into order (or nudge them with arrows), then lock it in.
   be blank.
 - **The shorter way:** leave the options empty and write the order in
   `correctAnswer`, joined with `|` or `;` (not commas).
+- **The `type` column is required.** With it blank and no options, the row
+  becomes a typed-answer question and is not left out, so nothing warns you
+  (and with the options filled in, a blank type reads as multiple choice).
 
 ```csv
 type,category,question,option1,option2,option3,option4,correctAnswer,explanation
@@ -638,6 +669,8 @@ Players tap an item, then its partner. Tapping a paired item frees it.
 - **`correctAnswer` is not graded**, but it cannot be blank: `See the pairs`
   will do. Or leave the options empty and put the pairs in `correctAnswer`,
   joined with `|`.
+- **The `type` column is required.** With it blank and no options, the row
+  becomes a typed-answer question and is not left out, so nothing warns you.
 
 ```csv
 type,category,question,option1,option2,option3,option4,correctAnswer,explanation
@@ -646,14 +679,15 @@ MATCH,Science,Match each element to its chemical symbol.,,,,,Gold = Au|Silver = 
 ```
 
 > [!WARNING]
-> **A cell that starts with `=` is a formula** in Excel and Google Sheets, and
-> one starting with `+` or `-` is in Excel. Write the item first, the way the
-> examples do.
+> **A cell that starts with `=` or `+` is read as a formula** in Excel and
+> Google Sheets, and one starting with `-` can be too. Write the item first,
+> the way the examples do, or start the cell with `'`.
 
 ![A match puzzle played: the phone, the big screen and the answer key](docs/images/question-format/match-play.jpg)
 
 It pays for every pair right beyond what guessing would get: with four pairs,
-all four is full points, three is two thirds, two is a third, one is nothing.
+all four is full points, two is a third, and one or none is nothing. Three
+right cannot happen, because the last pair is then right too.
 
 ### Puzzle · sort · `CATEGORIZE`
 
@@ -670,6 +704,8 @@ Players tap a group for every item, then lock it in.
 - **`correctAnswer` is not graded**, but it cannot be blank: `See the groups`
   will do. Or leave the options empty and put the items in `correctAnswer`,
   joined with `|`.
+- **The `type` column is required.** With it blank and no options, the row
+  becomes a typed-answer question and is not left out, so nothing warns you.
 - **A long sort deserves a longer clock:** put `40` in `timeLimit`.
 
 ```csv
@@ -690,7 +726,8 @@ three — everything in one group — is nothing.
 
 ### Puzzle · unscramble · `SCRAMBLE`
 
-Players rebuild a word from its shuffled letters, by tapping tiles or typing.
+Players rebuild a word from its shuffled letters by tapping tiles (or typing,
+on a device with a keyboard).
 
 ![An unscramble puzzle in the template](docs/images/question-format/scramble-sheet.png)
 
@@ -739,12 +776,16 @@ answer:
 - **The answer exactly as written** — this is what the reveal puts on the big
   screen, so write it for a human reading it out.
 - **Each comma- or semicolon-separated item**, so a "name as many as you can"
-  question marks a player right for naming one of them rather than wrong for
-  not naming all of them. Single letters are not taken on their own, and
-  nothing is split when the answer has a number with a decimal point or a
-  thousands comma in it.
+  question marks a player right for naming one of them, or several in any
+  order, rather than wrong for not naming all of them. Every item a player
+  names has to be one of them (see **Typed answer**). Single letters are not
+  taken on their own, and nothing is split when the answer has a number with a
+  decimal point or a thousands comma in it.
 - **With and without a bracketed gloss**, so `Rum (white rum)` accepts `Rum`
-  and `white rum` as well.
+  and `white rum` as well. This is done once, for the whole answer and its
+  first bracket, not for each item of a list:
+  `Ottawa (Canada); Paris (France)` accepts `Canada` but not `Ottawa` or
+  `Paris`, so leave brackets out of list answers.
 
 > [!TIP]
 > Want tighter grading than that? Set `type` to `TYPE_ANSWER` and list exactly
@@ -800,11 +841,12 @@ in the file:
 ## Checking your file
 
 After the import, **WHAT TO PLAY** lists every category and how many
-questions it has. A row that cannot be played is left out, never guessed at,
-and the screen says how many were left out and why — "3 questions were left
-out automatically (2 — the answer matches none of the options, 1 with
-placeholder answers)". The first few row numbers are written to the browser's
-console.
+questions it has. A row that cannot be played is left out, never guessed at, and once you
+build the game the review screen (**REVIEW CONTENT**) says how many were left
+out and why — "3 questions were left out automatically (2 — the answer matches
+none of the options, 1 with placeholder answers)". The first few row numbers
+are written to the browser's console. If every row is left out, the import
+screen says so instead.
 
 | Reason shown | What to fix |
 |---|---|
@@ -819,16 +861,16 @@ console.
 | with placeholder answers / placeholder question | Filler text like `Option B`, `TBD`, `Placeholder` |
 | no accepted answer / no correct answer | Every spelling or answer given is filler |
 | with no options to choose from | Too few options left: two for multiple choice, three for select-all, two items for an order puzzle |
-| slider is missing its scale / range is missing its scale | Lowest, highest or step is missing or unreadable, highest is not above lowest, or `option4` is above `option5` |
+| slider is missing its scale / range is missing its scale | Lowest or highest is missing or unreadable, highest is not above lowest, the step is 0 or less, `option4` is above `option5`, or — without both `option4` and `option5` — `correctAnswer` has no number in it |
 | the answer is off the scale | The target sits outside the lowest–highest range |
 | no numeric answer | A closest-number answer with no number in it |
 | no picture to pin | No `image`, or a link in `option1` with digits in it |
 | pin target is missing | The latitude/longitude or across/down numbers are missing |
-| pin target is off the map / off the picture | A spot outside the map, or a percent over 100 |
+| pin target is off the map / off the picture | A spot outside the map, a percent below 0 or over 100, or a misspelled map name in `image` |
 | every option needs an "item = partner" pair | A match or sort option without `=` (or `->`, `→`, `=>`, `::`) |
 | no pairs | Fewer than two pairs or items |
 | two items are the same / two items share a partner | Duplicates, ignoring capitals |
-| a sort needs two to four groups | Too many group names — often a typo; capitals do not count |
+| a sort needs two to four groups | Fewer than two or more than four group names. A typo counts as another group; a difference only in capitals does not |
 | no word to scramble / a scramble needs 3 to 20 letters / nothing to unscramble | The unscramble answer is filler, too short or long, or all one letter |
 
 Then the review screen lists every round and question with its format, its
@@ -845,12 +887,14 @@ For anyone changing a format or the example file:
 
 - **`questions.example.csv` is the source.** The template's Questions tab is
   built from it: `python3 scripts/generate-template.py` (needs `openpyxl`;
-  `--preview` also redraws the template picture, with LibreOffice).
+  `--preview` also redraws the template picture, with LibreOffice, Poppler and
+  Pillow).
 - **The pictures are drawn from it too:** `node scripts/generate-format-images.mjs`
-  plays a real game in a headless browser (needs Playwright — see the script's
-  header).
+  plays a real game in a headless browser (needs Node 22.18 or newer, which
+  runs the `.ts` file it imports, and Playwright — see the script's header).
 - **`npm run check-question-types`** checks every format against the app's own
-  importer, grader and answer-hiding. It also checks three things this guide
-  depends on: `questions.example.csv` still covers every format with nothing
-  left out, the template still matches it cell for cell, and every CSV example
-  above imports, with nothing left out, as the format its section names.
+  importer, grader and answer-hiding. It also checks what this guide depends
+  on: `questions.example.csv` still covers every format with nothing left out,
+  and none of its sliders or ranges scores for a player who never moves it; the
+  template still matches it cell for cell; and every CSV example above
+  imports, with nothing left out, as the format its section names.

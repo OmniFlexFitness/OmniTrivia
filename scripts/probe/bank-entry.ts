@@ -58,10 +58,10 @@ globalThis.fetch = (async (input: string | URL | Request) => {
     : new Response(body, { status: 200 });
 }) as typeof fetch;
 
-const readLink = async (path: string) => {
+const readLink = async (path: string, from = "https://docs.google.com/spreadsheets/d/") => {
   asked.length = 0;
   try {
-    const csv = await fetchFromGoogleSheet(`https://docs.google.com/spreadsheets/d/${path}`);
+    const csv = await fetchFromGoogleSheet(`${from}${path}`);
     return { csv, error: "", asked: asked.join(", ") };
   } catch (error: any) {
     return { csv: "", error: String(error?.message ?? error), asked: asked.join(", ") };
@@ -87,6 +87,19 @@ check(
   "an Excel file's share link, which has no tab 0, falls back to its first tab",
   excelShare.csv === "first tab" && excelShare.asked === "gid=0, no gid",
   excelShare.asked || excelShare.error,
+);
+// The link Drive's own Share button copies: same id, a different address.
+const driveShare = await readLink("excel/view?usp=sharing", "https://drive.google.com/file/d/");
+check(
+  "an Excel file's Drive link (drive.google.com/file/d/…) reads its first tab too",
+  driveShare.csv === "first tab" && driveShare.asked === "gid=0, no gid",
+  driveShare.asked || driveShare.error,
+);
+const elsewhere = await readLink("excel/view", "https://example.com/file/d/");
+check(
+  "a link that is neither a Google Sheet nor a Drive file is refused before anything is fetched",
+  elsewhere.error === "Invalid Google Sheet URL." && elsewhere.asked === "",
+  elsewhere.error,
 );
 const excelTab = await readLink("excel/edit?gid=2132467210#gid=2132467210");
 check(
