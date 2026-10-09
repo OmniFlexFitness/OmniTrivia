@@ -1349,14 +1349,12 @@ const HostControlScreen: React.FC = () => {
                         WC
                       </span>
                     )}
-                    {player.eliminated && (
-                      <span
-                        className="font-mono text-[10px] text-orange-300"
-                        title="Redemption points — banked since being knocked out"
-                      >
-                        R {player.redemptionScore ?? 0}
-                      </span>
-                    )}
+                    <span
+                      className="font-mono text-[10px] text-orange-300"
+                      title="Redemption points — every point answered all game, before the win bonus. The most off the podium takes third place."
+                    >
+                      R {player.redemptionScore ?? 0}
+                    </span>
                     <span className="font-mono text-neon-green text-xs">
                       +{player.roundScore}
                     </span>

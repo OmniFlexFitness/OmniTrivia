@@ -288,8 +288,9 @@ export const rosterForRound = (
  *
  * A player who is knocked out keeps answering every round — the same spin,
  * the same category, the same questions — on their own seat with nobody
- * drawn against them. What they bank there is their redemption score, and the
- * best of them each round can be pulled back into the bracket as a wildcard.
+ * drawn against them. What they bank there keeps building the redemption
+ * score they have been building since round one, and the best of them each
+ * round can be pulled back into the bracket as a wildcard.
  * Without it, losing round one meant watching the rest of the night from a
  * phone with nothing on it.
  *
@@ -1031,7 +1032,10 @@ export const rankStanding = <T extends StandingLike>(
 export interface Podium {
   championId: string | null;
   runnerUpId: string | null;
-  /** Most redemption points, among players not already on the podium. */
+  /**
+   * Third place: most redemption points, among players not already on the
+   * podium.
+   */
   redemptionId: string | null;
 }
 
@@ -1042,10 +1046,11 @@ export interface Podium {
  *   beat last — the grand final's loser, or the last matchup of a single
  *   elimination bracket. When the rounds ran out first, the next player in
  *   the same order the champion was picked in.
- * - **Redemption**: the most points banked on the Redemption Table. The
- *   champion and runner-up are not eligible — a comeback that went all the
- *   way to the podium has already been paid — so it always goes to somebody
- *   the bracket let down.
+ * - **Redemption** (third place): the most redemption points — every point
+ *   answered in every round of the game, wherever it was played, before the
+ *   win bonus. Everybody plays every round, so it compares the whole room
+ *   like for like. The champion and runner-up are not eligible — they have
+ *   already been paid — so it goes to the best of everybody else.
  */
 export const podium = <T extends StandingLike>(
   players: T[],

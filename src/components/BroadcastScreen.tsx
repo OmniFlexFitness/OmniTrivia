@@ -1133,11 +1133,9 @@ const StandingsList: React.FC<{
           />
           <div className="flex-1 text-2xl font-bold text-white truncate">
             {player.name}
-            {player.eliminated && (
-              <span className="ml-3 text-xs font-mono uppercase tracking-widest text-orange-300">
-                redemption · {player.redemptionScore ?? 0}
-              </span>
-            )}
+            <span className="ml-3 text-xs font-mono uppercase tracking-widest text-orange-300">
+              redemption · {player.redemptionScore ?? 0}
+            </span>
             {!player.eliminated && player.wildcardUsed && (
               <span className="ml-3 text-xs font-mono uppercase tracking-widest text-[#f5ff3b]">
                 wildcard
