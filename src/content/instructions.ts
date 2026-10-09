@@ -74,7 +74,7 @@ export const GLOSSARY: GlossaryEntry[] = [
   {
     term: "Redemption Table",
     definition:
-      "Where you play once you are out of the bracket. Same spin, same category, same questions, your own clock and nobody across from you. Every point you bank there counts towards the redemption prize — and the earlier you went out, the more rounds you have to build it.",
+      "Where you play once you are out of the bracket. Same spin, same category, same questions, your own clock and nobody across from you. Your redemption points keep building here: every point you score all game — qualifying, the bracket and the table alike — counts towards the redemption prize, third place.",
   },
   {
     term: "Wildcard",
@@ -149,7 +149,8 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
       "RESUME HOSTING is for a host whose window went away mid-game — the PIN and the host password put you back at the controls.",
       "The night opens with qualifying rounds that nobody goes out of: beat your opponent and the round counts ×1.5 on your total. The totals seed the bracket.",
       "In the bracket, win your matchup and you are in the next round; lose it and you are out of the bracket — or, if the host turned on the loser's bracket, you drop into it and get a second life. The final is best of 3.",
-      "Out of the bracket is not out of the game: you keep playing every round on the Redemption Table, for the redemption prize and a shot at coming back in as a wildcard.",
+      "Every point you score in every round also builds your redemption points. The most of them, among everybody who is not champion or runner-up, takes third place.",
+      "Out of the bracket is not out of the game: you keep playing every round on the Redemption Table, still building your redemption points and with a shot at coming back in as a wildcard.",
     ],
   },
 
@@ -265,7 +266,8 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
       "Every format has its own clock: a true/false is quick, a puzzle or a pin gets longer. Sliders, pins and closest-number guesses pay part of the points for a near miss — shown as ≈ close when your results land.",
       "The last question of the round counts double. However the match has gone, it is not over until that one is in.",
       "You and your opponent answer the same questions; whoever has more points at the end of the round wins the matchup — and in every round, the winner's points count ×1.5 on their total.",
-      "Out of the bracket? You are on the Redemption Table: the same questions, no opponent, and every point counts towards the redemption prize. The best round there can earn a wildcard back into the bracket.",
+      "Every point you score, in every round, also goes on your redemption points — the most of them off the podium takes third place, so a lost matchup never makes your answers worth less.",
+      "Out of the bracket? You are on the Redemption Table: the same questions, no opponent, and your redemption points keep building. The best round there can earn a wildcard back into the bracket.",
       "The big screen is behind you on purpose. It only moves when the slowest player in the room is through a question, and it never shows an answer mid-round.",
     ],
   },
@@ -302,7 +304,7 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
     title: "End of the game",
     lead: "Whoever wins the best-of-3 final takes it — or, if the rounds run out first, whoever leads the final series, else the highest score still in, with anyone unbeaten ranked ahead of the loser's bracket.",
     points: [
-      "Three places are called: the champion, the runner-up, and the redemption winner — the most points banked on the Redemption Table by anybody not already on the podium.",
+      "Three places are called: the champion, the runner-up, and third place, the redemption winner — the most redemption points (every point answered in every round, before the ×1.5 win bonus) by anybody not already champion or runner-up.",
       "PLAY AGAIN replays the same questions with the scores reset and the bracket redrawn.",
       "The category data — likes and votes — is kept between games, so it is worth checking after a few nights rather than one.",
     ],

@@ -376,7 +376,8 @@ const playWildNight = (
         ...p,
         roundScore: points,
         score: p.score + points,
-        redemptionScore: (p.redemptionScore ?? 0) + (p.eliminated ? points : 0),
+        // Redemption counts every round, in the bracket or out of it.
+        redemptionScore: (p.redemptionScore ?? 0) + points,
       };
     });
 
@@ -628,6 +629,21 @@ const playWildNight = (
     ranOutPlaces.runnerUpId === "p3" && ranOutPlaces.redemptionId === "p1",
     `${ranOutPlaces.runnerUpId}, redemption ${ranOutPlaces.redemptionId}`,
   );
+
+  // Third place is the most points answered all game, not the most banked
+  // after going out: Di was never knocked out and outscored Ada, who was.
+  const allGame = makePlayers(4).map((p, i) => ({
+    ...p,
+    score: [150, 600, 450, 300][i],
+    eliminated: i === 0,
+    redemptionScore: [100, 400, 300, 200][i],
+  }));
+  const allGamePlaces = podium(allGame, [buildFirstRound(allGame)], "p2");
+  check(
+    "third place goes to the most redemption points, knocked out or not",
+    allGamePlaces.runnerUpId === "p3" && allGamePlaces.redemptionId === "p4",
+    `runner-up ${allGamePlaces.runnerUpId}, third ${allGamePlaces.redemptionId}`,
+  );
 }
 
 /* ------------------------------------------------------------------ *
@@ -673,7 +689,8 @@ const playSeededNight = (
         ...p,
         roundScore: points,
         score: p.score + points,
-        redemptionScore: (p.redemptionScore ?? 0) + (p.eliminated ? points : 0),
+        // Redemption counts every round, in the bracket or out of it.
+        redemptionScore: (p.redemptionScore ?? 0) + points,
       };
     });
 

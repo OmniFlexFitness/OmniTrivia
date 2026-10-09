@@ -378,17 +378,18 @@ export const closeSeatQuestion = (
 
   // Points land here, when the question closes — whether by an answer, the
   // clock or the host — so every way out of a question scores the same way.
-  // On the Redemption Table they count twice over: towards the night's total,
-  // like anybody's, and towards the redemption prize.
+  // Every point counts twice over: towards the night's total, and towards the
+  // redemption prize. Redemption builds from the first round, in qualifying
+  // and the bracket as much as on the Redemption Table, so it is a straight
+  // count of the points somebody answered their way to all game — the win
+  // bonus goes on the total only.
   const players = state.players.map((player) =>
     player.id === playerId
       ? {
           ...player,
           score: player.score + points,
           roundScore: player.roundScore + points,
-          redemptionScore: lane.redemption
-            ? (player.redemptionScore ?? 0) + points
-            : player.redemptionScore,
+          redemptionScore: (player.redemptionScore ?? 0) + points,
           lastAnswerCorrect: isCorrect,
           streak: isCorrect ? player.streak + 1 : 0,
         }

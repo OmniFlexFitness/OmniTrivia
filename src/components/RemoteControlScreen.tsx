@@ -826,11 +826,12 @@ const Standings: React.FC<{
               WC
             </span>
           )}
-          {player.eliminated && (
-            <span className="text-[9px] font-mono uppercase text-orange-300">
-              R {player.redemptionScore ?? 0}
-            </span>
-          )}
+          <span
+            className="text-[9px] font-mono uppercase text-orange-300"
+            title="Redemption points — every point answered all game"
+          >
+            R {player.redemptionScore ?? 0}
+          </span>
           <span className="font-mono font-bold text-neon-pink">{player.score}</span>
         </div>
       ))}

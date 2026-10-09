@@ -27,7 +27,7 @@ exactly as they are defined here, and so does the code.
 | **Match** | A matchup actually being played — the round's questions, answered by the two people in it. A round has one match per matchup, and every match runs at its own pace. |
 | **Bracket** | Single elimination by default. The higher round score in a matchup advances; the other player is out of the bracket — not out of the game. When the field is odd, the spare seat goes to a **wildcard** from the Redemption Table, or, if nobody there has earned one, to a **bye**. Either way it lands on whoever has had the fewest so far, so the same person cannot keep drawing it. |
 | **Loser's bracket** | Optional double elimination, switched on at setup or in the lobby. A first loss drops a player into the loser's bracket instead of out; a loss there ends their night. Both sides play in every round, on the same category, and the last player on each side meets in a best-of-3 **grand final**. |
-| **Redemption Table** | Where a player knocked out of the bracket keeps playing: every round, same spin, same category, same questions, their own seat and nobody across from them. Points banked there are their **redemption score** — it decides the redemption prize, and they count towards the night's total too. |
+| **Redemption Table** | Where a player knocked out of the bracket keeps playing: every round, same spin, same category, same questions, their own seat and nobody across from them. Their **redemption score** keeps building there — the points they answered their way to in every round of the game, qualifying and bracket included — and it decides the redemption prize (third place). |
 | **Wildcard** | The bracket's odd seat, handed to the best round on the Redemption Table instead of a free bye. One per player per game, never on a round of zero. In a loser's-bracket game it comes back into the loser's bracket only. |
 | **Remote** | A tablet or phone running the round for the host — spin, start, pause, +10s, close, end the round, next round — once it has the PIN and the host password. The host's window still runs the game; the remote drives it. |
 | **Category pool** | The host's own standing list of categories. The end-of-round vote draws its options from it. It is separate from the questions a game happens to be loaded with. |
@@ -114,10 +114,17 @@ and the in-app rules, the big screen and every phone all say so.
 **The Redemption Table.** Knocked out of the bracket is not knocked out of the
 game. From the next round on you get a seat of your own — same spin, same
 category, same questions, your own clock, nobody drawn against you — and every
-point you bank there goes on your **redemption score** (and on your total). It
-is deliberately rubber-banded: the earlier you went out, the more rounds you
-have to build it. The round waits for the table like any other table; the
-host's END ROUND NOW stops it with everyone else.
+point you bank there goes on your total and keeps building your **redemption
+score**. The round waits for the table like any other table; the host's END
+ROUND NOW stops it with everyone else.
+
+**Redemption points count every round.** Your redemption score is every point
+you answered your way to all game — qualifying, the bracket and the Redemption
+Table alike — before the ×1.5 win bonus, which goes on the total only.
+Everybody plays every round's questions, so it compares the whole room like
+for like, and losing a matchup never makes your answers worth less. It is held
+back with the rest of a player's score until their match is over, and every
+standings list shows it as **R**.
 
 **Wildcards instead of byes.** When a side of the bracket has an odd field of
 three or more, the spare seat used to be a free pass. Now it goes to the best
@@ -144,8 +151,8 @@ fairness. A one-question round has no double question.
 
 **Three places are called at the end:** the champion, the runner-up (whoever
 the champion beat last, or the next player standing if the rounds ran out),
-and the **redemption winner** — the most redemption points by anybody not
-already on the podium. See [PRIZES.md](PRIZES.md) for how to split a prize pot
+and third place, the **redemption winner** — the most redemption points by
+anybody who is not champion or runner-up. See [PRIZES.md](PRIZES.md) for how to split a prize pot
 across them, and across two games in one night.
 
 ### Nobody waits for anybody

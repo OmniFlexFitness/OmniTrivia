@@ -127,10 +127,12 @@ export interface Player {
    */
   losersBracket?: boolean;
   /**
-   * Points banked on the Redemption Table — every round played after being
-   * knocked out of the bracket. Kept apart from `score` (which they are also
-   * added to) because it is what the redemption prize is decided on, and
-   * because the wildcard draw reads it as a tiebreak.
+   * Redemption points: every point this player has answered their way to in
+   * every round of the game — qualifying, the bracket and the Redemption
+   * Table alike. Kept apart from `score` because the score also carries the
+   * win bonus, and this is a count of answers alone. It is what the
+   * redemption prize (third place) is decided on, and the wildcard draw reads
+   * it as a tiebreak.
    */
   redemptionScore?: number;
   /**

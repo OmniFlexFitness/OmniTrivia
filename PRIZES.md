@@ -26,13 +26,17 @@ phone show the same three names:
 | --- | --- | --- |
 | **Champion** | Last player standing in the bracket — or, if the rounds run out first, the top of the standings (unbeaten players ahead of the loser's bracket, then total score). | The main event. |
 | **Runner-up** | The finalist who lost the best-of-3 series. If the rounds ran out, the next player in the same order the champion was picked in. | Rewards a deep run, and gives the semi-finalists something real to play for. |
-| **Redemption** | Most **redemption points** — points banked on the Redemption Table after being knocked out — among players *not already on the podium*. | Keeps everybody who loses early playing hard for the rest of the game. |
+| **Redemption** (third place) | Most **redemption points** — every point a player answered their way to, in every round of the game, before the win bonus — among players who are *not champion or runner-up*. | Rewards the best night of trivia outside the final, and keeps everybody who loses early playing hard: every point they score still counts. |
 
 Two things about Redemption matter for prize design:
 
-- **It is rubber-banded on purpose.** The earlier you go out, the more rounds
-  you have on the Redemption Table to build a score. That is the incentive
-  for early losers to stay.
+- **It counts the whole game, for everybody.** Redemption points build from
+  round one — qualifying, the bracket and the Redemption Table alike — and
+  everybody plays every round's questions, so it is a like-for-like count of
+  who answered best all night. Going out early costs a player nothing here,
+  which is the reason to stay; it is not a head start either. The ×1.5 win
+  bonus is left out, because the bracket already pays for wins through
+  Champion and Runner-up.
 - **It is one prize per person per game.** A player who comes back as a
   wildcard and goes on to win the bracket takes Champion, not Redemption —
   the redemption prize passes to the next player down. The app already does
@@ -66,13 +70,14 @@ for a two-game night.
 | Redemption | **20%** |
 
 - **Redemption is a real prize, not a participation trophy.** At 20% it is
-  close enough to runner-up that a player knocked out in round one has
+  close enough to runner-up that a player knocked out in round one still has
   something worth playing every remaining round for.
-- **It is deliberately below runner-up.** If redemption paid more than a
-  deep bracket run, a weak player would be better off losing round one on
-  purpose to get more rounds on the table. Keeping it under runner-up makes
-  throwing a match a bad trade — you give up a shot at 55% + 25% for a shot
-  at 20%.
+- **It is deliberately below runner-up.** Reaching the final takes a player
+  out of the running for redemption. If redemption paid more than runner-up,
+  a player already well clear on points would be better off losing the
+  semi-final on purpose to stay eligible for it. Keeping it under runner-up
+  makes throwing a match a bad trade — you give up a sure 25% and a shot at
+  55% for a shot at 20%.
 - **Champion keeps a clear majority.** The bracket is the competition; the
   champion should go home with the biggest prize of the game, every time.
 
@@ -131,9 +136,11 @@ starts winning every week.**
 
 A prize nobody knows about changes nobody's behaviour. Say it out loud:
 
-- **Before game 1:** "Knocked out early? Don't leave. You keep playing every
-  round on the Redemption Table — the top redemption score wins a prize, and
-  the best round there can get you back into the bracket as a wildcard."
+- **Before game 1:** "Every point you score tonight, in every round, counts
+  towards your redemption points — the most of them outside the final takes
+  third place. Knocked out early? Don't leave. You keep playing every round on
+  the Redemption Table, still building them, and the best round there can get
+  you back into the bracket as a wildcard."
 - **Before game 2:** "Game 2 is worth more than game 1." Say the numbers.
 - **Every round:** the last question counts double, and the screens say so —
   the host can call it out too ("double points, anybody's match").
@@ -169,6 +176,8 @@ is involved.
 - **Split the night 40 / 60** — game 2 must be worth more, or the room thins
   out after game 1.
 - **Inside each game, 55 / 25 / 20** for Champion / Runner-up / Redemption.
+  Redemption is third place: the most points answered across every round, by
+  anybody who is not champion or runner-up.
 - **Redemption is real money, but always less than runner-up**, so losing on
   purpose never pays.
 - **One place per person per game** is built into the app; across games,

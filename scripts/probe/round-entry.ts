@@ -778,9 +778,15 @@ check(
 
 {
   // Round two of a night where Di went out in round one: Ada plays Bo, Cy has
-  // the bye, and Di should still have a seat — on the Redemption Table.
+  // the bye, and Di should still have a seat — on the Redemption Table. Ada
+  // carries the 300 she answered her way to in round one, on her total and
+  // her redemption points both.
   const knockedOut = players.map((p) =>
-    p.id === "p4" ? { ...p, eliminated: true, redemptionScore: 0 } : p,
+    p.id === "p4"
+      ? { ...p, eliminated: true, redemptionScore: 0 }
+      : p.id === "p1"
+        ? { ...p, score: 300, redemptionScore: 300 }
+        : p,
   );
   const roundTwo: GameState = {
     ...baseState(),
@@ -821,12 +827,14 @@ check(
     di.roundScore > 0 && di.score === di.roundScore && di.redemptionScore === di.roundScore,
     `score ${di.score}, redemption ${di.redemptionScore}`,
   );
-  const ada = redemption.players.find((p) => p.id === "p1")!;
   redemption = recordLaneAnswer(redemption, "p1", 0);
+  const ada = redemption.players.find((p) => p.id === "p1")!;
   check(
-    "a point banked in the bracket does not touch the redemption score",
-    (redemption.players.find((p) => p.id === "p1")!.redemptionScore ?? 0) ===
-      (ada.redemptionScore ?? 0),
+    "a point banked in the bracket counts towards the redemption score too",
+    ada.roundScore > 0 &&
+      ada.score === 300 + ada.roundScore &&
+      ada.redemptionScore === 300 + ada.roundScore,
+    `round ${ada.roundScore}, score ${ada.score}, redemption ${ada.redemptionScore}`,
   );
 
   const published = buildSnapshot(redemption, "host-probe");
@@ -835,6 +843,14 @@ check(
     published.lanes.some((lane) => lane.redemption && lane.playerIds.includes("p4")) &&
       published.players.find((p) => p.id === "p4")?.redemptionScore === 0,
     `room sees ${published.players.find((p) => p.id === "p4")?.redemptionScore}`,
+  );
+  // Ada is still mid-match against Bo: a redemption score that moved with
+  // her answers would tell the room how she is doing before the match is.
+  const adaInRoom = published.players.find((p) => p.id === "p1");
+  check(
+    "a bracket player's redemption points are held back mid-match, like their total",
+    adaInRoom?.redemptionScore === 300 && adaInRoom?.score === 300,
+    `room sees redemption ${adaInRoom?.redemptionScore}, score ${adaInRoom?.score}`,
   );
 
   // Everyone in the bracket finishes; the round still waits on the table.

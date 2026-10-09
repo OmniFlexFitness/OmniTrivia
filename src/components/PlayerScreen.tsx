@@ -1140,11 +1140,9 @@ const PlayerScreen: React.FC = () => {
                     <span className="flex-1 truncate font-bold text-white">
                       {player.name}
                     </span>
-                    {player.eliminated && (
-                      <span className="font-mono text-[10px] uppercase tracking-widest text-orange-300">
-                        R {player.redemptionScore ?? 0}
-                      </span>
-                    )}
+                    <span className="font-mono text-[10px] uppercase tracking-widest text-orange-300">
+                      R {player.redemptionScore ?? 0}
+                    </span>
                     {!player.eliminated && player.wildcardUsed && (
                       <span className="font-mono text-[10px] uppercase tracking-widest text-neon-yellow">
                         wildcard
