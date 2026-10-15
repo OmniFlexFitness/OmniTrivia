@@ -5,7 +5,16 @@ import { Question, QuestionType } from "../types";
 import { currentIdToken } from "./remoteRoom";
 import { rowToQuestion } from "./importService";
 
-const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY || "";
+/**
+ * The value `.env.production` and `.env.example` ship in VITE_ANTHROPIC_API_KEY.
+ * A production build reads `.env.production` on top of `.env`, so this is
+ * what gets inlined in place of a real key, and it has to read as "no key"
+ * rather than as a key Anthropic will reject.
+ */
+export const PLACEHOLDER_API_KEY = "sk-ant-your-key-here";
+
+const rawApiKey = import.meta.env.VITE_ANTHROPIC_API_KEY || "";
+const apiKey = rawApiKey === PLACEHOLDER_API_KEY ? "" : rawApiKey;
 
 /**
  * A server that holds the Anthropic key so this bundle does not have to.

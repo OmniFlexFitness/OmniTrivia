@@ -58,10 +58,45 @@ const warnOnExposedKey = (apiKey: string): Plugin => ({
   },
 });
 
+/**
+ * The key `.env.production` commits, which the app treats as "no key". Kept in
+ * step with PLACEHOLDER_API_KEY in src/services/claudeService.ts.
+ */
+const PLACEHOLDER_API_KEY = "sk-ant-your-key-here";
+
+/**
+ * A production build must not carry a real key: `.env.production` is committed
+ * precisely so that it replaces the one in `.env`, and the deploy workflow
+ * checks the bundle afterwards. This says so at build time, where the cause is
+ * still visible (a `.env.production.local`, or a key passed in the
+ * environment) rather than at the bundle check, where it is not.
+ */
+const warnOnKeyInBuild = (apiKey: string): Plugin => ({
+  name: "omnitrivia-warn-key-in-build",
+  apply: "build",
+  buildStart() {
+    if (!apiKey) return;
+    this.warn(
+      [
+        "",
+        "  A real VITE_ANTHROPIC_API_KEY is set for this production build, so it",
+        "  will be inlined into the public bundle. .env.production commits a",
+        "  placeholder to prevent exactly this, so the key is coming from a",
+        "  .env.production.local file or from the environment. Deploy builds",
+        "  go through the proxy instead (VITE_ANTHROPIC_PROXY_URL); see",
+        "  DEPLOYMENT.md. The deploy workflow refuses a bundle with a key in it.",
+        "",
+      ].join("\n"),
+    );
+  },
+});
+
 export default defineConfig(({ mode }) => {
   // Third arg "" loads every var, not just the VITE_ prefixed ones, so this
   // check does not itself depend on the prefix convention.
   const env = loadEnv(mode, process.cwd(), "");
+  const rawKey = env.VITE_ANTHROPIC_API_KEY || "";
+  const apiKey = rawKey === PLACEHOLDER_API_KEY ? "" : rawKey;
 
   return {
     // Relative asset URLs, so the same build works at the root of
@@ -70,7 +105,7 @@ export default defineConfig(({ mode }) => {
     // the app routes on the path — the PIN and the broadcast view are query
     // params read off `window.location` — so there is no absolute path to keep.
     base: "./",
-    plugins: [react(), warnOnExposedKey(env.VITE_ANTHROPIC_API_KEY)],
+    plugins: [react(), warnOnExposedKey(apiKey), warnOnKeyInBuild(apiKey)],
     server: {
       // Bind to every interface so phones/laptops on the same Wi-Fi can reach
       // the dev server at http://<host-lan-ip>:5173

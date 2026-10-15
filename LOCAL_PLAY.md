@@ -58,7 +58,10 @@ On a venue or guest network, do one or more of:
 
 Copy `.env.example` to `.env` and put your Anthropic key in
 `VITE_ANTHROPIC_API_KEY` (create one at
-https://console.anthropic.com/settings/keys). Identity-linked keys also need
+https://console.anthropic.com/settings/keys). `.env` is gitignored and is the
+only file `npm run dev` needs; the committed `.env.production` is for
+`npm run build` and swaps your key for a placeholder there, so a real key in
+`.env` is safe to leave in place when you push (see DEPLOYMENT.md). Identity-linked keys also need
 `VITE_ANTHROPIC_WORKSPACE_ID` set to a `wrkspc_...` id, or every request is
 rejected with "anthropic-workspace-id is required"; ordinary keys can leave it
 blank. `src/services/claudeService.ts`

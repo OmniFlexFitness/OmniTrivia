@@ -226,9 +226,34 @@ there is never a stale-asset mismatch.
 
 ---
 
+### Which `.env` file a build reads
+
+Two files configure the app, one per place it runs, and Vite picks them by
+mode: `npm run dev` runs in `development`, `npm run build` in `production`.
+
+| File | Committed | Read by | Holds |
+| --- | --- | --- | --- |
+| `.env` | no (gitignored) | `dev` and `build` | your machine: a real Anthropic key for local play |
+| `.env.production` | **yes** | `build` only, on top of `.env` | the deployed baseline: the placeholder key `sk-ant-your-key-here`, blanks for the rest |
+| `.env.local`, `.env.production.local` | no (gitignored) | their namesakes' modes | private overrides, never committed |
+| process environment | n/a | everything, over every file | what the deploy workflow sets from repository variables |
+
+So a production build, on your laptop or on master, always has the key
+replaced by the placeholder before anything is bundled, and the app treats
+that placeholder as "no key". The public Firebase values and the proxy URL are
+blank in `.env.production` and arrive from the workflow's environment, which
+outranks the file. Nothing in `.env` has to be edited, or removed, before a
+merge.
+
+For a build outside GitHub Actions (Docker, Cloud Run), fill the Firebase and
+proxy lines in `.env.production.local`, or pass them in the environment. Leave
+the key alone.
+
 ### The Anthropic API key never reaches the browser
 
-The build in CI runs **without** `VITE_ANTHROPIC_API_KEY`, on purpose.
+The build in CI runs **without** `VITE_ANTHROPIC_API_KEY`, on purpose, and a
+post-build step fails the run if anything shaped like a real key turns up in
+the bundle. Only the placeholder from `.env.production` is allowed through.
 
 > [!WARNING]
 > Vite inlines every `VITE_*` variable into the JavaScript it ships. A key baked

@@ -48,6 +48,12 @@ jobs:
       # this step would be readable by anyone who loads the site. The deployed
       # app is the import-your-own-questions path; generation stays on the
       # host's machine.
+      #
+      # The baseline for this build is the committed `.env.production`, which
+      # Vite reads in production mode. It carries a placeholder key the app
+      # treats as "no key", and blanks for everything below. Values set here
+      # come from the process environment, which Vite ranks above every .env
+      # file, so a real repository variable always wins over the file.
       - name: Build
         run: npm run build
         env:
@@ -92,6 +98,18 @@ jobs:
           else
             echo "::notice::Question generation is on, through the proxy."
           fi
+
+      # The one thing a deploy must never do is publish an Anthropic key. The
+      # placeholder from .env.production is expected in the bundle; anything
+      # else shaped like a key fails the run before it reaches Pages.
+      - name: Refuse a bundle that carries an Anthropic key
+        run: |
+          found="$(grep -rhoE 'sk-ant-[A-Za-z0-9_-]{8,}' dist --include='*.js' | grep -v '^sk-ant-your-key-here$' | sort -u || true)"
+          if [ -n "$found" ]; then
+            echo "::error::The built bundle contains what looks like a real Anthropic key. Only the placeholder from .env.production may appear. Check .env.production.local and the job environment, then rotate the key."
+            exit 1
+          fi
+          echo "::notice::Bundle carries no Anthropic key (placeholder only)."
 
       # Pages serves its own 404 page for unknown paths. Hand those to the app
       # instead, so a mistyped URL still lands on the game.

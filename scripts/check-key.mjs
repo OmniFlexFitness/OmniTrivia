@@ -29,6 +29,12 @@ const present = candidates.filter((name) => existsSync(join(root, name)));
 
 say("");
 say("  env files present:", present.length ? present.join(", ") : "NONE");
+// `.env.production` is committed and read only by `npm run build`, where it
+// overrides `.env` with a placeholder key. It cannot affect `npm run dev`, so
+// it is reported, not inspected.
+if (existsSync(join(root, ".env.production"))) {
+  say("  (.env.production is for `npm run build` only and is not read by the dev server)");
+}
 
 // A file named .env.txt is the classic Windows Notepad mistake: it looks right
 // in Explorer with extensions hidden, and Vite ignores it completely.
@@ -42,7 +48,11 @@ if (strays.length) {
 
 // --- what the app actually sees -------------------------------------------
 const env = loadEnv("development", root, "");
-const apiKey = env.VITE_ANTHROPIC_API_KEY || "";
+// The value .env.example ships. The app treats it as no key at all, so a .env
+// copied from the example and never edited should be reported the same way.
+const PLACEHOLDER_API_KEY = "sk-ant-your-key-here";
+const rawApiKey = env.VITE_ANTHROPIC_API_KEY || "";
+const apiKey = rawApiKey === PLACEHOLDER_API_KEY ? "" : rawApiKey;
 const workspaceId = env.VITE_ANTHROPIC_WORKSPACE_ID || "";
 
 /** Which file supplied the winning value, in Vite's precedence order. */
@@ -58,7 +68,14 @@ const sourceOf = (name) => {
 };
 
 say("");
-if (!apiKey) {
+if (!apiKey && rawApiKey) {
+  say(`  VITE_ANTHROPIC_API_KEY: still the placeholder from .env.example, in ${sourceOf("VITE_ANTHROPIC_API_KEY")}`);
+  problems.push(
+    `The key is the placeholder "${PLACEHOLDER_API_KEY}", which the app treats as no key. ` +
+      "Replace it in .env with a real one from https://console.anthropic.com/settings/keys, " +
+      "or use HOST GAME > IMPORT MY OWN QUESTIONS.",
+  );
+} else if (!apiKey) {
   say("  VITE_ANTHROPIC_API_KEY: NOT SET");
   problems.push(
     'No key, so the app never calls any API — every round comes back as ' +
