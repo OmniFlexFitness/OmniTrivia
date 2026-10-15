@@ -576,10 +576,13 @@ reaches the bundle or the room's Wi-Fi. It reads the same `.env`.
 
 `QUESTION_PROMPT.md` is a prompt you paste into Claude, ChatGPT or anything
 else you have open. It carries the whole column spec and the parser's rules,
-and returns a CSV you import directly. Change the `CATEGORIES` line and you
-change the categories on offer — the wheel draws whatever the imported file
-contains (minus anything you untick on the way in), so custom ones are
-first-class (they just show with a ❓ instead of a themed icon).
+the same three difficulty levels the app generates at, and notes on all
+twenty categories in the pool, and returns a CSV you import directly. Run it
+once per category per level, merge the files into one sheet, and filter on
+the `difficulty` column (which the game ignores) for a night. The page also
+says which model and effort to run it at. The wheel draws whatever the
+imported file contains (minus anything you untick on the way in), so custom
+categories are first-class (they just show with a ❓ instead of a themed icon).
 
 ### Bring your own (no API key needed)
 

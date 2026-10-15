@@ -169,6 +169,7 @@ skipped, so a `notes` column is fine.
 | `margin` | no | How much a near miss on a `SLIDER`, `NUMBER` or `PIN` question still scores: `none`, `low`, `medium`, `high` or `maximum` |
 | `unit` | no | What a `SLIDER`, `RANGE` or `NUMBER` answer counts, shown after the number: `km`, `°F`, `years` for a span (blank for a calendar year, which would show as `1,969 years`) |
 | `timeLimit` | no | Seconds on the clock for this question, 5 to 120. Each format has its own default |
+| `difficulty` | no | **Ignored by the game.** `QUESTION_PROMPT.md` writes `everyday`, `school` or `quiz` here so a sheet holding every level can be filtered before a night is exported |
 
 The optional columns answer to a few other names: `picture`, `image url`,
 `media` or `map` for `image`; `accuracy` or `margin of accuracy` for `margin`;

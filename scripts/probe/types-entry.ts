@@ -1284,6 +1284,34 @@ check(
   misread.length ? misread.join(" | ") : `${examples.length} examples`,
 );
 
+// The copy-paste prompt's example rows are what a model is told to imitate,
+// so they have to import exactly as written — the header included, with its
+// trailing difficulty column the game ignores.
+{
+  const prompt = readFileSync(join(repoRoot, "QUESTION_PROMPT.md"), "utf8").split(/\r?\n/);
+  const header = prompt.find((line) => line.startsWith("type,category,question,")) ?? "";
+  const rows = prompt.filter((line) => /^[A-Z_]+,[A-Za-z ]+,/.test(line));
+  let promptReport: ReturnType<typeof parseImportDataWithReport> | null = null;
+  let promptError = "";
+  try {
+    promptReport = parseImportDataWithReport([header, ...rows].join("\n"));
+  } catch (error: any) {
+    promptError = error?.message ?? String(error);
+  }
+  const promptTypes = new Set(
+    (promptReport ? Object.values(promptReport.contents).flatMap((c) => c.questions) : []).map((q) => q.type),
+  );
+  check(
+    "every example row in QUESTION_PROMPT.md imports, nothing left out, one of every format",
+    Boolean(header) &&
+      promptReport !== null &&
+      promptReport.skipped.length === 0 &&
+      promptTypes.size === Object.values(QuestionType).length &&
+      header.endsWith(",difficulty"),
+    promptError || (promptReport ? `${rows.length} rows, ${promptTypes.size} formats, skipped: ${promptReport.skipped.map((s) => s.reason).join(", ") || "none"}` : ""),
+  );
+}
+
 // The at-a-glance table promises other spellings for the type column.
 const glance = guide.filter((line) => /^\| `[A-Z_]+` \|/.test(line));
 const badAliases = glance.flatMap((line) => {
