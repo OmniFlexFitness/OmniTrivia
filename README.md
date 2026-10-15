@@ -615,6 +615,17 @@ Create a key at <https://console.anthropic.com/settings/keys>. `npm run dev`
 picks it up; **HOST GAME → GENERATE & REVIEW** then writes each round with
 `claude-opus-5`.
 
+**Difficulty.** Generated questions are pitched at **high school** by default:
+what a typical graduate remembers without studying, or that everyday life
+makes obvious, with nothing that rewards a fan or a pub-quiz regular. The
+prompt names that reader, gives the model a test to apply to every question
+and examples on both sides of the line (`src/services/difficulty.ts`). The
+**QUESTION DIFFICULTY** picker on the setup screen moves it: *Everyday* is
+what a 12-year-old knows and the game is decided on speed; *Pub quiz* brings
+back a few stretch questions. `npm run generate-questions -- --difficulty
+everyday` does the same for the script. Only generated questions follow it;
+an import or the bank plays whatever its rows hold.
+
 If your key is **identity-linked**, requests are rejected with
 `anthropic-workspace-id is required` until they name a workspace. Add it too:
 

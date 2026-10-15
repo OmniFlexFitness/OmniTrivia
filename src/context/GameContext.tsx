@@ -115,6 +115,11 @@ import {
   saveTypedAnswersPreference,
 } from "../services/formatPreference";
 import {
+  QuestionDifficulty,
+  readDifficultyPreference,
+  saveDifficultyPreference,
+} from "../services/difficulty";
+import {
   maySpeakFor,
   resolveJoinRequest,
   verifiedRejoinCode,
@@ -226,6 +231,8 @@ interface GameContextType extends GameState {
    * on this device.
    */
   setTypedAnswersEnabled: (enabled: boolean) => void;
+  /** How hard Claude pitches generated questions. Remembered on this device. */
+  setQuestionDifficulty: (level: QuestionDifficulty) => void;
   /** Whether bots can still be switched on or off. */
   botsSettingOpen: boolean;
   clearJoinError: () => void;
@@ -671,6 +678,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     // Off unless this host switched them on: typing is the format a room
     // likes least.
     typedAnswersEnabled: readTypedAnswersPreference(),
+    questionDifficulty: readDifficultyPreference(),
     hostAnsweringEnabled: true,
     wheelSpinning: false,
     categoryRevealed: false,
@@ -1564,9 +1572,10 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
 
       // Generate every round concurrently. Sequential calls made a 5-round game
       // wait for 5 round-trips before the host saw anything.
+      const difficulty = stateRef.current.questionDifficulty;
       const results = await Promise.all(
         selectedCats.map((category) =>
-          generateQuestions(category.name, questions, allowed),
+          generateQuestions(category.name, questions, allowed, difficulty),
         ),
       );
 
@@ -1942,6 +1951,11 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
   const setTypedAnswersEnabled = (enabled: boolean) => {
     saveTypedAnswersPreference(enabled);
     setState((prev) => ({ ...prev, typedAnswersEnabled: enabled }));
+  };
+
+  const setQuestionDifficulty = (level: QuestionDifficulty) => {
+    saveDifficultyPreference(level);
+    setState((prev) => ({ ...prev, questionDifficulty: level }));
   };
 
   const setLosersBracket = (enabled: boolean) =>
@@ -2902,9 +2916,12 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     try {
       // The replacement keeps the slot's format: a host who swaps out a pin
       // question wants a different pin question, not a surprise true/false.
-      const result = await generateQuestions(roundConfig.category.name, 1, [
-        roundConfig.questions[questionIndex].type ?? QuestionType.MULTIPLE_CHOICE,
-      ]);
+      const result = await generateQuestions(
+        roundConfig.category.name,
+        1,
+        [roundConfig.questions[questionIndex].type ?? QuestionType.MULTIPLE_CHOICE],
+        stateRef.current.questionDifficulty,
+      );
       // A placeholder is not a replacement. Leaving the original in place and
       // saying so beats swapping a real question for "generation failed".
       if (result.usedFallback || result.questions.length === 0) return false;
@@ -3239,6 +3256,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         setQualifyingRounds,
         setBotsEnabled,
         setTypedAnswersEnabled,
+        setQuestionDifficulty,
         botsSettingOpen: botsSettingOpen(state),
         clearJoinError,
         updateConfig,

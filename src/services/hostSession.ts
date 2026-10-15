@@ -1,4 +1,5 @@
 import { GamePhase, GameState, Player } from "../types";
+import { DEFAULT_DIFFICULTY, isDifficulty } from "./difficulty";
 import { winBonuses } from "./bracket";
 
 /**
@@ -70,6 +71,7 @@ export type PersistedHostState = Pick<
   | "qualifyingRounds"
   | "botsEnabled"
   | "typedAnswersEnabled"
+  | "questionDifficulty"
   | "hostAnsweringEnabled"
   | "wheelSpinning"
   | "categoryRevealed"
@@ -151,6 +153,7 @@ export const captureHostState = (state: GameState): PersistedHostState => ({
   qualifyingRounds: state.qualifyingRounds,
   botsEnabled: state.botsEnabled,
   typedAnswersEnabled: state.typedAnswersEnabled,
+  questionDifficulty: state.questionDifficulty,
   hostAnsweringEnabled: state.hostAnsweringEnabled,
   wheelSpinning: state.wheelSpinning,
   categoryRevealed: state.categoryRevealed,
@@ -263,6 +266,10 @@ export const applyHostState = (
   // it was loaded with, so the setting only matters for what it was loaded
   // with; off is the default for anything loaded from here on.
   typedAnswersEnabled: state.typedAnswersEnabled === true,
+  // A game saved before difficulty was a setting regenerates at the default.
+  questionDifficulty: isDifficulty(state.questionDifficulty)
+    ? state.questionDifficulty
+    : DEFAULT_DIFFICULTY,
   // And one saved before the big screen's text was the host's to set keeps
   // whatever this window already has.
   broadcastTitle:

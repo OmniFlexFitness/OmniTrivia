@@ -163,6 +163,7 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
       "Questions per round: how many questions each match works through. Five keeps a round to a few minutes.",
       "The game name is what the room sees on the big screen. The PIN is only the code players type to get in.",
       "GENERATE & REVIEW writes the questions with Claude; USE THE QUESTION BANK takes the premade set, which needs no API key and nothing written; IMPORT MY OWN takes a CSV or a Google Sheet.",
+      "Question difficulty is how hard Claude pitches a generated game. High school is the default — what a typical graduate remembers without studying, nothing that rewards a fan. Everyday is what a 12-year-old knows; Pub quiz adds a few stretch questions. It is remembered on this device, and only generated questions follow it.",
       "The host password is your way back in. If this window closes, reloads or the laptop dies, that password and the PIN take the running game back on any device — so write it down before you open the lobby. It is also what lets a tablet run the round as a remote.",
       "Bots fill the lobby for a host testing alone. Switch them off for a real night — they can still be switched off in the lobby, and on round one's wheel before START ROUND.",
       "Typed answers are off unless you switch them on: most of a room does not enjoy spelling an answer out on a phone. Off, Claude is not asked to write them and an imported file's or the bank's typed rows are left out. It is one switch for every way questions come in.",

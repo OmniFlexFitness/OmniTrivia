@@ -27,20 +27,34 @@ SETTINGS — these are the only things I change between runs:
   QUESTIONS PER CATEGORY: 6
   AUDIENCE: a mixed bar crowd — friends, families, regulars, people who have
             had a drink. Not a quiz team.
-  DIFFICULTY: general appeal — per category, three that most of the room
-              gets, two that about half the room gets, and one stretch that
-              a person can still reason or eliminate their way to. Nothing
-              that needs a specialist.
+  DIFFICULTY: HIGH SCHOOL — every question is something a typical
+              high-school graduate who paid moderate attention knows without
+              studying, or that everyday life makes obvious: the kind of
+              fact in a school textbook, on a famous landmark, in a
+              blockbuster film or a hit song. Per category, four that nearly
+              everybody gets and two that about half the room gets. No
+              stretch questions: nothing that rewards a fan, a graduate in
+              the subject or a pub-quiz regular.
   TYPE MIX per category: 4 MULTIPLE_CHOICE, 1 TRUE_FALSE, and 1 of the other
               formats — a different one in each category, and the EASIEST
               question in that category, because the format itself is the
               work
 
 CONTENT RULES
-- Write about things most adults have heard of, that a person can get from
-  everyday knowledge or by thinking it through, with answers the whole room
-  recognises when they are read out. The game is head-to-head and scored on
-  speed, so it does not need hard questions to be competitive.
+- The test for every question: would an average 17-year-old, and an average
+  adult who has not followed the subject since school, know this instantly,
+  without looking it up or working anything out? If not, do not ask it —
+  find an easier fact about the same category. When in doubt, go easier: a
+  question that is too easy costs nothing, one that is too hard loses the
+  room. The game is head-to-head and scored on speed, so it does not need
+  hard questions to be competitive.
+- Right level: What is the capital of France? Which planet is closest to the
+  Sun? Who painted the Mona Lisa? How many players does a basketball team
+  have on the court? Which ocean is the largest?
+- Too hard — never write questions like these: Who was the last emperor of
+  the Western Roman Empire? Which element is most abundant in the Earth's
+  crust by mass? Who played the saxophone on Baker Street? Which Bronte
+  sister published as Currer Bell? What was the first item sold on eBay?
 - Never ask for an exact year, a precise statistic, a minor character, a
   specific episode, a name only an enthusiast knows, or anything that takes
   two facts to work out. If you are not sure most people have heard of the

@@ -1,3 +1,5 @@
+import type { QuestionDifficulty } from "./services/difficulty";
+
 export enum GamePhase {
   START = "START",
   HOST_CONFIG = "HOST_CONFIG",
@@ -504,6 +506,12 @@ export interface GameState {
    * of a room does not enjoy spelling an answer out on a phone.
    */
   typedAnswersEnabled: boolean;
+  /**
+   * How hard generated questions are pitched (see `services/difficulty`).
+   * High school unless the host moves it. Only generation reads it; an
+   * import plays whatever it holds.
+   */
+  questionDifficulty: QuestionDifficulty;
   // The host plays along from their own screen for testing. Turning this off
   // takes them out of the answer count so a round does not wait on them.
   hostAnsweringEnabled: boolean;

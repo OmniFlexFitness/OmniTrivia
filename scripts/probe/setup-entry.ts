@@ -39,6 +39,13 @@ import {
 } from "../../src/services/questionSet";
 import { formatsToGenerate } from "../../src/services/formatPreference";
 import {
+  DEFAULT_DIFFICULTY,
+  DIFFICULTY,
+  DIFFICULTY_LEVELS,
+  difficultyBrief,
+  isDifficulty,
+} from "../../src/services/difficulty";
+import {
   landedSliceIndex,
   planSpin,
   restingRotation,
@@ -668,6 +675,35 @@ check(
       formatsToGenerate([QuestionType.TYPE_ANSWER], false).join() === QuestionType.MULTIPLE_CHOICE,
   );
 }
+
+/* ------------------------------------------------------------------ *
+ * Difficulty: high school by default, and every level says who it is for
+ * ------------------------------------------------------------------ */
+
+check(
+  "generated questions are pitched at high school unless the host says otherwise",
+  DEFAULT_DIFFICULTY === "school" &&
+    difficultyBrief(undefined) === DIFFICULTY.school.brief &&
+    difficultyBrief("nonsense" as never) === DIFFICULTY.school.brief,
+);
+check(
+  "every level names its reader, gives the model a test, and shows the line from both sides",
+  DIFFICULTY_LEVELS.every((level) => {
+    const brief = DIFFICULTY[level].brief;
+    return (
+      isDifficulty(level) &&
+      brief.includes("Difficulty:") &&
+      /The test for every question|at most one in six/.test(brief) &&
+      brief.includes("Too hard")
+    );
+  }),
+);
+check(
+  "the high-school brief rules out the questions the first nights were lost on",
+  ["Western Roman Empire", "Baker Street", "17-year-old", "no stretch questions"].every((phrase) =>
+    DIFFICULTY.school.brief.includes(phrase),
+  ),
+);
 
 console.log(
   failures === 0

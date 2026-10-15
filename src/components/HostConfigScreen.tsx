@@ -9,6 +9,7 @@ import LosersBracketToggle from './LosersBracketToggle';
 import QualifyingRoundsControl from "./QualifyingRoundsControl";
 import BotsToggle from './BotsToggle';
 import TypedAnswersToggle from './TypedAnswersToggle';
+import DifficultyPicker from './DifficultyPicker';
 import QuestionFormatsPicker from './QuestionFormatsPicker';
 import { readFormatPreference, saveFormatPreference } from '../services/formatPreference';
 import { QuestionType } from '../types';
@@ -32,6 +33,8 @@ const HostConfigScreen: React.FC = () => {
     setBotsEnabled,
     typedAnswersEnabled,
     setTypedAnswersEnabled,
+    questionDifficulty,
+    setQuestionDifficulty,
   } = useGame();
   // Seven covers two qualifying rounds, a seeded bracket for eight and a
   // best-of-3 final; the lobby says exactly how many the room needs.
@@ -225,6 +228,11 @@ const HostConfigScreen: React.FC = () => {
               way questions come in — so it sits above the picker that only
               shapes generated games. */}
           <TypedAnswersToggle enabled={typedAnswersEnabled} onChange={setTypedAnswersEnabled} />
+
+          {/* How hard Claude pitches a generated game. High school by
+              default: the first nights were pitched at people who follow
+              the subject, and the room guessed. */}
+          <DifficultyPicker level={questionDifficulty} onChange={setQuestionDifficulty} />
 
           <QuestionFormatsPicker
             selected={formats}

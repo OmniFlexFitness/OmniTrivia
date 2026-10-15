@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import * as z from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { Question, QuestionType } from "../types";
+import { DEFAULT_DIFFICULTY, QuestionDifficulty, difficultyBrief } from "./difficulty";
 import { currentIdToken } from "./remoteRoom";
 import { rowToQuestion } from "./importService";
 
@@ -137,27 +138,23 @@ export const GENERATABLE_TYPES: QuestionType[] = Object.values(QuestionType);
 export const SYSTEM_PROMPT =
   "You write trivia questions for a bar-night game played on phones by a " +
   "mixed room — friends, families, regulars, people who have had a drink. " +
-  "Write for general appeal: ask about things most adults have heard of, " +
-  "that a person can get from everyday knowledge or by thinking it through, " +
-  "with answers the whole room recognises when they are read out. The game " +
-  "is head-to-head and scored on speed, so it does not need hard questions " +
-  "to be competitive — it needs ones everybody has a real shot at. " +
-  "Never ask for an exact year, a precise statistic, a minor character, a " +
-  "specific episode, a name only an enthusiast knows, or anything that takes " +
-  "two facts to work out. Every question must have exactly one defensibly " +
-  "correct answer, and wrong options must be plausible but clearly wrong to " +
-  "someone who knows the subject at all. Keep every question to one plain " +
+  "They are not a quiz team. The game is head-to-head and scored on speed, " +
+  "so it does not need hard questions to be competitive — it needs ones " +
+  "everybody in the room knows the answer to and races to tap. Pitch every " +
+  "question at exactly the level the request names, and when in doubt go " +
+  "easier: a question that is too easy costs nothing, a question that is too " +
+  "hard loses the room. Never ask for an exact year, a precise statistic, a " +
+  "minor character, a specific episode, a name only an enthusiast knows, or " +
+  "anything that takes two facts to work out. Every question must have " +
+  "exactly one defensibly correct answer, and wrong options must be " +
+  "plausible but clearly wrong to someone who knows the subject at all — " +
+  "and be things the room has heard of, so the question is 'which of " +
+  "these', not 'have you heard of these'. Keep every question to one plain " +
   "sentence, ideally under 90 characters, with no double negatives and no " +
   "trick wording — it is read against a clock. Never repeat a question or a " +
-  "subject within a set, and skip the most worn-out pub quiz questions.";
-
-/** How hard a set should run, top to bottom. Sent with every request. */
-export const DIFFICULTY_LADDER =
-  "Difficulty: about half the questions easy (most of the room gets them), " +
-  "about a third medium (half the room gets them), and at most one in six a " +
-  "stretch — one a person can still reason or eliminate their way to, never " +
-  "specialist knowledge. If you are not sure most people have heard of the " +
-  "answer, make the question easier.";
+  "subject within a set. Skipping the most worn-out pub-quiz questions is " +
+  "fine, but never by making a question harder: a fresh angle on a famous " +
+  "thing beats an obscure thing.";
 
 /**
  * What share of a set each format gets.
@@ -288,6 +285,8 @@ export const generateQuestions = async (
   count: number = 5,
   /** The formats to write in. Empty or omitted means every format. */
   types: readonly QuestionType[] = GENERATABLE_TYPES,
+  /** How hard to pitch them. High school unless the host says otherwise. */
+  difficulty: QuestionDifficulty = DEFAULT_DIFFICULTY,
 ): Promise<GenerationResult> => {
   if (!client) {
     return fallback(
@@ -312,7 +311,7 @@ export const generateQuestions = async (
             role: "user",
             content:
               `Write ${count} trivia questions about "${category}" for a mixed room.\n` +
-              `${DIFFICULTY_LADDER}\n` +
+              `${difficultyBrief(difficulty)}\n` +
               `${mix}\n\n` +
               `Formats you may use, and how to fill each one:\n` +
               allowed.map((type) => `- ${TYPE_INSTRUCTIONS[type]}`).join("\n") +
