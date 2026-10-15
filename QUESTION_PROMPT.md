@@ -25,22 +25,36 @@ SETTINGS — these are the only things I change between runs:
   CATEGORIES: Science, History, Geography, Pop Culture, Sports, Tech, Art,
               Literature, Music, Food
   QUESTIONS PER CATEGORY: 6
-  AUDIENCE: a relaxed bar crowd, mixed ages, answering out loud
-  DIFFICULTY: mostly gettable — per category, roughly two easy, three medium,
-              one that rewards someone who actually knows the subject
-  TYPE MIX per category: 2 MULTIPLE_CHOICE, 1 TRUE_FALSE, and 3 of the other
-              formats, picked to suit each question (vary them across
-              categories so every format turns up somewhere)
+  AUDIENCE: a mixed bar crowd — friends, families, regulars, people who have
+            had a drink. Not a quiz team.
+  DIFFICULTY: general appeal — per category, three that most of the room
+              gets, two that about half the room gets, and one stretch that
+              a person can still reason or eliminate their way to. Nothing
+              that needs a specialist.
+  TYPE MIX per category: 4 MULTIPLE_CHOICE, 1 TRUE_FALSE, and 1 of the other
+              formats — a different one in each category, and the EASIEST
+              question in that category, because the format itself is the
+              work
 
 CONTENT RULES
+- Write about things most adults have heard of, that a person can get from
+  everyday knowledge or by thinking it through, with answers the whole room
+  recognises when they are read out. The game is head-to-head and scored on
+  speed, so it does not need hard questions to be competitive.
+- Never ask for an exact year, a precise statistic, a minor character, a
+  specific episode, a name only an enthusiast knows, or anything that takes
+  two facts to work out. If you are not sure most people have heard of the
+  answer, make the question easier.
 - One defensibly correct answer per question. If two answers could be argued,
   rewrite the question.
 - Wrong options must be plausible to someone who does not know, and clearly
-  wrong to someone who does. No joke options, no "none of the above".
+  wrong to someone who does — and they are things the room has heard of, so
+  the question is which of these, not have you heard of these. Keep options
+  short, one to four words. No joke options, no "none of the above".
 - No two questions in a category about the same person, event or work.
 - Skip the most worn-out pub quiz questions.
-- Keep each question on one line, ideally under 120 characters — it is read
-  against a clock.
+- Keep each question to one plain sentence, ideally under 90 characters, with
+  no double negatives and no trick wording — it is read against a clock.
 - The explanation is one sentence, and should be worth reading aloud — the
   reason the answer is what it is, or the fact that makes it stick.
 
@@ -63,25 +77,30 @@ MULTIPLE_CHOICE — option1-4 are the choices, option5-6 empty. correctAnswer
 must repeat one option word for word.
 
 MULTI_SELECT — a "which of these" question with more than one right answer.
-option1-5 are the choices (4 or 5 of them), of which 2 or 3 are right.
+option1-5 are well-known choices (4 or 5 of them), of which 2 or 3 are right,
+and the right ones obviously right to anyone who knows the subject at all.
 correctAnswer lists every right option word for word, separated by pipes:
 Helium|Argon. A wrong pick cancels a right one.
 
 TRUE_FALSE — the question is a statement. option1=True, option2=False, the
 rest empty. correctAnswer is True or False. Aim for about half False.
 
-TYPE_ANSWER — players type an answer. EVERY option is an accepted spelling, so
-list the full name, the surname alone, and any common variant, one per option
+TYPE_ANSWER — players type an answer, so it is a single word or a famous name
+everybody can spell. EVERY option is an accepted spelling, so list the full
+name, the surname alone, and any common variant or misspelling, one per option
 column. Matching ignores case and extra spaces but is otherwise exact, so an
 answer you forgot to list is marked wrong. correctAnswer repeats option1.
 
-SLIDER — players drag to a number. The options are positional, all numbers:
+SLIDER — players drag to a number people have a rough feel for (a famous
+year, a height, a count), never a statistic. The options are positional, all
+numbers:
   option1 = lowest value on the slider
   option2 = highest value on the slider
   option3 = step size
   option4 = lowest value that counts as correct
   option5 = highest value that counts as correct
-Bracket the true answer without giving it away. The step must be able to land
+Bracket the true answer without giving it away, and make the correct window
+generous — a sensible guess should land in it. The step must be able to land
 inside the correct window. correctAnswer is the real answer written out, e.g.
 About 384,000 km. Put low in margin so a near miss earns a few points.
 
@@ -91,34 +110,40 @@ step, all numbers, on a scale wide enough that the answer is not obvious from
 it. correctAnswer is the exact answer as a plain number. unit is what it
 counts (m, km, years) or empty.
 
-NUMBER — closest guess wins and no scale is shown. All options empty.
-correctAnswer is the exact answer as a plain number. unit is what it counts
-or empty. Only use numbers with one defensible value.
+NUMBER — closest guess wins and no scale is shown, so the answer must be a
+number most people roughly know (days in a year, states in the US, players on
+a football team). All options empty. correctAnswer is the exact answer as a
+plain number. unit is what it counts or empty. Only use numbers with one
+defensible value.
 
 PIN — players drop a pin on a built-in map. image is world, or usa for the
 lower 48 states only. option1 = latitude, option2 = longitude (decimal
-degrees), option3 = how many km from the spot still counts — 300 to 800 on the
-world map, 60 to 250 on the US map. correctAnswer is the place's name. Only
-famous places with unambiguous coordinates. Phrase it as Drop a pin on ... or
-as a clue to the place.
+degrees), option3 = how many km from the spot still counts — be generous: 600
+to 800 on the world map, 150 to 250 on the US map. correctAnswer is the
+place's name. Only iconic places — famous cities, countries, landmarks — with
+unambiguous coordinates. Phrase it as Drop a pin on ... or as a clue to the
+place.
 
 PUZZLE — players drag items into order. Put option1-4 in the CORRECT order;
-the game shuffles them. Order by something unarguable, usually date. All four
-must be right to score. correctAnswer repeats the four items in that same
+the game shuffles them. Four famous items, ordered by something unarguable,
+usually date, and far apart in it — decades between events, not years — so
+nobody needs exact figures. All four must be right to score. correctAnswer repeats the four items in that same
 order separated by pipes: First|Second|Third|Fourth
 
-MATCH — players pair items up. option1-4 are four pairs, each written
+MATCH — players pair items up. option1-4 are four famous pairs, each written
 item = partner, in the right pairs; the game shuffles the partners. Every
-partner different, and never use = or | inside an item. correctAnswer is
-See the pairs.
+partner plainly belongs to one item (country and capital, band and singer),
+every partner different, and never use = or | inside an item. correctAnswer
+is See the pairs.
 
-CATEGORIZE — players sort items into groups. option1-6 are six items, each
-written item = group, using exactly 2 or 3 groups with at least 2 items each.
-correctAnswer is See the groups. Put 40 in timeLimit.
+CATEGORIZE — players sort items into groups. option1-6 are six everyday
+items, each written item = group, using exactly 2 groups of 3 (3 groups only
+if they are obvious), with every item plainly in one group and no borderline
+cases. correctAnswer is See the groups.
 
 SCRAMBLE — players rebuild a word from its shuffled letters. The question is
-the clue. All options empty. correctAnswer is one word or a two-word name,
-5 to 12 letters.
+a clue that points straight at the word. All options empty. correctAnswer is
+one common word of 5 to 8 letters that the whole room knows.
 
 CSV RULES — the importer is strict about these
 - Never put a line break inside a field. Every question is one line.
@@ -141,7 +166,7 @@ NUMBER,Science,How many bones are in the adult human body?,,,,,,,206,Babies star
 PIN,Geography,Drop a pin on Mount Kilimanjaro.,-3.0674,37.3556,400,,,,Mount Kilimanjaro,Africa's highest peak sits just south of the equator.,world,,,
 PUZZLE,Tech,"Put these gadgets in order of release, earliest first.",Sony Walkman,Nintendo Game Boy,Apple iPod,Amazon Kindle,,,Sony Walkman|Nintendo Game Boy|Apple iPod|Amazon Kindle,"1979, 1989, 2001 and 2007 - roughly a decade apart until the 2000s sped up.",,,,
 MATCH,Science,Match each element to its chemical symbol.,Gold = Au,Silver = Ag,Iron = Fe,Sodium = Na,,,See the pairs,The symbols come from the Latin aurum and argentum and ferrum and natrium.,,,,
-CATEGORIZE,Food,"Botanically speaking, fruit or vegetable?",Tomato = Fruit,Cucumber = Fruit,Carrot = Vegetable,Bell pepper = Fruit,Potato = Vegetable,Celery = Vegetable,See the groups,Anything that grows from a flower and carries seeds is a fruit to a botanist.,,,,40
+CATEGORIZE,Food,"Botanically speaking, fruit or vegetable?",Tomato = Fruit,Cucumber = Fruit,Carrot = Vegetable,Bell pepper = Fruit,Potato = Vegetable,Celery = Vegetable,See the groups,Anything that grows from a flower and carries seeds is a fruit to a botanist.,,,,
 SCRAMBLE,Music,Unscramble the instrument.,,,,,,,Saxophone,Adolphe Sax patented it in 1846.,,,,
 
 Now write CATEGORIES × QUESTIONS PER CATEGORY questions using the settings above.

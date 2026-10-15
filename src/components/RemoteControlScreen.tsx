@@ -794,11 +794,71 @@ const LaneRemote: React.FC<{
   );
 };
 
+/**
+ * Latecomers waiting to be dealt in, with the button that does it. Only on
+ * screen while somebody is on the bench.
+ */
+const BenchRemote: React.FC<{ snapshot: BroadcastSnapshot; send: Send }> = ({
+  snapshot,
+  send,
+}) => {
+  const bench = snapshot.players.filter((player) => player.benched);
+  if (bench.length === 0) return null;
+  const waiting = bench.filter((player) => !player.entering);
+
+  return (
+    <Card
+      title={`Joined late · ${bench.length}`}
+      action={
+        waiting.length > 1 ? (
+          <button
+            onClick={() => send({ kind: "deal-in-all" }, "Deal in everyone")}
+            className="text-[10px] font-mono uppercase tracking-widest text-neon-green"
+          >
+            deal in everyone
+          </button>
+        ) : undefined
+      }
+    >
+      <div className="space-y-1.5">
+        {bench.map((player) => (
+          <div key={player.id} className="flex items-center gap-2 bg-slate-900 rounded-lg px-2 py-1.5 text-sm">
+            <AvatarDisplay avatar={player.avatar} color={player.avatarColor} size="sm" />
+            <span className="flex-1 min-w-0 truncate font-bold">{player.name}</span>
+            {player.entering ? (
+              <span className="text-[10px] font-mono uppercase tracking-widest text-neon-green">
+                in from next round
+              </span>
+            ) : (
+              <Button
+                variant="neon"
+                className="!py-1 !px-3 text-xs"
+                onClick={() => send({ kind: "deal-in", playerId: player.id }, `Deal in ${player.name}`)}
+              >
+                DEAL IN
+              </Button>
+            )}
+          </div>
+        ))}
+      </div>
+      <p className="text-[11px] text-slate-500 mt-2 leading-snug">
+        {snapshot.phase === GamePhase.PLAYING
+          ? "In from the next round."
+          : "Into the draw on the screen."}{" "}
+        In qualifying they join the field; once the bracket is drawn they start on
+        the Redemption Table.
+      </p>
+    </Card>
+  );
+};
+
 const Standings: React.FC<{
   players: PublicPlayer[];
   codes: Map<string, string>;
   showCodes: boolean;
-}> = ({ players, codes, showCodes }) => (
+  /** Set while there is a draw to send a knocked-out player back into. */
+  reinstate?: (player: PublicPlayer) => void;
+}> = ({ players, codes, showCodes, reinstate }) => (
   <div className="space-y-1.5">
     {[...players]
       .sort((a, b) => b.score - a.score)
@@ -835,6 +895,23 @@ const Standings: React.FC<{
             <span className="px-1.5 rounded border border-neon-yellow/60 text-[9px] font-mono uppercase text-neon-yellow">
               WC
             </span>
+          )}
+          {player.benched && (
+            <span className="px-1.5 rounded border border-slate-500 text-[9px] font-mono uppercase text-slate-400">
+              {player.entering ? "NEXT" : "BENCH"}
+            </span>
+          )}
+          {player.eliminated && !player.benched && reinstate && (
+            player.entering ? (
+              <span className="text-[9px] font-mono uppercase text-neon-green">back next round</span>
+            ) : (
+              <button
+                onClick={() => reinstate(player)}
+                className="px-1.5 py-0.5 rounded border border-neon-green/60 text-[9px] font-mono uppercase text-neon-green"
+              >
+                back in
+              </button>
+            )
           )}
           <span className="font-mono font-bold text-neon-pink">{player.score}</span>
         </div>
@@ -1457,6 +1534,7 @@ const RemoteControlScreen: React.FC = () => {
         <div className="lg:col-span-2">{body()}</div>
         {snapshot && (
           <div className="space-y-4">
+            <BenchRemote snapshot={snapshot} send={send} />
             <Card
               title="Scores"
               action={
@@ -1470,7 +1548,19 @@ const RemoteControlScreen: React.FC = () => {
                 ) : undefined
               }
             >
-              <Standings players={snapshot.players} codes={link.codes} showCodes={showCodes} />
+              <Standings
+                players={snapshot.players}
+                codes={link.codes}
+                showCodes={showCodes}
+                reinstate={
+                  snapshot.phase === GamePhase.CATEGORY_SELECT ||
+                  snapshot.phase === GamePhase.PLAYING ||
+                  snapshot.phase === GamePhase.ROUND_END
+                    ? (player) =>
+                        send({ kind: "reinstate", playerId: player.id }, `${player.name} back in the bracket`)
+                    : undefined
+                }
+              />
             </Card>
             {snapshot.bracket.length > 0 && (
               <Card title="Bracket">

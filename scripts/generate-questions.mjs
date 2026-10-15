@@ -11,7 +11,9 @@
  *
  * Each round is 3 multiple choice + 1 true/false + 1 of the other formats the
  * game supports — a pin, a range, a match puzzle and so on, a different one
- * per category — so a night is not five identical-looking screens.
+ * per category — so a night is not five identical-looking screens. The
+ * questions are written for a mixed room, not a quiz team: the other-format
+ * question is the easiest of the five, because the format itself is the work.
  */
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
@@ -113,14 +115,23 @@ const trueFalse = z.object({
 
 // --- generation ------------------------------------------------------------
 const SYSTEM =
-  "You write pub-trivia questions for a relaxed bar crowd playing on a big " +
-  "screen. Every question has exactly one defensibly correct answer, and any " +
-  "wrong options are plausible but clearly wrong to someone who knows the " +
-  "answer. Favour questions a general audience can reason about or enjoy " +
-  "being told the answer to, over obscure recall. Skip the most worn-out pub " +
-  "quiz questions. Keep each question to one line, under 120 characters where " +
-  "you can. Explanations are one sentence, and should be the kind of fact a " +
-  "host enjoys reading out. Never use double-quote characters in any field.";
+  "You write trivia questions for a bar-night game played on phones by a " +
+  "mixed room — friends, families, regulars, people who have had a drink. " +
+  "Write for general appeal: ask about things most adults have heard of, " +
+  "that a person can get from everyday knowledge or by thinking it through, " +
+  "with answers the whole room recognises when they are read out. The game " +
+  "is head-to-head and scored on speed, so it does not need hard questions " +
+  "to be competitive — it needs ones everybody has a real shot at. Never ask " +
+  "for an exact year, a precise statistic, a minor character, a specific " +
+  "episode, a name only an enthusiast knows, or anything that takes two " +
+  "facts to work out. Every question has exactly one defensibly correct " +
+  "answer, and any wrong options are plausible but clearly wrong to someone " +
+  "who knows the subject at all — and are things the room has heard of, so " +
+  "the question is which of these, not have you heard of these. Keep each " +
+  "question to one plain sentence, under 90 characters where you can, with " +
+  "no double negatives and no trick wording. Skip the most worn-out pub quiz " +
+  "questions. Explanations are one sentence, and should be the kind of fact " +
+  "a host enjoys reading out. Never use double-quote characters in any field.";
 
 const generate = async (category) => {
   const schema = z.object({
@@ -139,10 +150,14 @@ const generate = async (category) => {
         role: "user",
         content:
           `Write one round of trivia about "${category.name}".\n\n` +
-          `- multipleChoice: 3 questions, 4 options each, mixed difficulty ` +
-          `(one most people get, one middling, one that rewards a real fan).\n` +
-          `- trueFalse: 1 statement that sounds plausible either way.\n` +
-          `- special: ${SPECIALS[category.special].brief}\n\n` +
+          `- multipleChoice: 3 questions, 4 short options each (one to four ` +
+          `words): two that most of the room gets, one that about half the ` +
+          `room gets. Nothing that needs a specialist.\n` +
+          `- trueFalse: 1 short statement that sounds plausible either way; ` +
+          `a false one is a believable near miss, never nonsense.\n` +
+          `- special: ${SPECIALS[category.special].brief} This format takes ` +
+          `longer to answer and is harder in itself, so make it the easiest ` +
+          `question of the five.\n\n` +
           `All 5 must be about different things — no two questions on the ` +
           `same person, event, or work.`,
       },

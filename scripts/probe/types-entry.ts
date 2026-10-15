@@ -51,7 +51,7 @@ import {
 } from "../../src/services/snapshot";
 import { botAnswerFor } from "../../src/services/botAnswers";
 import { shuffleOptions } from "../../src/services/questionSet";
-import { questionSeconds, parseQuestionType, QUESTION_TYPES } from "../../src/services/questionTypes";
+import { questionSeconds, parseQuestionType, readingAllowance, QUESTION_TYPES } from "../../src/services/questionTypes";
 import {
   answerPoints,
   buildRoundLanes,
@@ -944,6 +944,18 @@ check(
     questionSeconds({ ...mc, timeLimit: 999 }) === 120 &&
     questionSeconds(mc) === TIMER_DURATION,
 );
+{
+  const long = "x".repeat(200);
+  check(
+    "a long question gets reading time on its clock, unless it set its own",
+    readingAllowance("short") === 0 &&
+      readingAllowance("x".repeat(120)) === 1 &&
+      readingAllowance("x".repeat(600)) === 10 &&
+      questionSeconds({ ...mc, text: long }) === TIMER_DURATION + readingAllowance(long) &&
+      questionSeconds({ ...mc, text: long, timeLimit: 20 }) === 20,
+    `${readingAllowance("x".repeat(120))}, ${readingAllowance("x".repeat(600))}`,
+  );
+}
 
 const players: Player[] = ["p1", "p2"].map((id) => ({
   id,

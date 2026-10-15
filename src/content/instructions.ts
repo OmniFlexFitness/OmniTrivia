@@ -105,7 +105,7 @@ export const GLOSSARY: GlossaryEntry[] = [
 
 export const SCORING_RULES: string[] = [
   "100 points for a correct answer.",
-  "Up to 150 more for speed — 10 a second on a 15-second question, scaled so a full clock is worth the same on every format, from a 12-second true/false to a 30-second puzzle.",
+  "Up to 150 more for speed — 10 a second on a 15-second question, scaled so a full clock is worth the same on every format, from a 12-second true/false to a 45-second puzzle. A long question gets a few seconds of reading time on top.",
   "Close counts on some formats: a slider, a pin or a closest-number guess just off the answer still earns part of the points, a range earns more the tighter it is, and a match or sort pays for what you got right beyond guessing.",
   "Beat your opponent and the round's points count ×1.5 on your total — the total is what seeds the bracket.",
   "The last question of every round counts double — nobody is out of a match until it is over.",
@@ -212,7 +212,7 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
     points: [
       "Your rejoin code is filled in for you — keep it, reroll it, or type your own. Your name and that code get you back into this exact seat — same score, same place in the bracket — from any phone, even mid-game. It stays on your screen once you are in, and the host can look it up if you lose it.",
       "Already playing and got knocked out of the game? Come back to this same screen, type the same name and the same code, and you will land back in your seat rather than a new one.",
-      "You can only take a *new* seat while the lobby is open — once the first round is drawn, the bracket is set. Coming back to a seat you already had works at any point.",
+      "Late? Join anyway. Once the game has started you land on the bench, and the host deals you in — usually at the next round. Coming back to a seat you already had works at any point.",
       "If your phone just locks or reloads, you come back automatically without typing anything.",
       "You will be paired against one other player each round. Beat them and you go through.",
     ],
@@ -236,7 +236,7 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
       "Players join by scanning the QR code or typing the PIN.",
       "Open the broadcast display and drag it onto the projector before you start — it is the only screen the room should be looking at.",
       "ADD BOT fills the room out so a bracket can be tested; the host is always seated as a player. Switch bots off (here, at setup, or on round one's wheel) for a room of real players only.",
-      "START GAME closes the lobby and draws the first round's matchups at random — a qualifying round, if there are any.",
+      "START GAME draws the first round's matchups at random — a qualifying round, if there are any. Anybody who joins after it lands on the bench, with a DEAL IN button on your screen.",
       "Qualifying rounds can still be changed here, up until START GAME.",
       "The loser's bracket can still be switched on or off here, up until START GAME. The panel says how many rounds the bracket needs for the players in the room.",
       "Hosting from more than one screen: CAST shows a link and QR code for putting the broadcast on any device, and REMOTE shows one for running the round from a tablet with the host password.",
@@ -283,6 +283,8 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
       "END ROUND NOW stops the whole round wherever it has got to and settles it on the scores as they stand. Nothing is lost by it: points are banked as each answer is given, and a question nobody reached is simply not played.",
       "Your own matchup is beside the board. 'Answering off' takes you out of it so nothing waits on you while you run the show.",
       "Players knocked out of the bracket are on the board too, on Redemption Table cards of their own: same questions, no opponent. The round waits for them like any table, and END ROUND NOW stops them with everyone else.",
+      "Somebody joined late? They are under 'Joined late' with a DEAL IN button: during a round they are in from the next draw, between rounds they go straight into the draw on the screen. In qualifying they join the field; once the bracket is drawn they start on the Redemption Table.",
+      "BACK IN, next to a knocked-out player's score, sends them back into the bracket — the next draw's odd seat if there is one, a matchup of their own otherwise. In a loser's-bracket game that means the loser's bracket.",
     ],
   },
 

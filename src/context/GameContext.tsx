@@ -53,6 +53,8 @@ import {
 import {
   activePlayerIds,
   buildFirstRound,
+  enterRound,
+  isStanding,
   openingOptions,
   rankStanding,
   seriesScore,
@@ -301,6 +303,14 @@ interface GameContextType extends GameState {
   voteForCategory: (pollId: string, categoryId: string) => void;
   /** Draw a fresh set of options for the open ballot. Host only. */
   redrawCategoryPoll: () => void;
+  /**
+   * Deal a latecomer into the game, or send a knocked-out player back into
+   * the bracket. Between rounds they land in the draw on the screen; during
+   * a round they enter when the next one is drawn. Returns why not, or null.
+   */
+  admitPlayer: (playerId: string) => string | null;
+  /** Deal in everybody on the bench. */
+  admitLatecomers: () => void;
   nextRound: () => void;
   restartGame: () => void;
   playAgain: () => void;
@@ -460,6 +470,21 @@ const finishRound = (prev: GameState): GameState => {
           : player,
   );
 
+  // Anybody the host dealt in during the round enters the draw just made —
+  // a latecomer into qualifying or onto the Redemption Table, a player sent
+  // back in onto the bracket's entry side. With no next round there is
+  // nothing to enter, and the flag is simply cleared.
+  let next = bracket[roundIndex + 1] ?? null;
+  const entered = players.map((player) => {
+    if (!player.entering) return player;
+    if (!next) return { ...player, entering: false };
+    const result = enterRound(next, player, prev.losersBracket);
+    if (!result) return { ...player, entering: false };
+    next = result.round;
+    return result.player;
+  });
+  if (next) bracket[roundIndex + 1] = next;
+
   // One survivor means the bracket is decided and the game is over, even if
   // there are rounds left on the card. A bracket only exists when there were
   // two or more players to draw, so there is no degenerate case here where a
@@ -467,11 +492,96 @@ const finishRound = (prev: GameState): GameState => {
   return {
     ...prev,
     bracket,
-    players,
+    players: entered,
     championId: outcome.championId,
     categoryPoll: poll,
     phase: GamePhase.ROUND_END,
   };
+};
+
+/**
+ * Whether somebody new can still get a seat: the lobby, or a game that is
+ * running. A latecomer is benched until the host deals them in, so letting
+ * them in costs the room nothing — and turning them away cost the host a
+ * round of explaining. A finished game takes nobody.
+ */
+const acceptsLatecomers = (state: GameState): boolean =>
+  state.phase === GamePhase.CATEGORY_SELECT ||
+  state.phase === GamePhase.PLAYING ||
+  state.phase === GamePhase.ROUND_END;
+
+const takesNewPlayers = (state: GameState): boolean =>
+  state.phase === GamePhase.LOBBY || acceptsLatecomers(state);
+
+/**
+ * Deal one player in, or say why not.
+ *
+ * Who it is for: a latecomer on the bench, or a player knocked out of the
+ * bracket. Where they land depends on where the game is:
+ *
+ * - **Between rounds** (the wheel is up, or the round has just ended and the
+ *   next draw is on the screen) they go straight into that draw.
+ * - **During a round** they are marked as entering and go into the next
+ *   draw the moment it is made, so the round in play is not disturbed.
+ * - **A game with no bracket** — one player, until now — simply takes them:
+ *   there is no draw to be dealt into.
+ */
+const admit = (
+  prev: GameState,
+  playerId: string,
+): { state: GameState; reason: string | null } => {
+  const player = prev.players.find((p) => p.id === playerId);
+  if (!player) return { state: prev, reason: "That player has left the game." };
+  if (player.entering) return { state: prev, reason: `${player.name} is already in from the next round.` };
+  if (!player.benched && !player.eliminated) {
+    return { state: prev, reason: `${player.name} is already in the field.` };
+  }
+
+  const patch = (changes: Partial<Player>, bracket = prev.bracket): GameState => ({
+    ...prev,
+    bracket,
+    players: prev.players.map((p) => (p.id === playerId ? { ...p, ...changes } : p)),
+  });
+
+  if (prev.phase === GamePhase.LOBBY || prev.bracket.length === 0) {
+    return {
+      state: patch({ benched: false, entering: false, eliminated: false, losersBracket: false }),
+      reason: null,
+    };
+  }
+
+  if (prev.phase === GamePhase.PLAYING) {
+    return { state: patch({ entering: true }), reason: null };
+  }
+
+  const roundIndex =
+    prev.phase === GamePhase.CATEGORY_SELECT
+      ? prev.currentRound - 1
+      : prev.phase === GamePhase.ROUND_END
+        ? prev.currentRound
+        : -1;
+  const round = roundIndex >= 0 ? prev.bracket[roundIndex] : undefined;
+  if (!round) {
+    return {
+      state: prev,
+      reason:
+        prev.phase === GamePhase.ROUND_END
+          ? "There is no next round to deal them into."
+          : "The game is over.",
+    };
+  }
+
+  const result = enterRound(round, player, prev.losersBracket);
+  if (!result) {
+    return {
+      state: prev,
+      reason: `The final is set — ${player.name} stays on the Redemption Table.`,
+    };
+  }
+
+  const bracket = [...prev.bracket];
+  bracket[roundIndex] = result.round;
+  return { state: patch(result.player, bracket), reason: null };
 };
 
 /**
@@ -973,8 +1083,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
           nonce: message.nonce,
           hostId: hostId.current,
           gameName: current.gameName,
-          // Latecomers cannot be slotted into a bracket that is already drawn.
-          open: current.phase === GamePhase.LOBBY,
+          // A latecomer is benched until the host deals them in, so the door
+          // stays open for as long as the game is running.
+          open: takesNewPlayers(current),
         });
         return;
       }
@@ -989,6 +1100,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
           players: current.players,
           seats: seatUids.current,
           lobbyOpen: current.phase === GamePhase.LOBBY,
+          lateJoin: acceptsLatecomers(current),
           request: {
             playerId: message.playerId,
             name: message.name,
@@ -1058,6 +1170,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
               roundScore: 0,
               isBot: false,
               streak: 0,
+              // Somebody who arrived after START GAME waits on the bench for
+              // the host to deal them in; they are not drawn and not waited on.
+              ...(decision.benched ? { benched: true, redemptionScore: 0 } : {}),
             };
             return { ...prev, players: [...prev.players, player] };
           });
@@ -1069,6 +1184,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
           accepted,
           playerId: accepted ? seatId : undefined,
           rejoined: accepted ? decision.rejoined : undefined,
+          benched: accepted ? decision.benched : undefined,
           reason: decision.reason,
           hostId: hostId.current,
           gameName: current.gameName,
@@ -1164,7 +1280,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         pin,
         id,
         name,
-        stateRef.current.phase === GamePhase.LOBBY,
+        takesNewPlayers(stateRef.current),
       );
 
       // Refused means another device reclaimed this room with the host
@@ -1917,7 +2033,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         // say. Their request goes through rather than being turned back here.
         if (!message.open && !params.playerId && !rejoinProof) {
           finish({
-            joinError: `"${message.gameName}" has already started. Ask the host to open a new game.`,
+            joinError: `"${message.gameName}" is over, so it is not taking new players. Ask the host to open a new game.`,
           });
           return;
         }
@@ -2202,6 +2318,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         eliminated: false,
         losersBracket: false,
         wildcardUsed: false,
+        benched: false,
+        entering: false,
         lastAnswerCorrect: undefined,
       }));
 
@@ -2534,7 +2652,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         // ahead of somebody in the loser's bracket, then on score. A tie
         // falls to the draw, the same as a matchup does, not to whoever
         // joined first, which is what sorting the lobby array alone used.
-        const standing = prev.players.filter((p) => !p.eliminated);
+        const standing = prev.players.filter(isStanding);
         const pool = standing.length > 0 ? standing : prev.players;
         // A final series cut short goes to whoever is ahead in it.
         const lastFinal = prev.bracket[prev.currentRound - 1]?.matchups.find(
@@ -2689,9 +2807,30 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         eliminated: false,
         losersBracket: false,
         wildcardUsed: false,
+        // Everybody who was in the room by the end is in from the start.
+        benched: false,
+        entering: false,
         lastAnswerCorrect: undefined,
       })),
     }));
+  };
+
+  /**
+   * Deal somebody in from the desk. The decision is `admit`'s; this is the
+   * seam the host's buttons, the remote and the tests all come through.
+   */
+  const admitPlayer = (playerId: string): string | null => {
+    const { reason } = admit(stateRef.current, playerId);
+    if (!reason) setState((prev) => admit(prev, playerId).state);
+    return reason;
+  };
+
+  const admitLatecomers = () => {
+    setState((prev) =>
+      prev.players
+        .filter((player) => player.benched && !player.entering)
+        .reduce((next, player) => admit(next, player.id).state, prev),
+    );
   };
 
   /**
@@ -2916,6 +3055,15 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         if (!current.categoryPoll) return "There is no ballot up.";
         redrawCategoryPoll();
         return null;
+      case "deal-in":
+      case "reinstate":
+        return admitPlayer(command.playerId);
+      case "deal-in-all":
+        if (!current.players.some((player) => player.benched && !player.entering)) {
+          return "Nobody is waiting on the bench.";
+        }
+        admitLatecomers();
+        return null;
       case "play-again":
         if (!is(GamePhase.GAME_OVER)) return "The game is not over yet.";
         playAgain();
@@ -3066,6 +3214,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         setCategoryLike,
         voteForCategory,
         redrawCategoryPoll,
+        admitPlayer,
+        admitLatecomers,
         nextRound,
         restartGame,
         playAgain,

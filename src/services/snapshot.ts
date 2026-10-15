@@ -396,6 +396,8 @@ const toPublicPlayer = (player: Player, midMatch: boolean): PublicPlayer => ({
   redemptionScore:
     (player.redemptionScore ?? 0) - (midMatch ? player.roundScore : 0),
   wildcardUsed: player.wildcardUsed,
+  benched: player.benched,
+  entering: player.entering,
 });
 
 /**

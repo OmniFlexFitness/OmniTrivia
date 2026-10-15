@@ -107,7 +107,7 @@ HEADER_NOTES = {
     "(km, m, °F, or years for a span of years). Leave it blank for a calendar "
     "year, or 1969 shows as 1,969 years.",
     "timeLimit": "Optional: seconds on the clock for this question, 5 to 120. Blank "
-    "uses the format's own clock.",
+    "uses the format's own clock, plus reading time for a long question.",
 }
 
 # One row per format for the Question types tab.
@@ -126,7 +126,7 @@ TYPE_GUIDE = [
      "The right option, written as it is in its column (not its letter or number)",
      "—", "15s", "All or nothing", "MC, Quiz, Choice, Single select, or leave blank"),
     ("MULTI_SELECT", "Tick every right option", "The choices: three or more",
-     "Every right option, joined with | or ; (Helium|Argon)", "—", "20s",
+     "Every right option, joined with | or ; (Helium|Argon)", "—", "25s",
      "A wrong tick cancels a right one", "Select all that apply, Multiple select, Checkboxes"),
     ("TRUE_FALSE", "Tap True or False", "True and False, or leave both empty",
      "True or False (T/F, Yes/No, Fact/Fiction and 1/0 work too)", "—", "12s",
@@ -135,7 +135,7 @@ TYPE_GUIDE = [
      "Every spelling you will accept. The first is the one the reveal shows",
      "Required, but not graded once the options are filled in: repeat option1. "
      "With none, the answer and each part of a comma list are accepted",
-     "—", "20s",
+     "—", "25s",
      "All or nothing. One accepted spelling, or several in any order (a, b and c) when every one is accepted; "
      "case, curly quotes and extra spaces ignored, spelling and accents not",
      "Typed answer, Short answer, Fill in the blank, Free text"),
@@ -143,39 +143,39 @@ TYPE_GUIDE = [
      "Lowest, highest, step, then the lowest and highest answer that score in full",
      "Required, but not graded or shown when option4 and option5 are filled in: the reveal shows that band. "
      "With only three options: the answer, or a band like 1968-1970 with nothing after it (a unit goes in the unit column)",
-     "margin, unit", "20s", "Inside the target scores in full; margin pays a near miss",
+     "margin, unit", "25s", "Inside the target scores in full; margin pays a near miss",
      "Slide, Scale"),
     ("RANGE", "Drag two handles to catch the answer", "Lowest, highest, step",
      "The exact answer, or a band like 8800-8900 with nothing after it (a unit goes in the unit column)",
-     "unit", "20s",
+     "unit", "25s",
      "Caught inside a tenth of the scale scores in full; wider pays less, past half pays nothing",
      "Range slider, Bracket, Between"),
     ("NUMBER", "Type a number, no scale shown", "Optional: a tolerance that still counts as dead on",
-     "The number (commas and a unit are fine: 384,400 km)", "margin, unit", "20s",
+     "The number (commas and a unit are fine: 384,400 km)", "margin, unit", "25s",
      "Exact or within the margin scores; margin is medium unless set", "Closest, Closest guess, Estimate, Guess"),
     ("PIN", "Drop a pin on a map or a picture",
      "Map: latitude, longitude, km that still score in full. Picture: % across, % down, radius %",
      "What the answer key calls the spot", "image (world, usa or https://…), margin",
-     "25s", "Inside the ring scores in full; margin pays a near miss",
+     "35s", "Inside the ring scores in full; margin pays a near miss",
      "Pin answer, Drop pin, Map, Hotspot"),
     ("PUZZLE", "Put the items in order", "The items, in the right order: two or more, all different",
      "Required, but not graded when the options are filled in: write the order again. "
-     "With none: the order, joined with | (the type column cannot be blank)", "—", "30s",
+     "With none: the order, joined with | (the type column cannot be blank)", "—", "45s",
      "All or nothing", "Puzzle · order, Order, Sequence, Rank, Timeline"),
     ("MATCH", "Pair each item with its partner",
      "One pair per column: item = partner (-> → => :: work too). Two or more pairs",
-     "Ignored when the options are filled in: write See the pairs", "—", "30s",
+     "Ignored when the options are filled in: write See the pairs", "—", "45s",
      "Pays for every pair right beyond guessing", "Puzzle · match, Matching, Pairs, Connect"),
     ("CATEGORIZE", "Sort items into groups",
      "One item per column: item = group. Two to four groups, spelled the same every time",
-     "Ignored when the options are filled in: write See the groups", "—", "30s",
+     "Ignored when the options are filled in: write See the groups", "—", "45s",
      "Pays for every item right beyond guessing", "Puzzle · sort, Sort, Group, Buckets, Classify"),
     ("SCRAMBLE", "Rebuild a word from shuffled letters", "Leave empty: they are ignored",
      "The word or phrase, 3 to 20 letters and digits, no brackets. The question is the clue",
-     "—", "25s", "All or nothing", "Puzzle · unscramble, Unscramble, Anagram, Jumble"),
+     "—", "35s", "All or nothing", "Puzzle · unscramble, Unscramble, Anagram, Jumble"),
     ("(blank)", "Shorthand: no type, no options", "Leave every option empty",
      "True or False makes a true/false question; anything else a typed answer", "—",
-     "12s / 20s", "As true/false or typed answer", "—"),
+     "12s / 25s", "As true/false or typed answer", "—"),
 ]
 
 HOW_TO = [

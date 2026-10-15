@@ -77,6 +77,11 @@ export interface JoinDecision {
   seatId: string;
   /** True when a seat was handed back rather than a new one opened. */
   rejoined: boolean;
+  /**
+   * True when a new seat was opened after the game had started: the player
+   * is in the room, benched until the host deals them in.
+   */
+  benched: boolean;
   /** Why not, in words a player reads on their own phone. */
   reason?: string;
 }
@@ -118,6 +123,9 @@ export const claimSeatByCode = (
  *  3. A player whose device remembers nothing: flat, wiped, or borrowed from
  *     a friend. All they have is their name and the code they chose, and that
  *     is what this is for.
+ *  4. Somebody who turned up after START GAME. With `lateJoin` on they get a
+ *     seat on the bench: in the room, on the leaderboard, and dealt into the
+ *     game only when the host says so.
  *
  * Kept here, pure, because it is the decision that hands one person's score to
  * whoever is asking for it.
@@ -125,12 +133,17 @@ export const claimSeatByCode = (
 export const resolveJoinRequest = (params: {
   players: Player[];
   seats: SeatBindings;
-  /** Whether a *new* player could still be slotted into the bracket. */
+  /** Whether a *new* player could still be slotted into the first draw. */
   lobbyOpen: boolean;
+  /**
+   * Whether a new player is taken once the game has started — benched, for
+   * the host to deal in. Off, a closed lobby turns them away as it always did.
+   */
+  lateJoin?: boolean;
   request: JoinRequest;
   meta?: MessageMeta;
 }): JoinDecision => {
-  const { players, seats, lobbyOpen, request, meta } = params;
+  const { players, seats, lobbyOpen, lateJoin = false, request, meta } = params;
 
   const proved = claimSeatByCode(players, request);
   const remembered = players.find((player) => player.id === request.playerId);
@@ -144,6 +157,7 @@ export const resolveJoinRequest = (params: {
       accepted: false,
       seatId: request.playerId,
       rejoined: false,
+      benched: false,
       reason:
         "That seat is being played on another device. If it is yours, come back with the name and rejoin code you joined with.",
     };
@@ -160,15 +174,17 @@ export const resolveJoinRequest = (params: {
       accepted: false,
       seatId: request.playerId,
       rejoined: false,
+      benched: false,
       reason: `Somebody is already playing as "${request.name.trim()}". If that is you, enter the rejoin code you chose when you joined.`,
     };
   }
 
-  if (!seat && !lobbyOpen) {
+  if (!seat && !lobbyOpen && !lateJoin) {
     return {
       accepted: false,
       seatId: request.playerId,
       rejoined: false,
+      benched: false,
       reason:
         "The game has already started. Ask the host to open a new game — or, if you were already playing, come back with your name and rejoin code.",
     };
@@ -178,6 +194,7 @@ export const resolveJoinRequest = (params: {
     accepted: true,
     seatId: seat?.id ?? request.playerId,
     rejoined: Boolean(seat),
+    benched: !seat && !lobbyOpen,
   };
 };
 

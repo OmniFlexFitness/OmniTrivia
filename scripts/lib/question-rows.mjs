@@ -75,9 +75,11 @@ export const SPECIALS = {
       explanation: z.string(),
     }),
     brief:
-      "a numeric guess answered on a slider. Give a min and max that bracket " +
-      "the answer without giving it away, a sensible step, and a " +
-      "correctLow/correctHigh window generous enough that a good guess scores.",
+      "a numeric guess answered on a slider, about a number people have a " +
+      "rough feel for (a famous year, a height, a count) — never a statistic. " +
+      "Give a min and max that bracket the answer without giving it away, a " +
+      "sensible step, and a correctLow/correctHigh window generous enough " +
+      "that a sensible guess scores.",
     toRow: (category, s) =>
       row("SLIDER", category, s.question, [s.min, s.max, s.step, s.correctLow, s.correctHigh], s.exactAnswer, s.explanation, { margin: "low" }),
   },
@@ -93,7 +95,8 @@ export const SPECIALS = {
     }),
     brief:
       "a number players catch between two handles — the tighter the range, " +
-      "the more it pays. Give a min and max wide enough that the answer is not " +
+      "the more it pays — about a number people have a rough feel for, never " +
+      "a statistic. Give a min and max wide enough that the answer is not " +
       "obvious from the scale, a sensible step, the exact answer, and the unit (or empty).",
     toRow: (category, s) =>
       row("RANGE", category, s.question, [s.min, s.max, s.step], s.answer, s.explanation, { unit: s.unit }),
@@ -107,7 +110,9 @@ export const SPECIALS = {
     }),
     brief:
       "a closest-guess number question — no scale is shown and the nearest " +
-      "guess scores the most. Pick a number with one defensible value. Give the unit (or empty).",
+      "guess scores the most, so the answer must be a number most people " +
+      "roughly know (days in a year, states in the US, players on a football " +
+      "team). Pick a number with one defensible value. Give the unit (or empty).",
     toRow: (category, s) =>
       row("NUMBER", category, s.question, [], s.answer, s.explanation, { unit: s.unit }),
   },
@@ -123,9 +128,10 @@ export const SPECIALS = {
     }),
     brief:
       "a pin-the-place question on a built-in map: map is world, or usa for " +
-      "the lower 48 states only. Pick a famous place with unambiguous " +
-      "coordinates (decimal degrees) and a radius that counts as right — " +
-      "300-800 km on the world map, 60-250 km on the US map.",
+      "the lower 48 states only. Pick an iconic place — a famous city, " +
+      "country or landmark — with unambiguous coordinates (decimal degrees) " +
+      "and a generous radius that counts as right: 600-800 km on the world " +
+      "map, 150-250 km on the US map.",
     toRow: (category, s) =>
       row("PIN", category, s.question, [s.latitude, s.longitude, s.radiusKm], s.placeName, s.explanation, { image: s.map }),
   },
@@ -136,9 +142,10 @@ export const SPECIALS = {
       explanation: z.string(),
     }),
     brief:
-      "an ordering question with exactly 4 items. Put orderedItems in the " +
-      "CORRECT order; the game shuffles them for players. Order by something " +
-      "unambiguous, like date.",
+      "an ordering question with exactly 4 famous items. Put orderedItems in " +
+      "the CORRECT order; the game shuffles them for players. Order by " +
+      "something unambiguous, like date, with the items far apart in it — " +
+      "decades between events, not years — so nobody needs exact figures.",
     toRow: (category, s) =>
       row("PUZZLE", category, s.question, s.orderedItems, s.orderedItems.map(clean).join("|"), s.explanation),
   },
@@ -149,8 +156,10 @@ export const SPECIALS = {
       explanation: z.string(),
     }),
     brief:
-      "a matching puzzle: 4 pairs to connect, every partner different. Never " +
-      "use the characters = or | inside an item or partner.",
+      "a matching puzzle: 4 famous pairs to connect, where every partner " +
+      "plainly belongs to one item (country and capital, band and singer), " +
+      "every partner different. Never use the characters = or | inside an " +
+      "item or partner.",
     toRow: (category, s) =>
       row("MATCH", category, s.question, s.pairs.map((p) => `${clean(p.item)} = ${clean(p.partner)}`), "See the pairs", s.explanation),
   },
@@ -161,8 +170,9 @@ export const SPECIALS = {
       explanation: z.string(),
     }),
     brief:
-      "a sorting puzzle: 6 items, each belonging to one of exactly 2 or 3 " +
-      "groups (at least 2 items per group). Never use = or | in an item or group.",
+      "a sorting puzzle: 6 everyday items, each plainly belonging to one of " +
+      "exactly 2 groups of 3 (3 groups only if they are obvious), with no " +
+      "borderline cases. Never use = or | in an item or group.",
     toRow: (category, s) =>
       row("CATEGORIZE", category, s.question, s.items.map((p) => `${clean(p.item)} = ${clean(p.group)}`), "See the groups", s.explanation),
   },
@@ -173,8 +183,9 @@ export const SPECIALS = {
       explanation: z.string(),
     }),
     brief:
-      "an unscramble: a clue, and a single word or two-word name of 5 to 12 " +
-      "letters that players rebuild from its shuffled letters.",
+      "an unscramble: a clue that points straight at the word, and a single " +
+      "common word of 5 to 8 letters that the whole room knows, which " +
+      "players rebuild from its shuffled letters.",
     toRow: (category, s) => row("SCRAMBLE", category, s.clue, [], s.word, s.explanation),
   },
   multiSelect: {
@@ -185,8 +196,9 @@ export const SPECIALS = {
       explanation: z.string(),
     }),
     brief:
-      "a select-all-that-apply question: 4 or 5 options of which 2 or 3 are " +
-      "right. correct repeats the right options word for word.",
+      "a select-all-that-apply question: 4 or 5 well-known options of which " +
+      "exactly 2 or 3 are right, and the right ones obviously right to anyone " +
+      "who knows the subject at all. correct repeats the right options word for word.",
     toRow: (category, s) =>
       row("MULTI_SELECT", category, s.question, s.options, s.correct.map(clean).join("|"), s.explanation),
   },
@@ -197,9 +209,10 @@ export const SPECIALS = {
       explanation: z.string(),
     }),
     brief:
-      "a short free-text question. acceptedAnswers must list every spelling you " +
-      "would accept out loud (full name, surname only, common variants) — " +
-      "matching is exact apart from case and spacing.",
+      "a short free-text question whose answer is a single word or a famous " +
+      "name everybody can spell. acceptedAnswers must list every spelling you " +
+      "would accept out loud (full name, surname only, common variants and " +
+      "misspellings) — matching is exact apart from case and spacing.",
     toRow: (category, s) =>
       row("TYPE_ANSWER", category, s.question, s.acceptedAnswers, s.acceptedAnswers[0], s.explanation),
   },

@@ -885,7 +885,9 @@ const PlayerScreen: React.FC = () => {
     if (!lane) {
       return (
         <div className="text-center py-12 text-slate-400">
-          You are out of the bracket — watching this one on the big screen.
+          {me?.entering
+            ? "You are back in the bracket from the next round — watching this one on the big screen."
+            : "You are out of the bracket — watching this one on the big screen."}
         </div>
       );
     }
@@ -1032,6 +1034,35 @@ const PlayerScreen: React.FC = () => {
           <p className="font-mono uppercase tracking-widest">
             Waiting for the host
           </p>
+        </div>
+      );
+    }
+
+    // On the bench: joined after the game started, in the room but not in the
+    // field until the host deals them in. The same screen whatever the phase,
+    // because nothing on their phone changes until then.
+    if (me?.benched) {
+      return (
+        <div className="text-center py-12">
+          <Hourglass className="mx-auto mb-4 text-neon-yellow" size={40} />
+          <div className="text-2xl font-black text-white mb-2">
+            {me.entering ? "You're in from the next round" : "You're in"}
+          </div>
+          <p className="text-slate-400 max-w-sm mx-auto">
+            {me.entering
+              ? "The host has dealt you in. Hang on for this round to finish — you are in the draw for the next one."
+              : "The game had already started, so the host will deal you in — usually at the next round. Your score starts from there."}
+          </p>
+          {rejoinCode && (
+            <div className="mt-6 inline-flex flex-col items-center gap-1 rounded-xl border border-neon-yellow/50 bg-neon-yellow/5 px-6 py-3">
+              <span className="text-[11px] font-mono uppercase tracking-widest text-slate-400">
+                Your rejoin code
+              </span>
+              <span className="font-mono text-3xl font-black tracking-[0.3em] text-neon-yellow">
+                {rejoinCode}
+              </span>
+            </div>
+          )}
         </div>
       );
     }

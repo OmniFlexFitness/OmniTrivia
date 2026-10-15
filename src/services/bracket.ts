@@ -281,7 +281,7 @@ export const rosterForRound = (
 ): string[] =>
   round
     ? activePlayerIds(round)
-    : players.filter((p) => !p.eliminated).map((p) => p.id);
+    : players.filter((p) => !p.eliminated && !p.benched).map((p) => p.id);
 
 /**
  * The Redemption Table: everybody out of the bracket, still playing.
@@ -303,8 +303,92 @@ export const redemptionRoster = (
   if (!round) return [];
   const inBracket = new Set(activePlayerIds(round));
   return players
-    .filter((player) => player.eliminated && !inBracket.has(player.id))
+    .filter((player) => player.eliminated && !player.benched && !inBracket.has(player.id))
     .map((player) => player.id);
+};
+
+/* ------------------------------------------------------------------ *
+ * Dealing somebody into a round that was drawn without them
+ * ------------------------------------------------------------------ */
+
+/** A round before the bracket: every matchup in it is a qualifying one. */
+export const isQualifyingRound = (round: BracketRound | undefined): boolean =>
+  Boolean(round && round.matchups.length > 0 && round.matchups.every((m) => sideOf(m) === "qualifying"));
+
+/** A round that is a game of the final: nobody else can be dealt into it. */
+export const isFinalRound = (round: BracketRound | undefined): boolean =>
+  Boolean(round && round.matchups.length > 0 && round.matchups.every((m) => sideOf(m) === "final"));
+
+/**
+ * Which side of a drawn round a player entering it belongs on.
+ *
+ * Before the bracket everybody is in qualifying. In the bracket a player
+ * the host sends back in goes where a wildcard goes: the loser's bracket when
+ * the game has one — the winners' side is for people nobody has beaten — and
+ * the bracket proper otherwise. A final is between the two who reached it,
+ * so there is no side to enter: null.
+ */
+export const entrySide = (
+  round: BracketRound,
+  losersBracket: boolean,
+): BracketSide | null => {
+  if (isFinalRound(round)) return null;
+  if (isQualifyingRound(round)) return "qualifying";
+  return losersBracket ? "losers" : "winners";
+};
+
+/**
+ * Put a player into a round that was drawn without them.
+ *
+ * Somebody who arrived after START GAME, or somebody the host wants back in
+ * the bracket, has to be dealt into a draw that is already made and already
+ * on the projector. The least disruptive seat is the one nobody is in: a
+ * bye on that side — the odd player out, who was going to play alone — gets
+ * them as an opponent. Failing that they are given a matchup of their own,
+ * which plays as a bye: they answer the round's questions alone and go
+ * through, exactly as an odd player would. Nothing already drawn moves.
+ *
+ * A player already in the round is left where they are, and a final is left
+ * alone — it is between the two who reached it.
+ */
+export const addToDraw = (
+  round: BracketRound,
+  playerId: string,
+  side: BracketSide,
+): BracketRound => {
+  if (activePlayerIds(round).includes(playerId) || side === "final") return round;
+
+  const matchups = [...round.matchups];
+  const byeIndex = matchups.findIndex(
+    (m) => sideOf(m) === side && isBye(m) && !m.series,
+  );
+
+  if (byeIndex >= 0) {
+    const bye = matchups[byeIndex];
+    matchups[byeIndex] = {
+      ...bye,
+      playerBId: playerId,
+      // The seat was never ranked: whoever had the bye keeps their seed, the
+      // newcomer shows none.
+      ...(bye.seedA !== undefined ? { seedB: null } : {}),
+    };
+    return { ...round, matchups };
+  }
+
+  const taken = new Set(matchups.map((m) => m.id));
+  let n = matchups.filter((m) => sideOf(m) === side).length + 1;
+  while (taken.has(`r${round.roundNumber}-${ID_PREFIX[side]}${n}`)) n += 1;
+
+  return {
+    ...round,
+    matchups: [
+      ...matchups,
+      {
+        ...pair(round.roundNumber, [playerId], side)[0],
+        id: `r${round.roundNumber}-${ID_PREFIX[side]}${n}`,
+      },
+    ],
+  };
 };
 
 /**
@@ -542,6 +626,49 @@ const pairSide = (
   return seeds ? withSeeds(matchups, seeds) : matchups;
 };
 
+/**
+ * Deal one player into a drawn round, and say what they become.
+ *
+ * Two people arrive at this: a latecomer off the bench, and a knocked-out
+ * player the host is sending back in.
+ *
+ * - **A latecomer** joins the field in qualifying — there is no bracket yet
+ *   to be unfair to. Once the bracket is drawn they take the Redemption
+ *   Table instead: the same questions, their own seat, redemption points
+ *   from their first answer, and a wildcard back into the bracket if they
+ *   earn one. The host can send them straight into the bracket from there.
+ * - **A player sent back in** takes the entry side: a bye seat if there is
+ *   one, a matchup of their own otherwise. Their wildcard is not spent — this
+ *   is the host's call, not the table's.
+ *
+ * Null when the round cannot take them: it is a final, and the player is not
+ * a latecomer with a table to go to.
+ */
+export const enterRound = (
+  round: BracketRound,
+  player: Player,
+  losersBracket: boolean,
+): { round: BracketRound; player: Player } | null => {
+  const side = entrySide(round, losersBracket);
+  const settled = { ...player, benched: false, entering: false };
+
+  if (player.benched) {
+    if (side === "qualifying") {
+      return {
+        round: addToDraw(round, player.id, side),
+        player: { ...settled, eliminated: false, losersBracket: false },
+      };
+    }
+    return { round, player: { ...settled, eliminated: true, losersBracket: false } };
+  }
+
+  if (!side) return null;
+  return {
+    round: addToDraw(round, player.id, side),
+    player: { ...settled, eliminated: false, losersBracket: side === "losers" },
+  };
+};
+
 /* ------------------------------------------------------------------ *
  * Standings, seeding and the qualifying draw
  * ------------------------------------------------------------------ */
@@ -718,7 +845,13 @@ export const settleRound = (
     resolved.matchups.every((m) => sideOf(m) === "qualifying");
 
   if (qualifying) {
-    const field = drawOrder.filter((id) => present.has(id));
+    // Everybody who played this round and is still in the room — in draw
+    // order, with anyone dealt in after round one after them.
+    const played = new Set(activePlayerIds(resolved));
+    const field = [
+      ...drawOrder.filter((id) => played.has(id)),
+      ...activePlayerIds(resolved).filter((id) => !drawOrder.includes(id)),
+    ].filter((id) => present.has(id));
     let nextRound: BracketRound | null = null;
 
     if (options.hasMoreRounds && field.length >= 2) {
@@ -1003,7 +1136,13 @@ export interface StandingLike {
   eliminated?: boolean;
   losersBracket?: boolean;
   redemptionScore?: number;
+  /** On the bench: never in the field, so never standing. */
+  benched?: boolean;
 }
+
+/** Still in the bracket: not knocked out, and not waiting on the bench. */
+export const isStanding = (player: StandingLike): boolean =>
+  !player.eliminated && !player.benched;
 
 /**
  * Order the players still standing, for a night whose rounds ran out before
@@ -1067,7 +1206,7 @@ export const podium = <T extends StandingLike>(
   let runnerUpId: string | null = null;
   if (championId) {
     const others = players.filter((p) => p.id !== championId);
-    const standing = others.filter((p) => !p.eliminated);
+    const standing = others.filter(isStanding);
 
     if (standing.length > 0) {
       runnerUpId = rankStanding(standing, drawOrder)[0]?.id ?? null;
