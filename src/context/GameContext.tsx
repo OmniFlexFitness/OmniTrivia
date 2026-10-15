@@ -32,7 +32,7 @@ import {
   AVATAR_COLORS,
   CATEGORIES,
 } from "../constants";
-import { generateQuestions } from "../services/claudeService";
+import { GENERATABLE_TYPES, generateQuestions } from "../services/claudeService";
 import { botAnswerFor } from "../services/botAnswers";
 import {
   describeSkipped,
@@ -49,6 +49,7 @@ import {
   randomizeRounds,
   renumberRounds,
   shuffle,
+  withoutTypedAnswers,
 } from "../services/questionSet";
 import {
   activePlayerIds,
@@ -108,6 +109,11 @@ import {
   readBotsPreference,
   saveBotsPreference,
 } from "../services/bots";
+import {
+  formatsToGenerate,
+  readTypedAnswersPreference,
+  saveTypedAnswersPreference,
+} from "../services/formatPreference";
 import {
   maySpeakFor,
   resolveJoinRequest,
@@ -214,6 +220,12 @@ interface GameContextType extends GameState {
    * also redraws the first round without them.
    */
   setBotsEnabled: (enabled: boolean) => void;
+  /**
+   * Whether typed-answer questions may be in this game. Off, Claude is not
+   * asked to write them and an import's typed rows are left out. Remembered
+   * on this device.
+   */
+  setTypedAnswersEnabled: (enabled: boolean) => void;
   /** Whether bots can still be switched on or off. */
   botsSettingOpen: boolean;
   clearJoinError: () => void;
@@ -656,6 +668,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     qualifyingRounds: DEFAULT_QUALIFYING_ROUNDS,
     // A host who turned bots off last time meant it for next time too.
     botsEnabled: readBotsPreference(),
+    // Off unless this host switched them on: typing is the format a room
+    // likes least.
+    typedAnswersEnabled: readTypedAnswersPreference(),
     hostAnsweringEnabled: true,
     wheelSpinning: false,
     categoryRevealed: false,
@@ -1540,11 +1555,18 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         );
       }
 
+      // Typed answers stay out unless the host switched them on, whatever the
+      // picker remembers from a night that had them.
+      const allowed = formatsToGenerate(
+        formats && formats.length > 0 ? formats : GENERATABLE_TYPES,
+        stateRef.current.typedAnswersEnabled,
+      );
+
       // Generate every round concurrently. Sequential calls made a 5-round game
       // wait for 5 round-trips before the host saw anything.
       const results = await Promise.all(
         selectedCats.map((category) =>
-          generateQuestions(category.name, questions, formats),
+          generateQuestions(category.name, questions, allowed),
         ),
       );
 
@@ -1691,13 +1713,31 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
   const importGame = (csvData: string) => {
     try {
       const { contents: parsed, skipped } = parseImportDataWithReport(csvData);
-      const categoryContents: CategoryContent[] = Object.values(parsed).filter(
+      const everything: CategoryContent[] = Object.values(parsed).filter(
         (content) => content.questions.length > 0,
       );
 
-      if (categoryContents.length === 0) {
+      if (everything.length === 0) {
         throw new Error("No valid questions could be parsed from the data.");
       }
+
+      // Typed rows are left out while typed answers are off — the bank has
+      // some, and so does any file written before the switch existed.
+      const typedOff = !stateRef.current.typedAnswersEnabled;
+      const { contents: categoryContents, dropped: typedDropped } = typedOff
+        ? withoutTypedAnswers(everything)
+        : { contents: everything, dropped: 0 };
+
+      if (categoryContents.length === 0) {
+        throw new Error(
+          `Every question in the data is a typed answer, and typed answers are switched off. Switch them on at game setup to play this file.`,
+        );
+      }
+
+      const typedNote =
+        typedDropped > 0
+          ? `${typedDropped} typed-answer question(s) were left out because typed answers are switched off (the switch is at game setup).`
+          : null;
 
       setState((prev) => ({
         ...prev,
@@ -1705,7 +1745,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         error: null,
         // Carried through to the review screen, so the host knows how much of
         // the file was eliminated as unplayable.
-        contentWarning: describeSkipped(skipped),
+        contentWarning:
+          [describeSkipped(skipped), typedNote].filter(Boolean).join(" ") || null,
         importPreview: categoryContents,
         phase: GamePhase.IMPORT_SELECT,
       }));
@@ -1897,6 +1938,11 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
       if (next !== prev) saveBotsPreference(enabled);
       return next;
     });
+
+  const setTypedAnswersEnabled = (enabled: boolean) => {
+    saveTypedAnswersPreference(enabled);
+    setState((prev) => ({ ...prev, typedAnswersEnabled: enabled }));
+  };
 
   const setLosersBracket = (enabled: boolean) =>
     setState((prev) =>
@@ -3192,6 +3238,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         setLosersBracket,
         setQualifyingRounds,
         setBotsEnabled,
+        setTypedAnswersEnabled,
         botsSettingOpen: botsSettingOpen(state),
         clearJoinError,
         updateConfig,

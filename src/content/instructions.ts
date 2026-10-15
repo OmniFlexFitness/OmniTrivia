@@ -165,6 +165,7 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
       "GENERATE & REVIEW writes the questions with Claude; USE THE QUESTION BANK takes the premade set, which needs no API key and nothing written; IMPORT MY OWN takes a CSV or a Google Sheet.",
       "The host password is your way back in. If this window closes, reloads or the laptop dies, that password and the PIN take the running game back on any device — so write it down before you open the lobby. It is also what lets a tablet run the round as a remote.",
       "Bots fill the lobby for a host testing alone. Switch them off for a real night — they can still be switched off in the lobby, and on round one's wheel before START ROUND.",
+      "Typed answers are off unless you switch them on: most of a room does not enjoy spelling an answer out on a phone. Off, Claude is not asked to write them and an imported file's or the bank's typed rows are left out. It is one switch for every way questions come in.",
       "Loser's bracket turns the night into double elimination: a first loss drops a player into it rather than out. It needs roughly twice as many rounds to settle, and the lobby tells you exactly how many for the players who turn up.",
     ],
   },

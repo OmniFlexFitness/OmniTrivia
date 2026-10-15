@@ -108,6 +108,28 @@ export const randomizeRounds = (rounds: readonly RoundConfig[]): RoundConfig[] =
   );
 
 /** What the host kept, and how much of it, when turning content into a game. */
+/**
+ * Parsed content with its typed-answer questions taken out, and how many
+ * went. A category left with nothing goes too — a round of no questions is
+ * not a round. Used on every import, the bank included, while typed answers
+ * are switched off.
+ */
+export const withoutTypedAnswers = (
+  contents: readonly CategoryContent[],
+): { contents: CategoryContent[]; dropped: number } => {
+  let dropped = 0;
+  const kept = contents
+    .map((content) => {
+      const questions = content.questions.filter(
+        (question) => question.type !== QuestionType.TYPE_ANSWER,
+      );
+      dropped += content.questions.length - questions.length;
+      return { ...content, questions };
+    })
+    .filter((content) => content.questions.length > 0);
+  return { contents: kept, dropped };
+};
+
 export interface ContentSelection {
   /**
    * Category ids the host wants. Null or undefined means everything that was

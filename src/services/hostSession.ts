@@ -69,6 +69,7 @@ export type PersistedHostState = Pick<
   | "losersBracket"
   | "qualifyingRounds"
   | "botsEnabled"
+  | "typedAnswersEnabled"
   | "hostAnsweringEnabled"
   | "wheelSpinning"
   | "categoryRevealed"
@@ -149,6 +150,7 @@ export const captureHostState = (state: GameState): PersistedHostState => ({
   losersBracket: state.losersBracket,
   qualifyingRounds: state.qualifyingRounds,
   botsEnabled: state.botsEnabled,
+  typedAnswersEnabled: state.typedAnswersEnabled,
   hostAnsweringEnabled: state.hostAnsweringEnabled,
   wheelSpinning: state.wheelSpinning,
   categoryRevealed: state.categoryRevealed,
@@ -257,6 +259,10 @@ export const applyHostState = (
     typeof state.qualifyingRounds === "number" ? state.qualifyingRounds : 0,
   // Games saved before bots could be turned off always allowed them.
   botsEnabled: state.botsEnabled !== false,
+  // A game saved before typed answers had a switch was played with whatever
+  // it was loaded with, so the setting only matters for what it was loaded
+  // with; off is the default for anything loaded from here on.
+  typedAnswersEnabled: state.typedAnswersEnabled === true,
   // And one saved before the big screen's text was the host's to set keeps
   // whatever this window already has.
   broadcastTitle:

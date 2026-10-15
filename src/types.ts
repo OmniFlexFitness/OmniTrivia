@@ -498,6 +498,12 @@ export interface GameState {
    * already in are removed. Fixed once the first round is dealt.
    */
   botsEnabled: boolean;
+  /**
+   * Typed-answer questions may be in this game. Off (the default), Claude is
+   * not asked to write them and an import's typed rows are left out — most
+   * of a room does not enjoy spelling an answer out on a phone.
+   */
+  typedAnswersEnabled: boolean;
   // The host plays along from their own screen for testing. Turning this off
   // takes them out of the answer count so a round does not wait on them.
   hostAnsweringEnabled: boolean;

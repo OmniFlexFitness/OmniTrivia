@@ -190,7 +190,9 @@ Worth checking specifically:
   nobody can land in it.
 - **Puzzle items** are in the true order in the file. They are shuffled for
   players, so the file order is the answer key.
-- **Typed answers** list every spelling you would accept out loud.
+- **Typed answers** list every spelling you would accept out loud. They are
+  off by default in the app — a TYPE_ANSWER row is left out unless **TYPED
+  ANSWERS** is switched on at game setup.
 - **Pins** land where they should — the review screen draws the ring on the
   map. Coordinates from a model are usually right for famous places and
   worth a glance for anything smaller.

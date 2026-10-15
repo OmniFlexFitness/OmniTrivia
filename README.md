@@ -484,6 +484,13 @@ every guess, the pairs, the groups.
 | Puzzle · sort | Sort items into two to four groups | 45s |
 | Puzzle · unscramble | Rebuild a word from shuffled letter tiles | 35s |
 
+**Typed answers are off by default.** Most of a room does not enjoy spelling
+an answer out on a phone, so the **TYPED ANSWERS** switch on the setup screen
+starts off: Claude is not asked to write them, and a typed row in an imported
+file or the question bank is left out (the review screen says how many). Switch
+it on and every source includes them again. The switch is remembered on the
+host's device.
+
 The clock is for *doing* the question — tapping an option, dragging four
 tiles into order, finding a place on a map — and assumes the question itself
 is read in a glance. A long one is not, so a question over 80 characters gets

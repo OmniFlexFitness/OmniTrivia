@@ -391,6 +391,12 @@ All or nothing. A tap is final.
 
 Players type the answer on their phone.
 
+> [!NOTE]
+> **Typed answers are off by default.** A `TYPE_ANSWER` row — and a row with
+> no type and no options, which becomes one — is left out of the game unless
+> the host switches **TYPED ANSWERS** on at game setup. The review screen says
+> how many were left out.
+
 ![Typed answer in the template](docs/images/question-format/type-answer-sheet.png)
 
 - **The options are every spelling you will accept**, one per column.
