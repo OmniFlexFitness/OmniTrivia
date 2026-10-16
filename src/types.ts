@@ -1,3 +1,5 @@
+import type { QuestionDifficulty } from "./services/difficulty";
+
 export enum GamePhase {
   START = "START",
   HOST_CONFIG = "HOST_CONFIG",
@@ -141,6 +143,20 @@ export interface Player {
    * revolving door back in.
    */
   wildcardUsed?: boolean;
+  /**
+   * Joined after START GAME and not in the field yet. A latecomer has a seat
+   * in the room — a name, a score of nothing, a phone that follows the game —
+   * but is not drawn, not dealt a question and not waited on, until the host
+   * deals them in from the desk.
+   */
+  benched?: boolean;
+  /**
+   * The host has put this player into the field while a round was being
+   * played — a latecomer dealt in, or a knocked-out player sent back into the
+   * bracket — and they enter when the next round is drawn. Set only during a
+   * round; a deal-in between rounds lands straight in the draw.
+   */
+  entering?: boolean;
 }
 
 /**
@@ -484,6 +500,18 @@ export interface GameState {
    * already in are removed. Fixed once the first round is dealt.
    */
   botsEnabled: boolean;
+  /**
+   * Typed-answer questions may be in this game. Off (the default), Claude is
+   * not asked to write them and an import's typed rows are left out — most
+   * of a room does not enjoy spelling an answer out on a phone.
+   */
+  typedAnswersEnabled: boolean;
+  /**
+   * How hard generated questions are pitched (see `services/difficulty`).
+   * High school unless the host moves it. Only generation reads it; an
+   * import plays whatever it holds.
+   */
+  questionDifficulty: QuestionDifficulty;
   // The host plays along from their own screen for testing. Turning this off
   // takes them out of the answer count so a round does not wait on them.
   hostAnsweringEnabled: boolean;
@@ -559,6 +587,10 @@ export interface PublicPlayer {
   losersBracket?: boolean;
   redemptionScore?: number;
   wildcardUsed?: boolean;
+  /** Joined late and waiting for the host to deal them in. */
+  benched?: boolean;
+  /** Dealt in by the host mid-round; in from the next draw. */
+  entering?: boolean;
 }
 
 /**
@@ -834,6 +866,11 @@ export type RemoteCommand =
   | { kind: "set-host-answering"; enabled: boolean }
   | { kind: "next-round"; round: number }
   | { kind: "redraw-ballot" }
+  /** Deal one latecomer, or every latecomer, into the game. */
+  | { kind: "deal-in"; playerId: string }
+  | { kind: "deal-in-all" }
+  /** Send a knocked-out player back into the bracket. */
+  | { kind: "reinstate"; playerId: string }
   | { kind: "play-again" };
 
 /** Messages on the host <-> broadcast channel. */
@@ -851,6 +888,10 @@ export type BroadcastMessage =
       nonce: string;
       hostId: string;
       gameName: string;
+      /**
+       * Whether a *new* player can get a seat: the lobby is open, or the
+       * game is running and takes latecomers. False once the game is over.
+       */
       open: boolean;
     }
   | {
@@ -891,6 +932,8 @@ export type BroadcastMessage =
       playerId?: string;
       /** True when this was a seat handed back rather than a new one opened. */
       rejoined?: boolean;
+      /** True when the game had started: they are in the room, waiting to be dealt in. */
+      benched?: boolean;
     }
   | { type: "player-answer"; pin: string; playerId: string; answer: Answer }
   // "I have read the answer, give me the next question." A player never has to

@@ -8,10 +8,13 @@
  *   node scripts/generate-questions.mjs                      # all 10 categories
  *   node scripts/generate-questions.mjs --out kava-night.csv
  *   node scripts/generate-questions.mjs --categories Science,Music
+ *   node scripts/generate-questions.mjs --difficulty everyday   # or school (default), quiz
  *
  * Each round is 3 multiple choice + 1 true/false + 1 of the other formats the
  * game supports — a pin, a range, a match puzzle and so on, a different one
- * per category — so a night is not five identical-looking screens.
+ * per category — so a night is not five identical-looking screens. The
+ * questions are written for a mixed room, not a quiz team: the other-format
+ * question is the easiest of the five, because the format itself is the work.
  */
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
@@ -97,6 +100,61 @@ if (!categories.length) {
 
 const outPath = resolve(root, arg("out", "questions.csv"));
 
+// How hard to pitch them. The same three levels the app's setup screen
+// offers (src/services/difficulty.ts), with the same briefs; high school is
+// the default there too. Kept in step by hand — this script runs without
+// the app's TypeScript.
+const DIFFICULTY_BRIEFS = {
+  everyday:
+    "Difficulty: EVERYDAY. Every question is something a typical 12-year-old " +
+    "knows, or that daily life makes obvious: colours, animals, the days and " +
+    "months, famous landmarks, the biggest films, the most famous people " +
+    "alive, what things are called. The test for every question: would a " +
+    "12-year-old and their grandparent both know this instantly, without " +
+    "working anything out? If not, do not ask it — find an easier fact about " +
+    "the same category. Nearly everybody in the room should get nearly every " +
+    "question; the game is decided on speed, not knowledge. Right level: 'How " +
+    "many legs does a spider have?', 'What colour do you get by mixing blue " +
+    "and yellow?', 'Which planet do we live on?'. Too hard: 'What is the " +
+    "capital of Australia?', 'Who painted The Starry Night?'.",
+  school:
+    "Difficulty: HIGH SCHOOL. Every question is something a typical " +
+    "high-school graduate who paid moderate attention would know without " +
+    "studying, or that everyday life makes obvious — the kind of fact that is " +
+    "in a school textbook, on a famous landmark, in a blockbuster film or a " +
+    "hit song everybody has heard. The test for every question: would an " +
+    "average 17-year-old, and an average adult who has not followed the " +
+    "subject since school, know this instantly, without looking it up or " +
+    "working anything out? If not, do not ask it — find an easier fact about " +
+    "the same category. About two thirds of the questions should be ones " +
+    "nearly everybody gets, and the rest ones about half the room gets. There " +
+    "are no stretch questions at this level: nothing that rewards a fan, a " +
+    "graduate in the subject or a pub-quiz regular. Right level: 'What is the " +
+    "capital of France?', 'Which planet is closest to the Sun?', 'Who painted " +
+    "the Mona Lisa?', 'How many players does a basketball team have on the " +
+    "court?', 'What gas do plants take in from the air?', 'Which ocean is the " +
+    "largest?'. Too hard — never write questions like these: 'Who was the " +
+    "last emperor of the Western Roman Empire?', 'Which element is most " +
+    "abundant in the Earth's crust by mass?', 'Who played the saxophone on " +
+    "Baker Street?', 'Which Bronte sister published as Currer Bell?', 'What " +
+    "was the first item sold on eBay?', 'Which African country borders the " +
+    "most others?'. If a question needs a date, a measurement or a name that " +
+    "only a fan knows, it is too hard.",
+  quiz:
+    "Difficulty: PUB QUIZ. About half the questions easy (most of the room " +
+    "gets them), about a third medium (half the room gets them), and at most " +
+    "one in six a stretch — one a person can still reason or eliminate their " +
+    "way to, never specialist knowledge. If you are not sure most people have " +
+    "heard of the answer, make the question easier. Too hard even here: 'Who " +
+    "was the last emperor of the Western Roman Empire?', 'Who played the " +
+    "saxophone on Baker Street?'.",
+};
+const difficulty = arg("difficulty", "school").toLowerCase();
+if (!DIFFICULTY_BRIEFS[difficulty]) {
+  console.error(`\n  Unknown difficulty "${difficulty}". Options: ${Object.keys(DIFFICULTY_BRIEFS).join(", ")}\n`);
+  process.exit(1);
+}
+
 // --- schemas ---------------------------------------------------------------
 const multipleChoice = z.object({
   question: z.string(),
@@ -113,14 +171,25 @@ const trueFalse = z.object({
 
 // --- generation ------------------------------------------------------------
 const SYSTEM =
-  "You write pub-trivia questions for a relaxed bar crowd playing on a big " +
-  "screen. Every question has exactly one defensibly correct answer, and any " +
-  "wrong options are plausible but clearly wrong to someone who knows the " +
-  "answer. Favour questions a general audience can reason about or enjoy " +
-  "being told the answer to, over obscure recall. Skip the most worn-out pub " +
-  "quiz questions. Keep each question to one line, under 120 characters where " +
-  "you can. Explanations are one sentence, and should be the kind of fact a " +
-  "host enjoys reading out. Never use double-quote characters in any field.";
+  "You write trivia questions for a bar-night game played on phones by a " +
+  "mixed room — friends, families, regulars, people who have had a drink. " +
+  "They are not a quiz team. The game is head-to-head and scored on speed, " +
+  "so it does not need hard questions to be competitive — it needs ones " +
+  "everybody in the room knows the answer to and races to tap. Pitch every " +
+  "question at exactly the level the request names, and when in doubt go " +
+  "easier: a question that is too easy costs nothing, a question that is too " +
+  "hard loses the room. Never ask for an exact year, a precise statistic, a " +
+  "minor character, a specific episode, a name only an enthusiast knows, or " +
+  "anything that takes two facts to work out. Every question has exactly one " +
+  "defensibly correct answer, and any wrong options are plausible but clearly " +
+  "wrong to someone who knows the subject at all — and are things the room " +
+  "has heard of, so the question is which of these, not have you heard of " +
+  "these. Keep each question to one plain sentence, under 90 characters where " +
+  "you can, with no double negatives and no trick wording. Skipping worn-out " +
+  "pub-quiz questions is fine, but never by making a question harder: a fresh " +
+  "angle on a famous thing beats an obscure thing. Explanations are one " +
+  "sentence, and should be the kind of fact a host enjoys reading out. Never " +
+  "use double-quote characters in any field.";
 
 const generate = async (category) => {
   const schema = z.object({
@@ -138,11 +207,15 @@ const generate = async (category) => {
       {
         role: "user",
         content:
-          `Write one round of trivia about "${category.name}".\n\n` +
-          `- multipleChoice: 3 questions, 4 options each, mixed difficulty ` +
-          `(one most people get, one middling, one that rewards a real fan).\n` +
-          `- trueFalse: 1 statement that sounds plausible either way.\n` +
-          `- special: ${SPECIALS[category.special].brief}\n\n` +
+          `Write one round of trivia about "${category.name}".\n` +
+          `${DIFFICULTY_BRIEFS[difficulty]}\n\n` +
+          `- multipleChoice: 3 questions, 4 short options each (one to four ` +
+          `words), all at the level above.\n` +
+          `- trueFalse: 1 short statement that sounds plausible either way; ` +
+          `a false one is a believable near miss, never nonsense.\n` +
+          `- special: ${SPECIALS[category.special].brief} This format takes ` +
+          `longer to answer and is harder in itself, so make it the easiest ` +
+          `question of the five.\n\n` +
           `All 5 must be about different things — no two questions on the ` +
           `same person, event, or work.`,
       },
@@ -198,7 +271,7 @@ const toRows = (categoryName, special, round) => {
 
 // --- run -------------------------------------------------------------------
 const started = Date.now();
-console.log(`Generating ${categories.length} round(s) with ${MODEL}...`);
+console.log(`Generating ${categories.length} round(s) with ${MODEL} at "${difficulty}" difficulty...`);
 
 const results = await Promise.all(
   categories.map(async (category) => {

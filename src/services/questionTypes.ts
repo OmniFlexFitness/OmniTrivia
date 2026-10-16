@@ -45,7 +45,7 @@ export const QUESTION_TYPES: Record<QuestionType, QuestionTypeInfo> = {
     label: "Select all that apply",
     badge: "Multi-select",
     tone: "bg-cyan-500/20 text-cyan-300",
-    seconds: 20,
+    seconds: 25,
     prompt: "Select every right answer — a wrong pick cancels a right one",
     aliases: ["MULTIPLE_SELECT", "SELECT_ALL", "SELECT_ALL_THAT_APPLY", "ALL_THAT_APPLY", "CHOOSE_ALL", "MULTI", "MULTISELECT", "CHECKBOX", "CHECKBOXES", "MULTIPLE_ANSWER", "MULTIPLE_ANSWERS"],
   },
@@ -63,7 +63,7 @@ export const QUESTION_TYPES: Record<QuestionType, QuestionTypeInfo> = {
     label: "Typed answer",
     badge: "Type answer",
     tone: "bg-yellow-500/20 text-yellow-300",
-    seconds: 20,
+    seconds: 25,
     prompt: "Type it on your phone",
     aliases: ["TYPE", "TYPED", "TEXT", "TEXT_INPUT", "SHORT_ANSWER", "OPEN", "OPEN_ENDED", "FREE_TEXT", "FILL_IN", "FILL_IN_THE_BLANK", "FILL_IN_THE_BLANKS", "FILL_IN_BLANK"],
   },
@@ -72,7 +72,7 @@ export const QUESTION_TYPES: Record<QuestionType, QuestionTypeInfo> = {
     label: "Slider",
     badge: "Slider",
     tone: "bg-orange-500/20 text-orange-300",
-    seconds: 20,
+    seconds: 25,
     prompt: "Slide to your answer",
     aliases: ["SLIDE", "SCALE"],
   },
@@ -81,7 +81,7 @@ export const QUESTION_TYPES: Record<QuestionType, QuestionTypeInfo> = {
     label: "Range",
     badge: "Range",
     tone: "bg-amber-500/20 text-amber-300",
-    seconds: 20,
+    seconds: 25,
     prompt: "Catch the answer between your two handles — the tighter, the more it pays",
     aliases: ["RANGE_SLIDER", "BRACKET", "INTERVAL", "BETWEEN"],
   },
@@ -90,7 +90,7 @@ export const QUESTION_TYPES: Record<QuestionType, QuestionTypeInfo> = {
     label: "Closest number",
     badge: "Closest number",
     tone: "bg-lime-500/20 text-lime-300",
-    seconds: 20,
+    seconds: 25,
     prompt: "Type a number — closest guess scores the most",
     aliases: ["CLOSEST", "CLOSEST_NUMBER", "CLOSEST_GUESS", "ESTIMATE", "NUMERIC", "GUESS", "NEAREST"],
   },
@@ -99,7 +99,7 @@ export const QUESTION_TYPES: Record<QuestionType, QuestionTypeInfo> = {
     label: "Pin answer",
     badge: "Pin answer",
     tone: "bg-emerald-500/20 text-emerald-300",
-    seconds: 25,
+    seconds: 35,
     prompt: "Drop your pin on your phone",
     aliases: ["PIN_ANSWER", "DROP_PIN", "MAP", "MAP_PIN", "HOTSPOT", "PIN_IT"],
   },
@@ -108,7 +108,7 @@ export const QUESTION_TYPES: Record<QuestionType, QuestionTypeInfo> = {
     label: "Puzzle · order",
     badge: "Puzzle · order",
     tone: "bg-red-500/20 text-red-300",
-    seconds: 30,
+    seconds: 45,
     prompt: "Put them in the right order",
     aliases: ["ORDER", "SEQUENCE", "SORT_ORDER", "RANK", "TIMELINE"],
   },
@@ -117,7 +117,7 @@ export const QUESTION_TYPES: Record<QuestionType, QuestionTypeInfo> = {
     label: "Puzzle · match",
     badge: "Puzzle · match",
     tone: "bg-pink-500/20 text-pink-300",
-    seconds: 30,
+    seconds: 45,
     prompt: "Pair every item with its partner",
     aliases: ["MATCHING", "PAIRS", "PAIR", "CONNECT", "MATCH_UP"],
   },
@@ -126,7 +126,7 @@ export const QUESTION_TYPES: Record<QuestionType, QuestionTypeInfo> = {
     label: "Puzzle · sort",
     badge: "Puzzle · sort",
     tone: "bg-fuchsia-500/20 text-fuchsia-300",
-    seconds: 30,
+    seconds: 45,
     prompt: "Sort every item into its group",
     aliases: ["CATEGORISE", "SORT", "GROUP", "GROUPS", "BUCKETS", "CLASSIFY"],
   },
@@ -135,7 +135,7 @@ export const QUESTION_TYPES: Record<QuestionType, QuestionTypeInfo> = {
     label: "Puzzle · unscramble",
     badge: "Puzzle · unscramble",
     tone: "bg-violet-500/20 text-violet-300",
-    seconds: 25,
+    seconds: 35,
     prompt: "Unscramble the letters",
     aliases: ["UNSCRAMBLE", "ANAGRAM", "WORD_SCRAMBLE", "JUMBLE"],
   },
@@ -193,10 +193,35 @@ export const MIN_TIME_LIMIT = 5;
 export const MAX_TIME_LIMIT = 120;
 
 /**
+ * Reading time a long question earns on top of its format's clock.
+ *
+ * A clock is set for the format — what it takes to tap an option, drag four
+ * tiles into order, find a place on a map — and assumes the question itself
+ * is read in a glance. A question that runs to three lines on a phone is
+ * not, and every second spent reading it is a second of time bonus lost, so
+ * the clock grows with the text: nothing up to `READING_FREE_CHARS`, then a
+ * second per `READING_CHARS_PER_SECOND` past it, capped so a wordy question
+ * cannot buy itself a minute. A `timeLimit` the author set is left alone —
+ * they chose it for the question in front of them.
+ */
+export const READING_FREE_CHARS = 80;
+export const READING_CHARS_PER_SECOND = 40;
+export const READING_MAX_SECONDS = 10;
+
+export const readingAllowance = (text: string | undefined): number => {
+  const length = (text ?? "").trim().replace(/\s+/g, " ").length;
+  if (length <= READING_FREE_CHARS) return 0;
+  return Math.min(
+    READING_MAX_SECONDS,
+    Math.ceil((length - READING_FREE_CHARS) / READING_CHARS_PER_SECOND),
+  );
+};
+
+/**
  * Seconds on the clock for one question: its own `timeLimit` if it set one,
- * otherwise its type's default. A puzzle takes longer to do than a true/false
- * takes to read, and giving both fifteen seconds makes one trivial and the
- * other impossible.
+ * otherwise its type's default plus a reading allowance for a long question.
+ * A puzzle takes longer to do than a true/false takes to read, and giving
+ * both fifteen seconds makes one trivial and the other impossible.
  */
 export const questionSeconds = (question: Question | undefined): number => {
   if (!question) return TIMER_DURATION;
@@ -204,7 +229,10 @@ export const questionSeconds = (question: Question | undefined): number => {
   if (typeof own === "number" && Number.isFinite(own) && own > 0) {
     return Math.round(Math.max(MIN_TIME_LIMIT, Math.min(MAX_TIME_LIMIT, own)));
   }
-  return typeInfo(question.type).seconds;
+  return Math.min(
+    MAX_TIME_LIMIT,
+    typeInfo(question.type).seconds + readingAllowance(question.text),
+  );
 };
 
 /**

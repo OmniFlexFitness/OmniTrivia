@@ -51,7 +51,7 @@ import {
 } from "../../src/services/snapshot";
 import { botAnswerFor } from "../../src/services/botAnswers";
 import { shuffleOptions } from "../../src/services/questionSet";
-import { questionSeconds, parseQuestionType, QUESTION_TYPES } from "../../src/services/questionTypes";
+import { questionSeconds, parseQuestionType, readingAllowance, QUESTION_TYPES } from "../../src/services/questionTypes";
 import {
   answerPoints,
   buildRoundLanes,
@@ -944,6 +944,18 @@ check(
     questionSeconds({ ...mc, timeLimit: 999 }) === 120 &&
     questionSeconds(mc) === TIMER_DURATION,
 );
+{
+  const long = "x".repeat(200);
+  check(
+    "a long question gets reading time on its clock, unless it set its own",
+    readingAllowance("short") === 0 &&
+      readingAllowance("x".repeat(120)) === 1 &&
+      readingAllowance("x".repeat(600)) === 10 &&
+      questionSeconds({ ...mc, text: long }) === TIMER_DURATION + readingAllowance(long) &&
+      questionSeconds({ ...mc, text: long, timeLimit: 20 }) === 20,
+    `${readingAllowance("x".repeat(120))}, ${readingAllowance("x".repeat(600))}`,
+  );
+}
 
 const players: Player[] = ["p1", "p2"].map((id) => ({
   id,
@@ -1271,6 +1283,34 @@ check(
     misread.length === 0,
   misread.length ? misread.join(" | ") : `${examples.length} examples`,
 );
+
+// The copy-paste prompt's example rows are what a model is told to imitate,
+// so they have to import exactly as written — the header included, with its
+// trailing difficulty column the game ignores.
+{
+  const prompt = readFileSync(join(repoRoot, "QUESTION_PROMPT.md"), "utf8").split(/\r?\n/);
+  const header = prompt.find((line) => line.startsWith("type,category,question,")) ?? "";
+  const rows = prompt.filter((line) => /^[A-Z_]+,[A-Za-z ]+,/.test(line));
+  let promptReport: ReturnType<typeof parseImportDataWithReport> | null = null;
+  let promptError = "";
+  try {
+    promptReport = parseImportDataWithReport([header, ...rows].join("\n"));
+  } catch (error: any) {
+    promptError = error?.message ?? String(error);
+  }
+  const promptTypes = new Set(
+    (promptReport ? Object.values(promptReport.contents).flatMap((c) => c.questions) : []).map((q) => q.type),
+  );
+  check(
+    "every example row in QUESTION_PROMPT.md imports, nothing left out, one of every format",
+    Boolean(header) &&
+      promptReport !== null &&
+      promptReport.skipped.length === 0 &&
+      promptTypes.size === Object.values(QuestionType).length &&
+      header.endsWith(",difficulty"),
+    promptError || (promptReport ? `${rows.length} rows, ${promptTypes.size} formats, skipped: ${promptReport.skipped.map((s) => s.reason).join(", ") || "none"}` : ""),
+  );
+}
 
 // The at-a-glance table promises other spellings for the type column.
 const glance = guide.filter((line) => /^\| `[A-Z_]+` \|/.test(line));

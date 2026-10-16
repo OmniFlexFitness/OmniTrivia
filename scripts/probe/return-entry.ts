@@ -451,13 +451,54 @@ check(
 );
 
 check(
-  "a new player cannot join once the bracket is drawn",
+  "a new player cannot join once the bracket is drawn, unless latecomers are taken",
   !resolveJoinRequest({
     ...closed,
     request: { playerId: "p-new", name: "Sam", rejoinProof: playerProof(PIN, "5555") },
     meta: { uid: "uid-sam" },
   }).accepted,
 );
+
+{
+  const late = resolveJoinRequest({
+    ...closed,
+    lateJoin: true,
+    request: { playerId: "p-new", name: "Sam", rejoinProof: playerProof(PIN, "5555") },
+    meta: { uid: "uid-sam" },
+  });
+  check(
+    "with latecomers taken, a new player gets a seat on the bench",
+    late.accepted && late.benched && !late.rejoined && late.seatId === "p-new",
+    JSON.stringify(late),
+  );
+  check(
+    "but a player coming back with their code is not benched",
+    resolveJoinRequest({
+      ...closed,
+      lateJoin: true,
+      request: { playerId: "p-fresh", name: "Dave", rejoinProof: DAVE_PROOF },
+      meta: { uid: "uid-borrowed" },
+    }).benched === false,
+  );
+  check(
+    "nor is anybody joining an open lobby",
+    resolveJoinRequest({
+      ...open,
+      lateJoin: true,
+      request: { playerId: "p-new", name: "Sam" },
+      meta: { uid: "uid-sam" },
+    }).benched === false,
+  );
+  check(
+    "and a latecomer still cannot take a name that is in use",
+    !resolveJoinRequest({
+      ...closed,
+      lateJoin: true,
+      request: { playerId: "p-new", name: "dave" },
+      meta: { uid: "uid-stranger" },
+    }).accepted,
+  );
+}
 
 check(
   "a phone that reloaded comes back to its own seat with no code at all",

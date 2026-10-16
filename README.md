@@ -32,14 +32,16 @@ exactly as they are defined here, and so does the code.
 | **Remote** | A tablet or phone running the round for the host — spin, start, pause, +10s, close, end the round, next round — once it has the PIN and the host password. The host's window still runs the game; the remote drives it. |
 | **Category pool** | The host's own standing list of categories. The end-of-round vote draws its options from it. It is separate from the questions a game happens to be loaded with. |
 | **Rejoin code** | Four digits dealt to a player when they join — random, and theirs to change before they confirm. Their name and that code get them back into the same seat — score, streak and place in the bracket — from any phone, at any point in the game. |
+| **Bench** | Where somebody who joins after **START GAME** waits: in the room, on the leaderboard at zero, not drawn and not waited on. The host deals them in from the desk or the remote — into the draw on the screen between rounds, or in from the next draw during one. In qualifying they join the field; once the bracket is drawn they start on the Redemption Table, and **BACK IN** can send them, or anyone knocked out, into the bracket. |
 | **Host password** | What the host sets when they open the game. With the PIN it takes the running game back on any device if the host's window closes, reloads or dies. |
 
 ### How a game runs
 
 1. The host loads questions, opens a lobby, and players join with the PIN.
-2. **START GAME** closes the lobby and draws the round-one matchups at random.
-   With qualifying rounds on (the default is two), round one is a qualifying
-   round.
+2. **START GAME** draws the round-one matchups at random. With qualifying
+   rounds on (the default is two), round one is a qualifying round. The PIN
+   keeps working: anyone who joins after this lands on the **bench**, and the
+   host deals them in with one tap.
 3. Each round: the wheel is spun, whichever slice stops under the pointer is
    the category, every matchup is dealt that round's questions, and the matches
    play out. The wheel carries only the categories still to be played, so it
@@ -186,7 +188,7 @@ the side is where the room watches somebody pull three questions clear.
 - **100** for a correct answer.
 - **Up to +150** for speed: 10 for every second still on your own clock on a
   15-second question, scaled so a full clock is worth the same on every
-  format — a 12-second true/false and a 30-second puzzle alike.
+  format — a 12-second true/false and a 45-second puzzle alike.
 - **Partial credit** on the formats where close means something: a slider, a
   pin or a closest-number guess just off the answer earns a share of the
   points (how far off still counts is the question's *margin*), a range earns
@@ -470,17 +472,30 @@ every guess, the pairs, the groups.
 | Format | What players do | Clock |
 |---|---|---|
 | Multiple choice | Tap one option | 15s |
-| Select all that apply | Tick every right option — a wrong tick cancels a right one | 20s |
+| Select all that apply | Tick every right option — a wrong tick cancels a right one | 25s |
 | True or false | Two big ✓ / ✕ buttons, or T / F on a keyboard | 12s |
-| Typed answer | Type it; every accepted spelling is listed | 20s |
-| Slider | Slide to a number; a *margin* can pay for a near miss | 20s |
-| Range | Drag two handles to catch the answer — the tighter, the more it pays | 20s |
-| Closest number | Type a number with no scale to hint at it | 20s |
-| Pin answer | Drop a pin on a picture, or on the built-in world or US map | 25s |
-| Puzzle · order | Put items in order | 30s |
-| Puzzle · match | Pair each item with its partner | 30s |
-| Puzzle · sort | Sort items into two to four groups | 30s |
-| Puzzle · unscramble | Rebuild a word from shuffled letter tiles | 25s |
+| Typed answer | Type it; every accepted spelling is listed | 25s |
+| Slider | Slide to a number; a *margin* can pay for a near miss | 25s |
+| Range | Drag two handles to catch the answer — the tighter, the more it pays | 25s |
+| Closest number | Type a number with no scale to hint at it | 25s |
+| Pin answer | Drop a pin on a picture, or on the built-in world or US map | 35s |
+| Puzzle · order | Put items in order | 45s |
+| Puzzle · match | Pair each item with its partner | 45s |
+| Puzzle · sort | Sort items into two to four groups | 45s |
+| Puzzle · unscramble | Rebuild a word from shuffled letter tiles | 35s |
+
+**Typed answers are off by default.** Most of a room does not enjoy spelling
+an answer out on a phone, so the **TYPED ANSWERS** switch on the setup screen
+starts off: Claude is not asked to write them, and a typed row in an imported
+file or the question bank is left out (the review screen says how many). Switch
+it on and every source includes them again. The switch is remembered on the
+host's device.
+
+The clock is for *doing* the question — tapping an option, dragging four
+tiles into order, finding a place on a map — and assumes the question itself
+is read in a glance. A long one is not, so a question over 80 characters gets
+an extra second on top for every 40 characters after that, up to 10. A
+`timeLimit` set in the sheet is used as written, reading time included.
 
 Pin questions on the built-in maps are written as a latitude, a longitude and
 a radius in kilometres — no picture to find and no pixels to measure. The maps
@@ -561,10 +576,26 @@ reaches the bundle or the room's Wi-Fi. It reads the same `.env`.
 
 `QUESTION_PROMPT.md` is a prompt you paste into Claude, ChatGPT or anything
 else you have open. It carries the whole column spec and the parser's rules,
-and returns a CSV you import directly. Change the `CATEGORIES` line and you
-change the categories on offer — the wheel draws whatever the imported file
-contains (minus anything you untick on the way in), so custom ones are
-first-class (they just show with a ❓ instead of a themed icon).
+the same three difficulty levels the app generates at, and notes on all
+twenty categories in the pool, and returns a CSV you import directly. Run it
+once per category per level, merge the files into one sheet, and filter on
+the `difficulty` column (which the game ignores) for a night. The page also
+says which model and effort to run it at. The wheel draws whatever the
+imported file contains (minus anything you untick on the way in), so custom
+categories are first-class (they just show with a ❓ instead of a themed icon).
+
+The same brief is packaged as a Claude skill in
+`.claude/skills/omnitrivia-questions/`. In Claude Code it loads on its own in
+this repository; in claude.ai, upload the packaged `.skill` file under
+Settings → Capabilities → Skills. Ask for "30 high-school Space questions" and
+it writes the CSV, runs `scripts/validate_csv.py` over it (the checks the
+importer makes, plus the mix and duplicates it cannot make for you) and ends
+with the import steps. The validator also runs on its own against any file
+you wrote by hand:
+
+```bash
+python3 .claude/skills/omnitrivia-questions/scripts/validate_csv.py questions-space-school.csv
+```
 
 ### Bring your own (no API key needed)
 
@@ -599,6 +630,17 @@ VITE_ANTHROPIC_API_KEY=sk-ant-...
 Create a key at <https://console.anthropic.com/settings/keys>. `npm run dev`
 picks it up; **HOST GAME → GENERATE & REVIEW** then writes each round with
 `claude-opus-5`.
+
+**Difficulty.** Generated questions are pitched at **high school** by default:
+what a typical graduate remembers without studying, or that everyday life
+makes obvious, with nothing that rewards a fan or a pub-quiz regular. The
+prompt names that reader, gives the model a test to apply to every question
+and examples on both sides of the line (`src/services/difficulty.ts`). The
+**QUESTION DIFFICULTY** picker on the setup screen moves it: *Everyday* is
+what a 12-year-old knows and the game is decided on speed; *Pub quiz* brings
+back a few stretch questions. `npm run generate-questions -- --difficulty
+everyday` does the same for the script. Only generated questions follow it;
+an import or the bank plays whatever its rows hold.
 
 If your key is **identity-linked**, requests are rejected with
 `anthropic-workspace-id is required` until they name a workspace. Add it too:

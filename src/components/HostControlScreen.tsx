@@ -61,6 +61,7 @@ import {
   Tablet,
   Trophy,
   Tv,
+  UserPlus,
   Zap,
 } from "lucide-react";
 
@@ -660,6 +661,83 @@ const RoomScreenPanel: React.FC = () => {
 };
 
 /** How the field is spread across the round's questions. */
+/**
+ * Who arrived after START GAME and is waiting to be dealt in.
+ *
+ * One tap each, or one for everybody. Between rounds they land in the draw on
+ * the screen; during a round they are in from the next one. The panel is
+ * only there while somebody is on the bench, so a night where everybody
+ * turned up on time never sees it.
+ */
+const BenchPanel: React.FC = () => {
+  const { players, phase, admitPlayer, admitLatecomers } = useGame();
+  const [refusal, setRefusal] = React.useState<string | null>(null);
+  const bench = players.filter((player) => player.benched);
+  if (bench.length === 0) return null;
+
+  const waiting = bench.filter((player) => !player.entering);
+  const where =
+    phase === GamePhase.PLAYING
+      ? "in from the next round"
+      : phase === GamePhase.ROUND_END
+        ? "into the next round's draw"
+        : "into this round";
+
+  return (
+    <Panel
+      title={`Joined late · ${bench.length}`}
+      action={
+        waiting.length > 1 ? (
+          <button
+            onClick={admitLatecomers}
+            className="text-[10px] font-mono uppercase tracking-widest text-neon-green hover:text-white"
+            title={`Deal everybody on the bench ${where}`}
+          >
+            deal in everyone
+          </button>
+        ) : undefined
+      }
+    >
+      <div className="space-y-1.5">
+        {bench.map((player) => (
+          <div
+            key={player.id}
+            className="flex items-center gap-2 p-2 rounded-lg bg-slate-900 text-sm"
+          >
+            <AvatarDisplay
+              avatar={player.avatar}
+              color={player.avatarColor}
+              accessory={player.avatarAccessory}
+              size="sm"
+            />
+            <span className="flex-1 min-w-0 truncate font-bold">{player.name}</span>
+            {player.entering ? (
+              <span className="text-[10px] font-mono uppercase tracking-widest text-neon-green">
+                in from next round
+              </span>
+            ) : (
+              <Button
+                variant="neon"
+                className="!py-1 !px-3 text-xs flex items-center gap-1.5"
+                onClick={() => setRefusal(admitPlayer(player.id))}
+                title={`Deal ${player.name} ${where}`}
+              >
+                <UserPlus size={14} /> DEAL IN
+              </Button>
+            )}
+          </div>
+        ))}
+      </div>
+      <p className="text-[11px] text-slate-500 mt-2 leading-snug">
+        Dealt in {where}. In qualifying they join the field; once the bracket
+        is drawn they start on the Redemption Table, and BACK IN below puts
+        them in the bracket.
+      </p>
+      {refusal && <p className="text-xs text-amber-300 mt-2">{refusal}</p>}
+    </Panel>
+  );
+};
+
 const RoundProgressPanel: React.FC = () => {
   const { lanes, questionsQueue } = useGame();
 
@@ -1091,9 +1169,18 @@ const HostControlScreen: React.FC = () => {
     botsEnabled,
     setBotsEnabled,
     botsSettingOpen,
+    admitPlayer,
   } = useGame();
 
   const [showPool, setShowPool] = React.useState(false);
+  // Why a player could not be sent back in, under the scores.
+  const [reinstateRefusal, setReinstateRefusal] = React.useState<string | null>(null);
+  // Sending somebody back into the bracket is the host's override of the
+  // result, so it is only offered where there is a draw to send them into.
+  const canReinstate =
+    phase === GamePhase.CATEGORY_SELECT ||
+    phase === GamePhase.PLAYING ||
+    phase === GamePhase.ROUND_END;
   const [showScreens, setShowScreens] = React.useState(false);
   // Rejoin codes, for the player who forgot theirs. Hidden by default: the
   // desk is a laptop on a table, and a code is half of a seat.
@@ -1291,6 +1378,8 @@ const HostControlScreen: React.FC = () => {
             </>
           )}
 
+          <BenchPanel />
+
           <Panel
             title="Scores"
             action={
@@ -1357,6 +1446,34 @@ const HostControlScreen: React.FC = () => {
                         WC
                       </span>
                     )}
+                    {player.benched && (
+                      <span
+                        className="px-1.5 rounded border border-slate-500 text-[9px] font-mono uppercase tracking-widest text-slate-400"
+                        title="Joined late — waiting to be dealt in"
+                      >
+                        {player.entering ? "NEXT" : "BENCH"}
+                      </span>
+                    )}
+                    {player.eliminated && !player.benched && canReinstate && (
+                      player.entering ? (
+                        <span
+                          className="text-[9px] font-mono uppercase tracking-widest text-neon-green"
+                          title="Back in the bracket from the next round"
+                        >
+                          back next round
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => setReinstateRefusal(admitPlayer(player.id))}
+                          className="px-1.5 py-0.5 rounded border border-neon-green/60 text-[9px] font-mono uppercase tracking-widest text-neon-green hover:bg-neon-green/10"
+                          title={`Send ${player.name} back into the bracket — ${
+                            phase === GamePhase.PLAYING ? "from the next round" : "in the draw on the screen"
+                          }`}
+                        >
+                          back in
+                        </button>
+                      )
+                    )}
                     <span className="font-mono text-neon-green text-xs">
                       +{player.roundScore}
                     </span>
@@ -1366,6 +1483,9 @@ const HostControlScreen: React.FC = () => {
                   </div>
                 ))}
             </div>
+            {reinstateRefusal && (
+              <p className="text-xs text-amber-300 mt-2">{reinstateRefusal}</p>
+            )}
           </Panel>
 
           <Panel title="Big screen text" action={<Tv size={14} className="text-slate-500" />}>

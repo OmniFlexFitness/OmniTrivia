@@ -35,7 +35,16 @@ import {
   renumberRounds,
   shuffle,
   shuffleOptions,
+  withoutTypedAnswers,
 } from "../../src/services/questionSet";
+import { formatsToGenerate } from "../../src/services/formatPreference";
+import {
+  DEFAULT_DIFFICULTY,
+  DIFFICULTY,
+  DIFFICULTY_LEVELS,
+  difficultyBrief,
+  isDifficulty,
+} from "../../src/services/difficulty";
 import {
   landedSliceIndex,
   planSpin,
@@ -626,6 +635,74 @@ check(
   "which category opens the game is decided by the spin",
   firstUp.size === library.length,
   `${firstUp.size} of ${library.length} categories opened a game`,
+);
+
+/* ------------------------------------------------------------------ *
+ * Typed answers, off by default
+ * ------------------------------------------------------------------ */
+
+{
+  const typedCsv = [
+    "type,category,question,option1,option2,option3,option4,correctAnswer,explanation",
+    "MULTIPLE_CHOICE,Music,Who released Thriller?,Prince,Michael Jackson,Madonna,Cher,Michael Jackson,",
+    "TYPE_ANSWER,Music,Which Beatle was the quiet one?,George Harrison,Harrison,,,George Harrison,",
+    ",Music,What element has the symbol K?,,,,,Potassium,",
+    "TYPE_ANSWER,Art,Who painted the Mona Lisa?,Leonardo da Vinci,Da Vinci,,,Leonardo da Vinci,",
+  ].join("\n");
+  const everything = Object.values(parseImportData(typedCsv));
+  const { contents, dropped } = withoutTypedAnswers(everything);
+  check(
+    "with typed answers off, typed rows leave an import — a blank-type row included",
+    dropped === 3 &&
+      contents.length === 1 &&
+      contents[0].questions.length === 1 &&
+      contents[0].questions[0].type === QuestionType.MULTIPLE_CHOICE,
+    `dropped ${dropped}, ${contents.map((c) => `${c.category.name}:${c.questions.length}`).join(", ")}`,
+  );
+  check(
+    "a category left with nothing but typed rows goes with them",
+    !contents.some((c) => c.category.name === "Art"),
+  );
+  check(
+    "with typed answers on, nothing is touched",
+    withoutTypedAnswers(everything).contents !== everything &&
+      everything.reduce((n, c) => n + c.questions.length, 0) === 4,
+  );
+  check(
+    "Claude is not asked for typed answers while they are off, and never for nothing",
+    !formatsToGenerate(Object.values(QuestionType), false).includes(QuestionType.TYPE_ANSWER) &&
+      formatsToGenerate(Object.values(QuestionType), true).includes(QuestionType.TYPE_ANSWER) &&
+      formatsToGenerate([QuestionType.TYPE_ANSWER], false).join() === QuestionType.MULTIPLE_CHOICE,
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * Difficulty: high school by default, and every level says who it is for
+ * ------------------------------------------------------------------ */
+
+check(
+  "generated questions are pitched at high school unless the host says otherwise",
+  DEFAULT_DIFFICULTY === "school" &&
+    difficultyBrief(undefined) === DIFFICULTY.school.brief &&
+    difficultyBrief("nonsense" as never) === DIFFICULTY.school.brief,
+);
+check(
+  "every level names its reader, gives the model a test, and shows the line from both sides",
+  DIFFICULTY_LEVELS.every((level) => {
+    const brief = DIFFICULTY[level].brief;
+    return (
+      isDifficulty(level) &&
+      brief.includes("Difficulty:") &&
+      /The test for every question|at most one in six/.test(brief) &&
+      brief.includes("Too hard")
+    );
+  }),
+);
+check(
+  "the high-school brief rules out the questions the first nights were lost on",
+  ["Western Roman Empire", "Baker Street", "17-year-old", "no stretch questions"].every((phrase) =>
+    DIFFICULTY.school.brief.includes(phrase),
+  ),
 );
 
 console.log(

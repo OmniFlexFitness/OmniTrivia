@@ -1147,6 +1147,11 @@ const StandingsList: React.FC<{
                   loser's bracket
                 </span>
               )}
+              {player.benched && (
+                <span className="ml-3 text-xs font-mono uppercase tracking-widest text-slate-400">
+                  {player.entering ? "in next round" : "joined late"}
+                </span>
+              )}
             </div>
             <div className="text-xs font-mono uppercase tracking-widest text-orange-300">
               redemption · {player.redemptionScore ?? 0}

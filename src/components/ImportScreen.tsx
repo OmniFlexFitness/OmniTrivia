@@ -198,7 +198,8 @@ const ImportScreen: React.FC = () => {
             <p>
               Leave the option columns empty and the row is read as a typed
               answer — or as a true/false question when correctAnswer says True
-              or False.
+              or False. Typed answers are left out while the TYPED ANSWERS
+              switch at game setup is off.
             </p>
             {/* The template is the quickest way to get every format right,
                 and a host on the deployed site has no other way to it. */}

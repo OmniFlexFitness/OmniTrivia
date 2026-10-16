@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import * as z from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { Question, QuestionType } from "../types";
+import { DEFAULT_DIFFICULTY, QuestionDifficulty, difficultyBrief } from "./difficulty";
 import { currentIdToken } from "./remoteRoom";
 import { rowToQuestion } from "./importService";
 
@@ -105,33 +106,116 @@ const client = proxyUrl
  */
 const TYPE_INSTRUCTIONS: Record<QuestionType, string> = {
   [QuestionType.MULTIPLE_CHOICE]:
-    "MULTIPLE_CHOICE — options: exactly 4 choices, one right and three plausible but clearly wrong. correctAnswer: the right option, word for word.",
+    "MULTIPLE_CHOICE — options: exactly 4 short choices (one to four words), one right and three that are plausible but clearly wrong, all of them things the room has heard of. correctAnswer: the right option, word for word.",
   [QuestionType.MULTI_SELECT]:
-    'MULTI_SELECT — a "which of these…" question. options: 4 or 5 choices, of which 2 or 3 are right. correctAnswer: every right option, word for word, joined with " | ".',
+    'MULTI_SELECT — a "which of these…" question. options: 4 or 5 well-known choices, of which exactly 2 or 3 are right, and the right ones obviously right to anyone who knows the subject at all. correctAnswer: every right option, word for word, joined with " | ".',
   [QuestionType.TRUE_FALSE]:
-    'TRUE_FALSE — text is a statement, not a question. options: []. correctAnswer: "True" or "False". Aim for roughly half false.',
+    'TRUE_FALSE — text is a short statement, not a question, that sounds plausible either way. options: []. correctAnswer: "True" or "False". Aim for roughly half false. A false statement is a believable near miss, never a nonsense one.',
   [QuestionType.TYPE_ANSWER]:
-    "TYPE_ANSWER — players type the answer. options: every spelling to accept, canonical first (full name, surname, common variants). correctAnswer: the canonical answer.",
+    "TYPE_ANSWER — players type the answer, so the answer is a single word or a famous name everybody can spell. options: every spelling to accept, canonical first (full name, surname, common variants and misspellings). correctAnswer: the canonical answer.",
   [QuestionType.SLIDER]:
-    "SLIDER — players slide to a number. options: [min, max, step, lowestCorrect, highestCorrect] as plain numbers; bracket the answer without centring on it, keep the correct window narrow but reachable with the step. correctAnswer: the true value. unit: what it counts, if anything.",
+    "SLIDER — players slide to a number people have a rough feel for (a famous year, a height, a count), never a statistic. options: [min, max, step, lowestCorrect, highestCorrect] as plain numbers; bracket the answer without centring on it, and make the correct window generous — a sensible guess should land in it. correctAnswer: the true value. unit: what it counts, if anything.",
   [QuestionType.RANGE]:
-    "RANGE — players drag two handles to catch the answer; the tighter, the more it pays. options: [min, max, step] as plain numbers, a scale wide enough that the answer is not obvious from it. correctAnswer: the exact number. unit: what it counts, if anything.",
+    "RANGE — players drag two handles to catch a number they have a rough feel for; the tighter, the more it pays. options: [min, max, step] as plain numbers, a scale wide enough that the answer is not obvious from it. correctAnswer: the exact number. unit: what it counts, if anything.",
   [QuestionType.NUMBER]:
-    "NUMBER — closest guess wins, no scale shown. options: []. correctAnswer: the exact number, digits only. unit: what it counts, if anything. Only for numbers with one defensible value.",
+    "NUMBER — closest guess wins, no scale shown, so the answer must be a number most people roughly know (days in a year, states in the US, players on a football team). options: []. correctAnswer: the exact number, digits only. unit: what it counts, if anything. Only for numbers with one defensible value.",
   [QuestionType.PIN]:
-    'PIN — players drop a pin on a built-in map. map: "world" or "usa" (the lower 48 only). text: "Drop a pin on …" or a clue to a place. options: [latitude, longitude, radiusKm] in decimal degrees; radius 300–800 km on the world map, 60–250 km on the US map. correctAnswer: the place\'s name. Only famous places with unambiguous coordinates.',
+    'PIN — players drop a pin on a built-in map. map: "world" or "usa" (the lower 48 only). text: "Drop a pin on …" or a clue to a place. Only iconic places — famous cities, countries, landmarks — with unambiguous coordinates. options: [latitude, longitude, radiusKm] in decimal degrees; be generous with the radius, 600–800 km on the world map and 150–250 km on the US map. correctAnswer: the place\'s name.',
   [QuestionType.PUZZLE]:
-    'PUZZLE — put items in order. options: 4 items in the CORRECT order, by something unarguable (usually date). correctAnswer: the same items joined with " | ".',
+    'PUZZLE — put items in order. options: 4 famous items in the CORRECT order, by something unarguable (usually date), and far apart in it — decades between events, not years — so nobody has to know exact figures to get it. correctAnswer: the same items joined with " | ".',
   [QuestionType.MATCH]:
-    'MATCH — pair items up. options: 4 pairs, each written "item = partner"; every partner different. correctAnswer: "See the pairs".',
+    'MATCH — pair items up. options: 4 famous pairs, each written "item = partner", where every partner plainly belongs to one item (country and capital, band and singer); every partner different. correctAnswer: "See the pairs".',
   [QuestionType.CATEGORIZE]:
-    'CATEGORIZE — sort items into groups. options: 6 items, each written "item = group", using exactly 2 or 3 groups with at least 2 items each. correctAnswer: "See the groups".',
+    'CATEGORIZE — sort items into groups. options: 6 everyday items, each written "item = group", using exactly 2 groups of 3 (3 groups only if they are obvious), with every item plainly in one group and no borderline cases. correctAnswer: "See the groups".',
   [QuestionType.SCRAMBLE]:
-    "SCRAMBLE — players rebuild a word from its shuffled letters. text: the clue. options: []. correctAnswer: one word or a two-word name, 5 to 12 letters.",
+    "SCRAMBLE — players rebuild a word from its shuffled letters. text: a clue that points straight at the word. options: []. correctAnswer: one common word of 5 to 8 letters that the whole room knows.",
 };
 
 /** Every type a generated game can use. */
 export const GENERATABLE_TYPES: QuestionType[] = Object.values(QuestionType);
+
+/**
+ * Who the questions are for, and what that rules out.
+ *
+ * The first sets were written like a quiz for people who follow the subject
+ * — the last emperor of the Western Roman Empire, the session player on a
+ * 1978 single — and a bar full of friends, families and regulars sat and
+ * guessed. The game is head-to-head and scored on speed, so it does not need
+ * hard questions to be competitive; it needs ones the whole room has a real
+ * shot at and recognises when the answer is read out.
+ */
+export const SYSTEM_PROMPT =
+  "You write trivia questions for a bar-night game played on phones by a " +
+  "mixed room — friends, families, regulars, people who have had a drink. " +
+  "They are not a quiz team. The game is head-to-head and scored on speed, " +
+  "so it does not need hard questions to be competitive — it needs ones " +
+  "everybody in the room knows the answer to and races to tap. Pitch every " +
+  "question at exactly the level the request names, and when in doubt go " +
+  "easier: a question that is too easy costs nothing, a question that is too " +
+  "hard loses the room. Never ask for an exact year, a precise statistic, a " +
+  "minor character, a specific episode, a name only an enthusiast knows, or " +
+  "anything that takes two facts to work out. Every question must have " +
+  "exactly one defensibly correct answer, and wrong options must be " +
+  "plausible but clearly wrong to someone who knows the subject at all — " +
+  "and be things the room has heard of, so the question is 'which of " +
+  "these', not 'have you heard of these'. Keep every question to one plain " +
+  "sentence, ideally under 90 characters, with no double negatives and no " +
+  "trick wording — it is read against a clock. Never repeat a question or a " +
+  "subject within a set. Skipping the most worn-out pub-quiz questions is " +
+  "fine, but never by making a question harder: a fresh angle on a famous " +
+  "thing beats an obscure thing.";
+
+/**
+ * What share of a set each format gets.
+ *
+ * Multiple choice and true/false are the backbone: quick to read, quick to
+ * answer, and the format never gets in the way of the question. Everything
+ * else — pins, puzzles, sliders — takes longer to do and is harder in itself,
+ * so those are rationed to a question or two per set and written as the
+ * easiest questions in it. A host who turns the classic formats off in the
+ * picker gets the other formats, still written easy.
+ */
+export const formatMix = (allowed: readonly QuestionType[], count: number): string => {
+  if (allowed.length === 1) return `Every question is ${allowed[0]}.`;
+
+  const backboneTypes = new Set<QuestionType>([
+    QuestionType.MULTIPLE_CHOICE,
+    QuestionType.TRUE_FALSE,
+  ]);
+  const classic = allowed.filter((type) => backboneTypes.has(type));
+  const others = allowed.filter((type) => !backboneTypes.has(type));
+  const otherLimit = Math.max(1, Math.round(count / 6));
+  const pick =
+    "pick the one that suits the question — PIN for a famous place, SLIDER, " +
+    "RANGE or NUMBER for a number people have a feel for, PUZZLE for a " +
+    "timeline, MATCH for pairs, CATEGORIZE for sorting, SCRAMBLE for one " +
+    "common word";
+
+  if (others.length === 0) {
+    return classic.length === 2
+      ? "Formats: about three quarters MULTIPLE_CHOICE and the rest TRUE_FALSE."
+      : `Every question is ${classic[0]}.`;
+  }
+
+  if (classic.length === 0) {
+    return (
+      `Formats: spread the questions across ${others.join(", ")} and ${pick}. ` +
+      "These formats take longer to answer and are harder in themselves, so " +
+      "every question is written easy."
+    );
+  }
+
+  const backbone =
+    classic.length === 2
+      ? "about two thirds MULTIPLE_CHOICE and about one in five TRUE_FALSE"
+      : `most of them ${classic[0]}`;
+  return (
+    `Formats: ${backbone}. The other formats (${others.join(", ")}) together ` +
+    `get at most ${otherLimit} of the ${count} questions — ${pick}. Those take ` +
+    "longer to answer and are harder in themselves, so they are the easiest " +
+    "questions in the set, and never two of the same format."
+  );
+};
 
 /**
  * The shape the model fills. One flat object per question rather than a
@@ -210,6 +294,8 @@ export const generateQuestions = async (
   count: number = 5,
   /** The formats to write in. Empty or omitted means every format. */
   types: readonly QuestionType[] = GENERATABLE_TYPES,
+  /** How hard to pitch them. High school unless the host says otherwise. */
+  difficulty: QuestionDifficulty = DEFAULT_DIFFICULTY,
 ): Promise<GenerationResult> => {
   if (!client) {
     return fallback(
@@ -220,14 +306,7 @@ export const generateQuestions = async (
   }
 
   const allowed = types.length > 0 ? [...new Set(types)] : GENERATABLE_TYPES;
-  const mix =
-    allowed.length === 1
-      ? `Every question is ${allowed[0]}.`
-      : `Mix the formats so the round does not look the same twice in a row` +
-        (allowed.includes(QuestionType.MULTIPLE_CHOICE)
-          ? ": about half MULTIPLE_CHOICE, and the rest spread across the other formats"
-          : ": spread them across the formats") +
-        ", picking for each question the format that suits it — PIN for places, SLIDER, RANGE or NUMBER for years and quantities, PUZZLE for timelines, MATCH for pairs, CATEGORIZE for sorting, SCRAMBLE for a single memorable word.";
+  const mix = formatMix(allowed, count);
 
   try {
     const response = await withTimeout(
@@ -235,18 +314,13 @@ export const generateQuestions = async (
         model: MODEL,
         max_tokens: 16000,
         thinking: { type: "adaptive" },
-        system:
-          "You write pub-trivia questions for a fast, head-to-head game played " +
-          "on phones. Every question must have exactly one defensibly correct " +
-          "answer, and wrong options must be plausible but clearly wrong. " +
-          "Prefer questions a general audience can reason about over obscure " +
-          "recall. Never repeat a question within a set. Keep every question " +
-          "short enough to read in a few seconds.",
+        system: SYSTEM_PROMPT,
         messages: [
           {
             role: "user",
             content:
-              `Write ${count} trivia questions about "${category}".\n` +
+              `Write ${count} trivia questions about "${category}" for a mixed room.\n` +
+              `${difficultyBrief(difficulty)}\n` +
               `${mix}\n\n` +
               `Formats you may use, and how to fill each one:\n` +
               allowed.map((type) => `- ${TYPE_INSTRUCTIONS[type]}`).join("\n") +

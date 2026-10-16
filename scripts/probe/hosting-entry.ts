@@ -9,9 +9,13 @@ import { BracketRound, GamePhase, GameState, Player } from "../../src/types";
 import { applyBotsSetting, botsSettingOpen } from "../../src/services/bots";
 import {
   activePlayerIds,
+  addToDraw,
   buildFirstRound,
   byeCounts,
+  enterRound,
+  entrySide,
   podium,
+  redemptionRoster,
   seriesScore,
   winBonusFor,
   winsNeeded,
@@ -962,6 +966,118 @@ const playSeededNight = (
       next.matchups[0].playerAId === m1.playerAId &&
       next.matchups[0].playerBId !== m1.playerBId,
     next.matchups.map((m) => `${m.playerAId}(#${m.seedA})-${m.playerBId}(#${m.seedB})`).join(", "),
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * 3b. Latecomers, and players sent back in
+ * ------------------------------------------------------------------ */
+
+{
+  const five = makePlayers(5);
+  const late: Player = { ...makePlayers(6)[5], benched: true };
+  const qualifying = buildFirstRound(five, { qualifying: true });
+  const bye = qualifying.matchups.find((m) => m.playerBId === null);
+
+  const filled = addToDraw(qualifying, late.id, "qualifying");
+  check(
+    "a latecomer dealt into an odd qualifying draw takes the bye seat",
+    Boolean(bye) &&
+      filled.matchups.length === qualifying.matchups.length &&
+      filled.matchups.find((m) => m.id === bye?.id)?.playerBId === late.id,
+    filled.matchups.map((m) => `${m.playerAId}-${m.playerBId}`).join(", "),
+  );
+  check(
+    "dealing them in again changes nothing",
+    addToDraw(filled, late.id, "qualifying") === filled,
+  );
+
+  const even = buildFirstRound(makePlayers(4), { qualifying: true });
+  const added = addToDraw(even, late.id, "qualifying");
+  const own = added.matchups[added.matchups.length - 1];
+  check(
+    "into an even draw they get a matchup of their own, with a fresh id",
+    added.matchups.length === even.matchups.length + 1 &&
+      own.playerAId === late.id &&
+      own.playerBId === null &&
+      sideOf(own) === "qualifying" &&
+      new Set(added.matchups.map((m) => m.id)).size === added.matchups.length,
+    own.id,
+  );
+  check(
+    "nothing already drawn moves",
+    even.matchups.every((m, i) => added.matchups[i] === m),
+  );
+
+  const asLate = enterRound(even, late, false);
+  check(
+    "a latecomer entering qualifying joins the field, off the bench",
+    asLate !== null &&
+      activePlayerIds(asLate.round).includes(late.id) &&
+      asLate.player.benched === false &&
+      asLate.player.eliminated === false,
+  );
+
+  // The bracket: four players, single elimination.
+  const bracket = buildFirstRound(makePlayers(4));
+  const ontoTable = enterRound(bracket, late, false);
+  check(
+    "a latecomer entering a bracket round takes the Redemption Table instead",
+    ontoTable !== null &&
+      ontoTable.round === bracket &&
+      ontoTable.player.eliminated === true &&
+      ontoTable.player.benched === false,
+  );
+  check(
+    "and is dealt a table seat from there, while a benched player is not",
+    redemptionRoster(bracket, [...makePlayers(4), ontoTable!.player]).includes(late.id) &&
+      !redemptionRoster(bracket, [...makePlayers(4), { ...late, eliminated: true }]).includes(late.id),
+  );
+
+  const out: Player = { ...makePlayers(4)[3], eliminated: true, wildcardUsed: true };
+  const three = buildFirstRound(makePlayers(3));
+  const back = enterRound(three, out, false);
+  check(
+    "a knocked-out player sent back in takes the bye seat and keeps their wildcard spent",
+    back !== null &&
+      activePlayerIds(back.round).includes(out.id) &&
+      back.player.eliminated === false &&
+      back.player.wildcardUsed === true &&
+      back.round.matchups.every((m) => m.playerBId !== null),
+  );
+  check(
+    "in a loser's-bracket game they come back into the loser's bracket",
+    entrySide(three, true) === "losers" &&
+      enterRound(three, out, true)?.player.losersBracket === true &&
+      sideOf(enterRound(three, out, true)!.round.matchups.find((m) => m.playerAId === out.id)!) === "losers",
+  );
+
+  const final: BracketRound = {
+    roundNumber: 3,
+    resolved: false,
+    matchups: [{ ...three.matchups[0], bracket: "final", series: { bestOf: 3, game: 1, winsA: 0, winsB: 0 } }],
+  };
+  check(
+    "nobody is dealt into a final",
+    entrySide(final, false) === null &&
+      enterRound(final, out, false) === null &&
+      addToDraw(final, out.id, "final") === final,
+  );
+  check(
+    "a latecomer at the final still gets the Redemption Table",
+    enterRound(final, late, false)?.player.eliminated === true,
+  );
+
+  // A player dealt into qualifying after round one stays in the field.
+  const second = settleRound(
+    { ...filled, matchups: filled.matchups },
+    [...five, late].map((p) => ({ ...p, benched: false, roundScore: 10 })),
+    { losersBracket: false, playedRounds: [], hasMoreRounds: true, qualifyingRounds: 2, seeded: true },
+  );
+  check(
+    "a latecomer who played a qualifying round is drawn into the next one",
+    second.nextRound !== null && activePlayerIds(second.nextRound).includes(late.id),
+    second.nextRound ? activePlayerIds(second.nextRound).join(", ") : "no next round",
   );
 }
 

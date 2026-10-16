@@ -63,8 +63,8 @@ export const applyBotsSetting = (state: GameState, enabled: boolean): GameState 
     botsEnabled: false,
     players,
     bracket: redraw
-      ? players.length >= 2
-        ? [buildFirstRound(players, openingOptions(state))]
+      ? players.filter((player) => !player.benched).length >= 2
+        ? [buildFirstRound(players.filter((player) => !player.benched), openingOptions(state))]
         : []
       : state.bracket,
   };

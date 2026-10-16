@@ -169,6 +169,7 @@ skipped, so a `notes` column is fine.
 | `margin` | no | How much a near miss on a `SLIDER`, `NUMBER` or `PIN` question still scores: `none`, `low`, `medium`, `high` or `maximum` |
 | `unit` | no | What a `SLIDER`, `RANGE` or `NUMBER` answer counts, shown after the number: `km`, `°F`, `years` for a span (blank for a calendar year, which would show as `1,969 years`) |
 | `timeLimit` | no | Seconds on the clock for this question, 5 to 120. Each format has its own default |
+| `difficulty` | no | **Ignored by the game.** `QUESTION_PROMPT.md` writes `everyday`, `school` or `quiz` here so a sheet holding every level can be filtered before a night is exported |
 
 The optional columns answer to a few other names: `picture`, `image url`,
 `media` or `map` for `image`; `accuracy` or `margin of accuracy` for `margin`;
@@ -234,17 +235,17 @@ flowchart LR
 | `type` | What players do | Clock | Scoring | Also accepted in the `type` column |
 |---|---|---|---|---|
 | `MULTIPLE_CHOICE` | Tap one option | 15s | All or nothing | `MC`, `MCQ`, `Multiple`, `Quiz`, `Choice`, `Single select`, `Single choice`, or leave it blank |
-| `MULTI_SELECT` | Tick every right option | 20s | A wrong tick cancels a right one | `Select all that apply`, `Multi-select`, `Multiple select`, `Checkbox`, `Checkboxes`, `Multiple answer` |
+| `MULTI_SELECT` | Tick every right option | 25s | A wrong tick cancels a right one | `Select all that apply`, `Multi-select`, `Multiple select`, `Checkbox`, `Checkboxes`, `Multiple answer` |
 | `TRUE_FALSE` | Tap True or False | 12s | All or nothing | `TF`, `T/F`, `True/False`, `True or False`, `True / false`, `Boolean`, `Fact or fiction` |
-| `TYPE_ANSWER` | Type the answer | 20s | All or nothing | `Typed answer`, `Type answer`, `Typed`, `Text`, `Short answer`, `Fill in the blank`, `Open`, `Open-ended`, `Text input`, `Free text` |
-| `SLIDER` | Slide to a number | 20s | Inside the target scores in full; `margin` pays a near miss | `Slide`, `Scale` |
-| `RANGE` | Drag two handles to catch the answer | 20s | The tighter the catch, the more it pays | `Range slider`, `Bracket`, `Interval`, `Between` |
-| `NUMBER` | Type a number, no scale shown | 20s | Exact scores in full; `margin` pays a near miss | `Closest`, `Closest number`, `Closest guess`, `Estimate`, `Numeric`, `Guess`, `Nearest` |
-| `PIN` | Drop a pin on a map or a picture | 25s | Inside the ring scores in full; `margin` pays a near miss | `Pin answer`, `Drop pin`, `Map`, `Map pin`, `Hotspot`, `Pin it` |
-| `PUZZLE` | Put items in order | 30s | All or nothing | `Puzzle · order`, `Order`, `Sequence`, `Sort order`, `Rank`, `Timeline` |
-| `MATCH` | Pair items with their partners | 30s | Pays for every pair right beyond guessing | `Puzzle · match`, `Matching`, `Pairs`, `Pair`, `Connect`, `Match up` |
-| `CATEGORIZE` | Sort items into groups | 30s | Pays for every item right beyond guessing | `Puzzle · sort`, `Categorise`, `Sort`, `Group`, `Groups`, `Buckets`, `Classify` |
-| `SCRAMBLE` | Rebuild a word from shuffled letters | 25s | All or nothing | `Puzzle · unscramble`, `Unscramble`, `Anagram`, `Word scramble`, `Jumble` |
+| `TYPE_ANSWER` | Type the answer | 25s | All or nothing | `Typed answer`, `Type answer`, `Typed`, `Text`, `Short answer`, `Fill in the blank`, `Open`, `Open-ended`, `Text input`, `Free text` |
+| `SLIDER` | Slide to a number | 25s | Inside the target scores in full; `margin` pays a near miss | `Slide`, `Scale` |
+| `RANGE` | Drag two handles to catch the answer | 25s | The tighter the catch, the more it pays | `Range slider`, `Bracket`, `Interval`, `Between` |
+| `NUMBER` | Type a number, no scale shown | 25s | Exact scores in full; `margin` pays a near miss | `Closest`, `Closest number`, `Closest guess`, `Estimate`, `Numeric`, `Guess`, `Nearest` |
+| `PIN` | Drop a pin on a map or a picture | 35s | Inside the ring scores in full; `margin` pays a near miss | `Pin answer`, `Drop pin`, `Map`, `Map pin`, `Hotspot`, `Pin it` |
+| `PUZZLE` | Put items in order | 45s | All or nothing | `Puzzle · order`, `Order`, `Sequence`, `Sort order`, `Rank`, `Timeline` |
+| `MATCH` | Pair items with their partners | 45s | Pays for every pair right beyond guessing | `Puzzle · match`, `Matching`, `Pairs`, `Pair`, `Connect`, `Match up` |
+| `CATEGORIZE` | Sort items into groups | 45s | Pays for every item right beyond guessing | `Puzzle · sort`, `Categorise`, `Sort`, `Group`, `Groups`, `Buckets`, `Classify` |
+| `SCRAMBLE` | Rebuild a word from shuffled letters | 35s | All or nothing | `Puzzle · unscramble`, `Unscramble`, `Anagram`, `Word scramble`, `Jumble` |
 
 The `type` column ignores capitals, and treats spaces, `/`, `&`, `-` and `·` as
 the same thing, so `True/False`, `true or false` and `TRUE_FALSE` all work.
@@ -257,6 +258,11 @@ badges on the review screen (`Typed answer`, `Puzzle · order`, `Multi-select`).
 > the `type` column is never played as some other format. A `-`, `N/A`, `NA`
 > or `none` counts as blank. `Sort` means `CATEGORIZE`, not putting things in
 > order. Use the template's drop-down and none of this comes up.
+
+**The clock.** Each format's clock is for doing the question and assumes the
+question itself is read in a glance. One over 80 characters gets an extra
+second for every 40 characters after that, up to 10, unless `timeLimit` sets
+the clock for it — a `timeLimit` is used as written.
 
 **Points.** A right answer is worth 100 plus up to 150 for speed — ten a second
 on a fifteen-second question, scaled so that a full clock is worth the same on
@@ -385,6 +391,12 @@ All or nothing. A tap is final.
 ### Typed answer · `TYPE_ANSWER`
 
 Players type the answer on their phone.
+
+> [!NOTE]
+> **Typed answers are off by default.** A `TYPE_ANSWER` row — and a row with
+> no type and no options, which becomes one — is left out of the game unless
+> the host switches **TYPED ANSWERS** on at game setup. The review screen says
+> how many were left out.
 
 ![Typed answer in the template](docs/images/question-format/type-answer-sheet.png)
 
@@ -706,11 +718,11 @@ Players tap a group for every item, then lock it in.
   joined with `|`.
 - **The `type` column is required.** With it blank and no options, the row
   becomes a typed-answer question and is not left out, so nothing warns you.
-- **A long sort deserves a longer clock:** put `40` in `timeLimit`.
+- **A long sort deserves a longer clock:** the format's own is 45 seconds; put `60` in `timeLimit` for one that needs more.
 
 ```csv
 type,category,question,option1,option2,option3,option4,option5,option6,correctAnswer,explanation,timeLimit
-CATEGORIZE,Food,"Botanically speaking, fruit or vegetable?",Tomato = Fruit,Cucumber = Fruit,Carrot = Vegetable,Bell pepper = Fruit,Potato = Vegetable,Celery = Vegetable,See the groups,,40
+CATEGORIZE,Food,"Botanically speaking, fruit or vegetable?",Tomato = Fruit,Cucumber = Fruit,Carrot = Vegetable,Bell pepper = Fruit,Potato = Vegetable,Celery = Vegetable,See the groups,,60
 ```
 
 ![A sort puzzle played: the phone, the big screen and the answer key](docs/images/question-format/categorize-play.jpg)

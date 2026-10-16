@@ -8,6 +8,8 @@ import { Settings, ArrowRight, KeyRound, Library, ListPlus, Loader2, RefreshCw, 
 import LosersBracketToggle from './LosersBracketToggle';
 import QualifyingRoundsControl from "./QualifyingRoundsControl";
 import BotsToggle from './BotsToggle';
+import TypedAnswersToggle from './TypedAnswersToggle';
+import DifficultyPicker from './DifficultyPicker';
 import QuestionFormatsPicker from './QuestionFormatsPicker';
 import { readFormatPreference, saveFormatPreference } from '../services/formatPreference';
 import { QuestionType } from '../types';
@@ -29,6 +31,10 @@ const HostConfigScreen: React.FC = () => {
     setQualifyingRounds,
     botsEnabled,
     setBotsEnabled,
+    typedAnswersEnabled,
+    setTypedAnswersEnabled,
+    questionDifficulty,
+    setQuestionDifficulty,
   } = useGame();
   // Seven covers two qualifying rounds, a seeded bracket for eight and a
   // best-of-3 final; the lobby says exactly how many the room needs.
@@ -218,7 +224,21 @@ const HostConfigScreen: React.FC = () => {
               starts seating them. */}
           <BotsToggle enabled={botsEnabled} onChange={setBotsEnabled} stage="setup" />
 
-          <QuestionFormatsPicker selected={formats} onChange={chooseFormats} />
+          {/* One switch for the format a room likes least, applied to every
+              way questions come in — so it sits above the picker that only
+              shapes generated games. */}
+          <TypedAnswersToggle enabled={typedAnswersEnabled} onChange={setTypedAnswersEnabled} />
+
+          {/* How hard Claude pitches a generated game. High school by
+              default: the first nights were pitched at people who follow
+              the subject, and the room guessed. */}
+          <DifficultyPicker level={questionDifficulty} onChange={setQuestionDifficulty} />
+
+          <QuestionFormatsPicker
+            selected={formats}
+            onChange={chooseFormats}
+            typedAnswers={typedAnswersEnabled}
+          />
 
           <div className="pt-4 space-y-3">
             <Button onClick={handleGenerate} fullWidth variant="neon" disabled={passwordTooShort || loadingBank} className="flex items-center justify-center gap-2">
