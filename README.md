@@ -584,6 +584,19 @@ says which model and effort to run it at. The wheel draws whatever the
 imported file contains (minus anything you untick on the way in), so custom
 categories are first-class (they just show with a ❓ instead of a themed icon).
 
+The same brief is packaged as a Claude skill in
+`.claude/skills/omnitrivia-questions/`. In Claude Code it loads on its own in
+this repository; in claude.ai, upload the packaged `.skill` file under
+Settings → Capabilities → Skills. Ask for "30 high-school Space questions" and
+it writes the CSV, runs `scripts/validate_csv.py` over it (the checks the
+importer makes, plus the mix and duplicates it cannot make for you) and ends
+with the import steps. The validator also runs on its own against any file
+you wrote by hand:
+
+```bash
+python3 .claude/skills/omnitrivia-questions/scripts/validate_csv.py questions-space-school.csv
+```
+
 ### Bring your own (no API key needed)
 
 **HOST GAME → IMPORT MY OWN QUESTIONS**, then either select a CSV file or paste

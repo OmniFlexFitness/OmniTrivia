@@ -22,6 +22,12 @@ How to use it:
 
 The recommended model and settings are after the prompt.
 
+The same brief is also a Claude skill, `.claude/skills/omnitrivia-questions/`,
+for when you would rather say "30 high-school Space questions" than paste
+this: it writes the file, validates it with `scripts/validate_csv.py`, and
+ends with the import steps. The prompt below is for any assistant, or for a
+claude.ai chat without the skill installed.
+
 ---
 
 ## The prompt
