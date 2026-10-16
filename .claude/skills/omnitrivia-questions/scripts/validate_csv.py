@@ -162,7 +162,7 @@ def validate_row(rep: Report, line: int, row: dict, seen_questions: dict, seen_a
     if time_limit and number(time_limit) is None:
         rep.error(line, f"timeLimit {time_limit!r} is not a number")
     if margin and margin not in MARGINS:
-        rep.error(line, f"margin {row['margin']!r} must be low, medium or high (or empty)")
+        rep.error(line, f"margin {row['margin']!r} must be low, medium or high (the game also reads none and maximum), or empty")
     if image and qtype != "PIN":
         rep.warn(line, f"image is set on a {qtype} row; only PIN uses it")
     if margin and qtype != "SLIDER":

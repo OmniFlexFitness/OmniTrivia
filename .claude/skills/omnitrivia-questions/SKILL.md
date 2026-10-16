@@ -70,8 +70,10 @@ For every question, before keeping it:
 
 1. **Apply the level's test** from `references/difficulty.md`. For `school`:
    would an average 17-year-old, and an adult who has not followed the subject
-   since school, know this instantly without looking anything up or working
-   anything out? If not, find an easier fact about the same subject.
+   since school, know this without looking anything up or working anything
+   out? About two thirds of the set are questions nearly everybody gets, the
+   rest ones about half the room gets, and nothing beyond that. If a question
+   fails the test, find an easier fact about the same subject.
 2. **One defensible answer.** If two answers could be argued, rewrite.
 3. **Wrong options are things the room has heard of**, plausible to someone
    who does not know and clearly wrong to someone who does. One to four
@@ -81,7 +83,10 @@ For every question, before keeping it:
    true/false).
 5. **The explanation is one sentence worth reading aloud**: why the answer is
    what it is, or the fact that makes it stick.
-6. **No two questions about the same person, event or work.**
+6. **No two questions with the same answer**, and no two about the same
+   person, event or work. A big subject (the Moon, Rome, the Beatles) can
+   carry more than one question if each asks a different fact, but spread the
+   set rather than mining one subject.
 7. **Never** an exact year, a precise statistic, a minor character, a specific
    episode, a name only a fan knows, or anything that takes two facts.
 
@@ -91,14 +96,17 @@ near miss, never nonsense.
 ## 5. Write the file and validate it
 
 Save the set as `questions-<category>-<difficulty>.csv`, lowercase with
-hyphens, for example `questions-pop-culture-school.csv`. UTF-8, no byte-order
-mark, Unix line endings, the exact header from `references/format.md`, one row
-per question, every row 16 fields.
+hyphens, for example `questions-pop-culture-school.csv`, in the place the
+request named, otherwise the working directory or wherever files for the
+user go in this environment. UTF-8, no byte-order mark, Unix line endings,
+the exact header from `references/format.md`, one row per question, every
+row 16 fields.
 
-Then run the validator that ships with this skill:
+Then run the validator in this skill's `scripts/` folder, by its full path
+from wherever the skill is installed:
 
 ```bash
-python scripts/validate_csv.py questions-pop-culture-school.csv
+python3 <skill folder>/scripts/validate_csv.py questions-pop-culture-school.csv
 ```
 
 It checks what the importer checks (header, field count, required cells,
@@ -121,7 +129,9 @@ unless asked; the file is the deliverable.
 
 ## How to import the file into OmniTrivia
 
-Include this with every delivery. The wording matches the buttons in the app.
+Include this with the first delivery in a conversation; on later deliveries
+in the same conversation, one line saying the steps are the same is enough.
+The wording matches the buttons in the app.
 
 1. **Open the app and press HOST GAME.** On the setup screen, check the
    **TYPED ANSWERS** switch: it is off by default and any `TYPE_ANSWER` rows
@@ -158,8 +168,10 @@ prompt for claude.ai.
 Request: "Give me 30 high-school level Space questions for Friday."
 
 Settings read: category Space, difficulty `school`, count 30, typed answers
-off. Mix: 20 multiple choice, 6 true/false, 4 others (say one SLIDER on the
-Moon landing year, one PUZZLE ordering four famous missions, one MULTI_SELECT
-on which of these are planets, one SCRAMBLE of a planet name). File written
-to `questions-space-school.csv`, validator clean, delivered with the import
-steps.
+off. Mix: 20 multiple choice, 6 true/false, 4 others, each a different
+format and each the easiest question in the set (say one SLIDER on how many
+minutes sunlight takes to reach Earth, one PUZZLE ordering four planets
+outward from the Sun, one MULTI_SELECT on which of these are moons, one
+SCRAMBLE of a planet name). Each "other" takes a subject the multiple choice
+rows then leave alone. File written to `questions-space-school.csv`,
+validator clean, delivered with the import steps.
