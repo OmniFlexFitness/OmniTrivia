@@ -1002,6 +1002,7 @@ const start: GameState = {
   broadcastRevealSecondsLeft: REVEAL_DURATION,
   autoAdvance: true,
   losersBracket: false,
+  roundRobin: false,
   qualifyingRounds: 0,
   botsEnabled: false,
   hostAnsweringEnabled: true,

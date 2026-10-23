@@ -2,7 +2,7 @@ import React from "react";
 import { BracketRound, BracketSide, Matchup, PublicPlayer } from "../types";
 import { SIDE_LABELS, seriesScore, sideOf } from "../services/bracket";
 import AvatarDisplay from "./AvatarDisplay";
-import { Crown, ListOrdered, ShieldAlert, Swords, Trophy } from "lucide-react";
+import { Crown, ListOrdered, Repeat, ShieldAlert, Swords, Trophy } from "lucide-react";
 
 /**
  * The head-to-head bracket, drawn one column per round.
@@ -33,13 +33,17 @@ export const SideTag: React.FC<{ side: BracketSide; size?: "sm" | "lg" }> = ({
           ? "border-yellow-400/70 text-yellow-300 bg-yellow-400/10"
           : side === "qualifying"
             ? "border-cyan-400/60 text-cyan-300 bg-cyan-400/10"
-            : "border-orange-400/60 text-orange-300 bg-orange-500/10"
+            : side === "roundRobin"
+              ? "border-violet-400/60 text-violet-300 bg-violet-400/10"
+              : "border-orange-400/60 text-orange-300 bg-orange-500/10"
       }`}
     >
       {side === "final" ? (
         <Trophy size={large ? 12 : 10} />
       ) : side === "qualifying" ? (
         <ListOrdered size={large ? 12 : 10} />
+      ) : side === "roundRobin" ? (
+        <Repeat size={large ? 12 : 10} />
       ) : (
         <ShieldAlert size={large ? 12 : 10} />
       )}
@@ -265,7 +269,7 @@ const BracketView: React.FC<BracketViewProps> = ({
     );
   }
 
-  const sides: BracketSide[] = ["qualifying", "winners", "losers", "final"];
+  const sides: BracketSide[] = ["roundRobin", "qualifying", "winners", "losers", "final"];
   const present = sides.filter((side) =>
     bracket.some((round) => round.matchups.some((m) => sideOf(m) === side)),
   );

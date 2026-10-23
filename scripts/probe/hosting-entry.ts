@@ -12,9 +12,15 @@ import {
   addToDraw,
   buildFirstRound,
   byeCounts,
+  championAtEnd,
+  circleRound,
   enterRound,
   entrySide,
+  isRoundRobinGame,
+  matchRecords,
   podium,
+  roundRobinRounds,
+  roundRobinStandings,
   redemptionRoster,
   seriesScore,
   winBonusFor,
@@ -658,6 +664,339 @@ const playWildNight = (
     "third place goes to the most redemption points, knocked out or not",
     allGamePlaces.runnerUpId === "p3" && allGamePlaces.redemptionId === "p4",
     `runner-up ${allGamePlaces.runnerUpId}, third ${allGamePlaces.redemptionId}`,
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * 3c. Round robin, and three places however the night ends
+ * ------------------------------------------------------------------ */
+
+/** Play a round robin the way `finishRound` does: random scores, settle, repeat. */
+const playRoundRobin = (
+  count: number,
+  rounds: number,
+  seed: number,
+): { rounds: BracketRound[]; players: Player[]; badBonuses: number; out: number } => {
+  const random = rng(seed);
+  let players = makePlayers(count);
+  let played: BracketRound[] = [buildFirstRound(players, { roundRobin: true })];
+  let badBonuses = 0;
+  let out = 0;
+
+  for (let roundNumber = 1; roundNumber <= rounds; roundNumber++) {
+    const current = played[roundNumber - 1];
+    if (!current) break;
+
+    const inRound = new Set(activePlayerIds(current));
+    players = players.map((p) => {
+      if (!inRound.has(p.id)) return { ...p, roundScore: 0 };
+      const points = Math.floor(random() * 4) * 100;
+      return {
+        ...p,
+        roundScore: points,
+        score: p.score + points,
+        redemptionScore: (p.redemptionScore ?? 0) + points,
+      };
+    });
+
+    const outcome = settleRound(current, players, {
+      losersBracket: false,
+      playedRounds: played.slice(0, roundNumber - 1),
+      hasMoreRounds: roundNumber < rounds,
+      wildcards: true,
+      qualifyingRounds: 2,
+      seeded: true,
+      finalBestOf: 3,
+    });
+    if (outcome.championId) out += 1;
+    out += outcome.eliminatedIds.length;
+
+    // Every win, and every bye, pays half the round again — nothing else does.
+    outcome.round.matchups.forEach((m) => {
+      const winner = players.find((p) => p.id === m.winnerId);
+      const expected = winner ? winBonusFor(winner.roundScore) : 0;
+      if ((m.winBonus ?? 0) !== expected) badBonuses += 1;
+    });
+
+    players = players.map((p) =>
+      outcome.bonuses[p.id] ? { ...p, score: p.score + outcome.bonuses[p.id] } : p,
+    );
+    played = [...played.slice(0, roundNumber - 1), outcome.round];
+    if (outcome.nextRound) played.push(outcome.nextRound);
+  }
+
+  return { rounds: played, players, badBonuses, out };
+};
+
+const pairCounts = (rounds: BracketRound[]): Map<string, number> => {
+  const counts = new Map<string, number>();
+  rounds.forEach((round) =>
+    round.matchups.forEach((m) => {
+      if (!m.playerBId) return;
+      const key = [m.playerAId, m.playerBId].sort().join("|");
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }),
+  );
+  return counts;
+};
+
+{
+  let everyoneOnce = true;
+  let byeOnceEach = true;
+  let onceEachRound = true;
+  let roundCount = true;
+  let allRoundRobin = true;
+  let bonuses = 0;
+  let nobodyOut = true;
+  let detail = "";
+
+  for (let count = 2; count <= 16; count++) {
+    for (let seed = 1; seed <= 6; seed++) {
+      const needed = roundRobinRounds(count);
+      const night = playRoundRobin(count, needed, count * 97 + seed);
+      const pairs = pairCounts(night.rounds);
+      const expectedPairs = (count * (count - 1)) / 2;
+
+      if (night.rounds.length !== needed) {
+        roundCount = false;
+        detail = `${count} players: ${night.rounds.length} rounds, expected ${needed}`;
+      }
+      if (pairs.size !== expectedPairs || [...pairs.values()].some((n) => n !== 1)) {
+        everyoneOnce = false;
+        detail = `${count} players: ${pairs.size}/${expectedPairs} pairs`;
+      }
+      const byes = byeCounts(night.rounds);
+      if (count % 2 === 1 && night.players.some((p) => byes.get(p.id) !== 1)) {
+        byeOnceEach = false;
+        detail = `${count} players: byes ${[...byes.entries()].join(" ")}`;
+      }
+      if (count % 2 === 0 && byes.size > 0) byeOnceEach = false;
+      night.rounds.forEach((round) => {
+        const ids = activePlayerIds(round);
+        if (new Set(ids).size !== ids.length || ids.length !== count) onceEachRound = false;
+      });
+      if (!isRoundRobinGame(night.rounds)) allRoundRobin = false;
+      bonuses += night.badBonuses;
+      if (night.out > 0) nobodyOut = false;
+    }
+  }
+
+  check("a round robin of 2 to 16 players needs n − 1 rounds when n is even, n when odd", roundCount, detail);
+  check("in that many rounds every pair of players meets exactly once", everyoneOnce, detail);
+  check("with an odd field everybody sits out exactly once, and with an even one nobody does", byeOnceEach, detail);
+  check("every round has everybody in it, once", onceEachRound);
+  check("every round of the game is a round-robin round — qualifying, loser's bracket and the final never apply", allRoundRobin);
+  check("a win or a bye pays the ×1.5 bonus, exactly", bonuses === 0, `${bonuses} wrong`);
+  check("nobody is knocked out and nobody is crowned before the rounds run out", nobodyOut);
+
+  const twice = playRoundRobin(7, roundRobinRounds(7) * 2, 31);
+  const twicePairs = pairCounts(twice.rounds);
+  check(
+    "rounds past a full cycle are rematches: every pair has met twice after two cycles",
+    twicePairs.size === 21 && [...twicePairs.values()].every((n) => n === 2),
+  );
+
+  const short = playRoundRobin(8, 3, 77);
+  check(
+    "fewer rounds than a full cycle: nobody meets anybody twice",
+    [...pairCounts(short.rounds).values()].every((n) => n === 1),
+  );
+
+  // The circle's first turn is neighbours in the roster, which is how round
+  // one is drawn — so the schedule picks up from round one's draw alone.
+  check(
+    "round one of the schedule pairs neighbours in the draw, odd one out on the bye",
+    circleRound(["a", "b", "c", "d", "e"], 0).join() === "a,b,c,d,e" &&
+      circleRound(["a", "b", "c", "d"], 0).join() === "a,b,c,d",
+  );
+
+  // A latecomer dealt in after the circle has started: the rest of the
+  // night is paired on who has met whom, and nobody is drawn twice.
+  {
+    const random = rng(5150);
+    let players = makePlayers(6);
+    let rounds: BracketRound[] = [buildFirstRound(players, { roundRobin: true })];
+    players = [...players, { ...makePlayers(7)[6], benched: true }];
+    let latecomerIn = false;
+    let clean = true;
+
+    for (let roundNumber = 1; roundNumber <= 7; roundNumber++) {
+      const current = rounds[roundNumber - 1];
+      const inRound = new Set(activePlayerIds(current));
+      players = players.map((p) => {
+        const points = inRound.has(p.id) ? Math.floor(random() * 4) * 100 : 0;
+        return { ...p, roundScore: points, score: p.score + points };
+      });
+      const outcome = settleRound(current, players, {
+        losersBracket: false,
+        playedRounds: rounds.slice(0, roundNumber - 1),
+        hasMoreRounds: roundNumber < 7,
+      });
+      rounds = [...rounds.slice(0, roundNumber - 1), outcome.round];
+      let next = outcome.nextRound;
+
+      if (roundNumber === 2 && next) {
+        const latecomer = players.find((p) => p.id === "p7")!;
+        const entered = enterRound(next, latecomer, false);
+        if (entered) {
+          next = entered.round;
+          players = players.map((p) => (p.id === "p7" ? entered.player : p));
+          latecomerIn = !entered.player.benched && !entered.player.eliminated;
+        }
+      }
+      if (next) {
+        const ids = activePlayerIds(next);
+        if (new Set(ids).size !== ids.length) clean = false;
+        rounds.push(next);
+      }
+    }
+
+    const latePairs = [...pairCounts(rounds).keys()].filter((key) => key.includes("p7"));
+    check(
+      "a latecomer in a round robin joins the field, not a Redemption Table",
+      latecomerIn && entrySide(rounds[2], false) === "roundRobin",
+    );
+    check(
+      "and the rounds after are paired on who has met whom: nobody drawn twice, the latecomer meets new people",
+      clean && latePairs.length >= 4,
+      `latecomer met ${latePairs.length} different players`,
+    );
+  }
+
+  // Standings and the podium: highest total, then matchups won, then points
+  // answered, then the draw.
+  const night = playRoundRobin(9, roundRobinRounds(9), 4040);
+  const standings = roundRobinStandings(night.players, night.rounds);
+  const places = podium(night.players, night.rounds, championAtEnd(night.players, night.rounds));
+  check(
+    "a round robin's 1st, 2nd and 3rd are its three highest totals, in order",
+    places.championId === standings[0].id &&
+      places.runnerUpId === standings[1].id &&
+      places.redemptionId === standings[2].id &&
+      standings[0].score >= standings[1].score &&
+      standings[1].score >= standings[2].score,
+    `${standings.slice(0, 3).map((p) => `${p.id} ${p.score}`).join(", ")}`,
+  );
+
+  const tied = makePlayers(3).map((p) => ({ ...p, score: 500 }));
+  const tiedRounds: BracketRound[] = [
+    {
+      roundNumber: 1,
+      resolved: true,
+      matchups: [
+        { id: "r1-rr1", roundNumber: 1, bracket: "roundRobin", playerAId: "p1", playerBId: "p2", winnerId: "p2", scoreA: 0, scoreB: 100, tiebreak: null },
+        { id: "r1-rr2", roundNumber: 1, bracket: "roundRobin", playerAId: "p3", playerBId: null, winnerId: "p3", scoreA: 0, scoreB: null, tiebreak: "Bye" },
+      ],
+    },
+    {
+      roundNumber: 2,
+      resolved: true,
+      matchups: [
+        { id: "r2-rr1", roundNumber: 2, bracket: "roundRobin", playerAId: "p2", playerBId: "p3", winnerId: "p2", scoreA: 100, scoreB: 0, tiebreak: null },
+        { id: "r2-rr2", roundNumber: 2, bracket: "roundRobin", playerAId: "p1", playerBId: null, winnerId: "p1", scoreA: 0, scoreB: null, tiebreak: "Bye" },
+      ],
+    },
+  ];
+  const record = matchRecords(tiedRounds);
+  check(
+    "a tie on total goes to more matchups won, and a bye counts as a win",
+    roundRobinStandings(tied, tiedRounds).map((p) => p.id).join() === "p2,p1,p3" &&
+      record.get("p2")?.wins === 2 &&
+      record.get("p3")?.wins === 1 &&
+      record.get("p3")?.losses === 1,
+    roundRobinStandings(tied, tiedRounds).map((p) => p.id).join(),
+  );
+}
+
+{
+  // Ending a bracket night early: the places still come out, all three.
+  const night = playWildNight(8, false, 2, 909);
+  const playedRounds = night.rounds.filter((round) => round.resolved);
+  const champion = championAtEnd(night.players, playedRounds);
+  const places = podium(night.players, playedRounds, champion);
+  const standing = night.players.filter((p) => !p.eliminated);
+  check(
+    "a bracket ended early goes to the best total still standing",
+    champion !== null &&
+      standing.some((p) => p.id === champion) &&
+      standing.every((p) => p.score <= (night.players.find((q) => q.id === champion)?.score ?? 0)),
+    `${champion}`,
+  );
+  check(
+    "and 1st, 2nd and 3rd are three different players",
+    places.championId !== null &&
+      places.runnerUpId !== null &&
+      places.redemptionId !== null &&
+      new Set([places.championId, places.runnerUpId, places.redemptionId]).size === 3,
+    `${places.championId}, ${places.runnerUpId}, ${places.redemptionId}`,
+  );
+
+  // Ended on round one's wheel, before anybody has answered anything: nothing
+  // has been played, nobody has a point, and there are still three places.
+  const fresh = makePlayers(5);
+  const nothing = podium(fresh, [], championAtEnd(fresh, []));
+  check(
+    "ended before a question is answered, three places are still called",
+    nothing.championId !== null &&
+      nothing.runnerUpId !== null &&
+      nothing.redemptionId !== null &&
+      new Set([nothing.championId, nothing.runnerUpId, nothing.redemptionId]).size === 3,
+  );
+
+  // A round robin ended on round one's wheel: its only round is unplayed and
+  // dropped, so the format has to come from the setting, not the rounds.
+  const early = makePlayers(4).map((p, i) => ({ ...p, score: 0, redemptionScore: [0, 0, 300, 0][i] }));
+  const earlyChamp = championAtEnd(early, [], true);
+  const earlyPlaces = podium(early, [], earlyChamp, true);
+  check(
+    "a round robin ended before any round is played is still placed as a round robin",
+    // Round-robin tiebreaks — points answered before the draw — put p3
+    // first; read as a bracket, the draw alone would have picked p1.
+    earlyChamp === "p3" &&
+      earlyPlaces.runnerUpId === "p1" &&
+      earlyPlaces.redemptionId === "p2" &&
+      championAtEnd(early, []) === "p1",
+    `${earlyChamp}, ${earlyPlaces.runnerUpId}, ${earlyPlaces.redemptionId}`,
+  );
+
+  // Third place falls back to the standings when nobody else has a
+  // redemption point.
+  const quiet = makePlayers(4).map((p, i) => ({ ...p, score: [300, 200, 0, 0][i] }));
+  const quietPlaces = podium(quiet, [buildFirstRound(quiet)], "p1");
+  check(
+    "third place is never left empty: with no redemption points it goes down the standings",
+    quietPlaces.runnerUpId === "p2" && quietPlaces.redemptionId !== null &&
+      !["p1", "p2"].includes(quietPlaces.redemptionId),
+    `${quietPlaces.redemptionId}`,
+  );
+
+  // A final series cut short still goes to whoever leads it.
+  const series: BracketRound = {
+    roundNumber: 5,
+    resolved: true,
+    matchups: [
+      {
+        id: "r5-f1",
+        roundNumber: 5,
+        bracket: "final",
+        playerAId: "p1",
+        playerBId: "p2",
+        winnerId: "p2",
+        scoreA: 100,
+        scoreB: 300,
+        tiebreak: null,
+        series: { bestOf: 3, game: 1, winsA: 0, winsB: 0 },
+      },
+    ],
+  };
+  const finalists = makePlayers(4).map((p, i) => ({
+    ...p,
+    score: [900, 400, 200, 100][i],
+    eliminated: i >= 2,
+  }));
+  check(
+    "a final series cut short goes to whoever is ahead in it, not the bigger total",
+    championAtEnd(finalists, [series]) === "p2",
   );
 }
 

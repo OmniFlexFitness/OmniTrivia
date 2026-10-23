@@ -22,6 +22,10 @@ import { FINAL_BEST_OF, WIN_MULTIPLIER } from "../constants";
  * loses in the winners' bracket drops into the loser's bracket for the next
  * round; a player who loses there is out. When one player is left on each side
  * they meet in a grand final, and whoever wins that takes the night.
+ *
+ * A round-robin game has no bracket at all: every round pairs each player
+ * with somebody they have not played yet, nobody goes out, and when the host
+ * calls it the highest total takes the night.
  */
 
 const shuffle = <T,>(items: T[]): T[] => {
@@ -109,6 +113,7 @@ const ID_PREFIX: Record<BracketSide, string> = {
   winners: "m",
   losers: "l",
   final: "f",
+  roundRobin: "rr",
 };
 
 /** Which side of the bracket a matchup is on. Older matchups are all winners. */
@@ -121,7 +126,16 @@ export const SIDE_LABELS: Record<BracketSide, string> = {
   winners: "Winners' bracket",
   losers: "Loser's bracket",
   final: "Grand final",
+  roundRobin: "Round robin",
 };
+
+/**
+ * A side nobody goes out of: qualifying, and every round of a round robin.
+ * A bye on one of these still earns the win bonus — nobody advances anywhere,
+ * so a bye that paid nothing would only be a penalty for the numbers being odd.
+ */
+const isOpenSide = (side: BracketSide): boolean =>
+  side === "qualifying" || side === "roundRobin";
 
 /** The matchup a lane plays out, so a screen can say which bracket it is in. */
 export const matchupById = (
@@ -197,6 +211,8 @@ export const seriesScore = (
 
 /** How a game is shaped from its very first draw. */
 export interface OpeningOptions {
+  /** No bracket: everybody plays everybody, and nobody goes out. */
+  roundRobin?: boolean;
   /** Round one is a qualifying round: nobody goes out. */
   qualifying?: boolean;
   losersBracket?: boolean;
@@ -206,12 +222,17 @@ export interface OpeningOptions {
 
 /** The opening options a game's settings call for. */
 export const openingOptions = (
-  state: Pick<GameState, "qualifyingRounds" | "losersBracket">,
-): OpeningOptions => ({
-  qualifying: state.qualifyingRounds > 0,
-  losersBracket: state.losersBracket,
-  finalBestOf: FINAL_BEST_OF,
-});
+  state: Pick<GameState, "qualifyingRounds" | "losersBracket" | "roundRobin">,
+): OpeningOptions =>
+  // A round robin has no bracket for qualifying to seed or a loser's bracket
+  // to catch anybody, so it ignores both.
+  state.roundRobin
+    ? { roundRobin: true }
+    : {
+        qualifying: state.qualifyingRounds > 0,
+        losersBracket: state.losersBracket,
+        finalBestOf: FINAL_BEST_OF,
+      };
 
 /**
  * Draw round one. The draw is random — there is no ranking to seed from before
@@ -219,7 +240,9 @@ export const openingOptions = (
  *
  * With qualifying rounds it is a qualifying round, which nobody goes out of.
  * Without them it is the bracket's first round — or, for a room of two with a
- * best-of final, game one of that final.
+ * best-of final, game one of that final. In a round robin it is the first
+ * round of the schedule: neighbours in the shuffled order meet, and that
+ * order is the roster every later round rotates (see `roundRobinOrder`).
  */
 export const buildFirstRound = (
   players: Player[],
@@ -227,6 +250,10 @@ export const buildFirstRound = (
 ): BracketRound => {
   const ids = shuffle(players.map((p) => p.id));
   const bestOf = options.finalBestOf ?? 1;
+
+  if (options.roundRobin) {
+    return { roundNumber: 1, matchups: pair(1, ids, "roundRobin"), resolved: false };
+  }
 
   if (!options.qualifying && !options.losersBracket && bestOf > 1 && ids.length === 2) {
     return {
@@ -315,6 +342,14 @@ export const redemptionRoster = (
 export const isQualifyingRound = (round: BracketRound | undefined): boolean =>
   Boolean(round && round.matchups.length > 0 && round.matchups.every((m) => sideOf(m) === "qualifying"));
 
+/** A round of a round-robin game: every matchup in it is a round-robin one. */
+export const isRoundRobinRound = (round: BracketRound | undefined): boolean =>
+  Boolean(round && round.matchups.length > 0 && round.matchups.every((m) => sideOf(m) === "roundRobin"));
+
+/** A game played as a round robin, read off the rounds it has drawn. */
+export const isRoundRobinGame = (rounds: BracketRound[]): boolean =>
+  rounds.length > 0 && rounds.every(isRoundRobinRound);
+
 /** A round that is a game of the final: nobody else can be dealt into it. */
 export const isFinalRound = (round: BracketRound | undefined): boolean =>
   Boolean(round && round.matchups.length > 0 && round.matchups.every((m) => sideOf(m) === "final"));
@@ -333,6 +368,7 @@ export const entrySide = (
   losersBracket: boolean,
 ): BracketSide | null => {
   if (isFinalRound(round)) return null;
+  if (isRoundRobinRound(round)) return "roundRobin";
   if (isQualifyingRound(round)) return "qualifying";
   return losersBracket ? "losers" : "winners";
 };
@@ -463,12 +499,11 @@ export const resolveRound = (
     const scores = { scoreA: a?.roundScore ?? null, scoreB: b?.roundScore ?? null };
 
     // Bye, or an opponent who left the game: A walks through. In a
-    // qualifying round a bye still earns the win bonus — nobody advances
-    // anywhere in qualifying, so a bye that paid nothing would only be a
-    // penalty for the numbers being odd.
+    // qualifying or round-robin round a bye still earns the win bonus (see
+    // `isOpenSide`).
     if (!b) {
       const bonus =
-        sideOf(matchup) === "qualifying" && a ? winBonusFor(a.roundScore) : 0;
+        isOpenSide(sideOf(matchup)) && a ? winBonusFor(a.roundScore) : 0;
       return {
         ...matchup,
         ...scores,
@@ -632,8 +667,8 @@ const pairSide = (
  * Two people arrive at this: a latecomer off the bench, and a knocked-out
  * player the host is sending back in.
  *
- * - **A latecomer** joins the field in qualifying — there is no bracket yet
- *   to be unfair to. Once the bracket is drawn they take the Redemption
+ * - **A latecomer** joins the field in qualifying, or in a round robin —
+ *   there is no bracket to be unfair to. Once the bracket is drawn they take the Redemption
  *   Table instead: the same questions, their own seat, redemption points
  *   from their first answer, and a wildcard back into the bracket if they
  *   earn one. The host can send them straight into the bracket from there.
@@ -653,7 +688,7 @@ export const enterRound = (
   const settled = { ...player, benched: false, entering: false };
 
   if (player.benched) {
-    if (side === "qualifying") {
+    if (side === "qualifying" || side === "roundRobin") {
       return {
         round: addToDraw(round, player.id, side),
         player: { ...settled, eliminated: false, losersBracket: false },
@@ -764,6 +799,209 @@ const qualifyingOrder = (
   return order;
 };
 
+/* ------------------------------------------------------------------ *
+ * The round-robin schedule
+ * ------------------------------------------------------------------ */
+
+/**
+ * Rounds a round robin needs for everybody to have played everybody once:
+ * one fewer than the field when it is even, and the field itself when it is
+ * odd — each round somebody sits out, and each player sits out once.
+ */
+export const roundRobinRounds = (playerCount: number): number =>
+  playerCount < 2 ? 0 : playerCount % 2 === 0 ? playerCount - 1 : playerCount;
+
+/**
+ * One round of the circle method, the standard round-robin schedule: one seat
+ * stays put and the rest rotate one place a round, so over a full cycle every
+ * pair meets exactly once and, in an odd field, everybody sits out exactly
+ * once.
+ *
+ * Relabelled so that round 0 pairs neighbours in `roster` — first v second,
+ * third v fourth, the odd one out on a bye — which is exactly how round one is
+ * drawn. That is what lets the schedule be picked back up from round one's
+ * draw alone, rather than carried around beside the bracket. Past the end of
+ * a cycle it starts again from the top.
+ *
+ * Returns the order `pair` turns into matchups: two by two, bye last.
+ */
+export const circleRound = (roster: string[], index: number): string[] => {
+  const slots: (string | null)[] = roster.length % 2 === 1 ? [...roster, null] : [...roster];
+  const m = slots.length;
+  if (m < 2) return [...roster];
+
+  const cycle = m - 1;
+  const r = ((index % cycle) + cycle) % cycle;
+  // Position k on the circle holds this element of the textbook schedule…
+  const at = (k: number) => (k === 0 ? 0 : 1 + ((k - 1 + r) % cycle));
+  // …and the textbook's element s is this seat of the roster.
+  const seat = (s: number) => (s < m / 2 ? 2 * s : 2 * (m - 1 - s) + 1);
+
+  const order: string[] = [];
+  let bye: string | null = null;
+  for (let i = 0; i < m / 2; i++) {
+    const a = slots[seat(at(i))];
+    const b = slots[seat(at(m - 1 - i))];
+    if (a && b) order.push(a, b);
+    else bye = a ?? b;
+  }
+  if (bye) order.push(bye);
+  return order;
+};
+
+/** How many times each pair has met, keyed both ways round. */
+const meetings = (history: BracketRound[]): Map<string, number> => {
+  const met = new Map<string, number>();
+  history.forEach((round) =>
+    round.matchups.forEach((m) => {
+      if (!m.playerBId) return;
+      for (const key of [`${m.playerAId}|${m.playerBId}`, `${m.playerBId}|${m.playerAId}`]) {
+        met.set(key, (met.get(key) ?? 0) + 1);
+      }
+    }),
+  );
+  return met;
+};
+
+/**
+ * A round-robin round for a field that is no longer the one round one drew —
+ * somebody was dealt in late, or somebody left — so the circle no longer
+ * lines up with it.
+ *
+ * The bye goes to whoever has had the fewest. Everybody else is paired to
+ * keep rematches to a minimum: a search that tries the people each player
+ * has met least first, keeps the best complete pairing it finds, and stops
+ * at the first one with no rematch at all. Its first try is the greedy
+ * pairing, so there is always an answer; the budget only stops it hunting
+ * for a better one in a large room where no perfect one exists.
+ */
+const leastMetOrder = (field: string[], history: BracketRound[]): string[] => {
+  const pool = [...field];
+  let bye: string | undefined;
+
+  if (pool.length % 2 === 1) {
+    const counts = byeCounts(history);
+    bye = [...pool]
+      .reverse()
+      .reduce((best, id) =>
+        (counts.get(id) ?? 0) < (counts.get(best) ?? 0) ? id : best,
+      );
+    pool.splice(pool.indexOf(bye), 1);
+  }
+
+  const met = meetings(history);
+  const times = (a: string, b: string) => met.get(`${a}|${b}`) ?? 0;
+
+  let best: string[] = [];
+  let bestCost = Number.POSITIVE_INFINITY;
+  let budget = 20000;
+
+  const search = (left: string[], chosen: string[], cost: number): void => {
+    if (cost >= bestCost || budget-- <= 0) return;
+    if (left.length === 0) {
+      best = [...chosen];
+      bestCost = cost;
+      return;
+    }
+    const [a, ...rest] = left;
+    const partners = [...rest].sort((x, y) => times(a, x) - times(a, y));
+    for (const b of partners) {
+      // Squared, so two players meeting a third time costs more than two
+      // pairs each meeting a second time.
+      const n = times(a, b);
+      search(
+        rest.filter((id) => id !== b),
+        [...chosen, a, b],
+        cost + n * n,
+      );
+      if (bestCost === 0) return;
+    }
+  };
+
+  search(pool, [], 0);
+  return bye ? [...best, bye] : best;
+};
+
+/**
+ * The order the next round-robin round is paired in.
+ *
+ * The roster is round one's draw, which is the circle's starting order (see
+ * `circleRound`). While the field is still that roster, the next round is
+ * simply the next turn of the circle — so a full cycle meets everybody with
+ * everybody exactly once, in the fewest rounds it can be done in. Anybody
+ * dealt into round one itself is already part of that roster. Once the field
+ * changes later than that, the circle no longer fits it and the rest of the
+ * night is paired on who has met whom.
+ */
+export const roundRobinOrder = (
+  field: string[],
+  history: BracketRound[],
+): string[] => {
+  const roster = history[0] ? activePlayerIds(history[0]) : [];
+  const sameField =
+    roster.length === field.length && roster.every((id) => field.includes(id));
+  return sameField ? circleRound(roster, history.length) : leastMetOrder(field, history);
+};
+
+/**
+ * Wins and losses across a game's matchups, by player. A bye in a round nobody
+ * goes out of counts as a win, the same as it earns the win bonus.
+ */
+export const matchRecords = (
+  rounds: BracketRound[],
+): Map<string, { wins: number; losses: number }> => {
+  const records = new Map<string, { wins: number; losses: number }>();
+  const of = (id: string) => {
+    const record = records.get(id) ?? { wins: 0, losses: 0 };
+    records.set(id, record);
+    return record;
+  };
+
+  rounds
+    .filter((round) => round.resolved)
+    .forEach((round) =>
+      round.matchups.forEach((m) => {
+        if (!m.winnerId) return;
+        if (m.playerBId === null) {
+          if (isOpenSide(sideOf(m))) of(m.winnerId).wins += 1;
+          return;
+        }
+        of(m.winnerId).wins += 1;
+        of(m.winnerId === m.playerAId ? m.playerBId : m.playerAId).losses += 1;
+      }),
+    );
+
+  return records;
+};
+
+/**
+ * A round robin's standings: highest total first. Ties go to more matchups
+ * won, then to more points answered (the redemption score, which leaves the
+ * win bonus out), then to the draw — never to a coin flip.
+ *
+ * Players still on the bench never played, so they rank below everybody who
+ * did, whatever the numbers say.
+ */
+export const roundRobinStandings = <T extends StandingLike>(
+  players: T[],
+  rounds: BracketRound[],
+): T[] => {
+  const records = matchRecords(rounds);
+  const winsOf = (id: string) => records.get(id)?.wins ?? 0;
+  const drawOrder = rounds[0] ? activePlayerIds(rounds[0]) : players.map((p) => p.id);
+  const seed = new Map(drawOrder.map((id, index) => [id, index]));
+  const seedOf = (id: string) => seed.get(id) ?? Number.MAX_SAFE_INTEGER;
+
+  return [...players].sort(
+    (a, b) =>
+      Number(Boolean(a.benched)) - Number(Boolean(b.benched)) ||
+      b.score - a.score ||
+      winsOf(b.id) - winsOf(a.id) ||
+      (b.redemptionScore ?? 0) - (a.redemptionScore ?? 0) ||
+      seedOf(a.id) - seedOf(b.id),
+  );
+};
+
 /** A side that would hand out a genuine bye: odd, and more than a lone player. */
 const owesBye = (ids: string[]): boolean => ids.length >= 3 && ids.length % 2 === 1;
 
@@ -838,6 +1076,33 @@ export const settleRound = (
     standingOrder(ids, (id) => totals.get(id) ?? 0, drawOrder);
   const roundNumber = round.roundNumber + 1;
   const base = { round: resolved, wildcardIds: [] as string[], bonuses };
+
+  /* --- a round-robin round: nobody goes out, and there is no bracket --- */
+  if (isRoundRobinRound(resolved)) {
+    const played = new Set(activePlayerIds(resolved));
+    const field = [
+      ...drawOrder.filter((id) => played.has(id)),
+      ...activePlayerIds(resolved).filter((id) => !drawOrder.includes(id)),
+    ].filter((id) => present.has(id));
+
+    return {
+      ...base,
+      winnersIds: field,
+      losersIds: [],
+      eliminatedIds: [],
+      // Nobody is ever left standing alone: the night ends when the rounds
+      // run out or the host ends it, and the standings decide it then.
+      championId: null,
+      nextRound:
+        options.hasMoreRounds && field.length >= 2
+          ? {
+              roundNumber,
+              matchups: pair(roundNumber, roundRobinOrder(field, history), "roundRobin"),
+              resolved: false,
+            }
+          : null,
+    };
+  }
 
   /* --- a qualifying round: nobody goes out --- */
   const qualifying =
@@ -1167,6 +1432,46 @@ export const rankStanding = <T extends StandingLike>(
   );
 };
 
+/**
+ * Who takes the night when it ends without the bracket having decided it —
+ * the rounds ran out, or the host ended the game early.
+ *
+ * `rounds` is what was actually played: an unplayed draw sitting on the
+ * screen decides nothing. `roundRobin` is the game's own format, for a game
+ * ended before a round was played — with no rounds left to read it from.
+ *
+ * - **A round robin** goes to the top of its standings.
+ * - **A bracket** goes to the leader among the players still standing:
+ *   somebody nobody has beaten ahead of somebody in the loser's bracket, then
+ *   on score, then the draw. A final series cut short goes to whoever is
+ *   ahead in it.
+ */
+export const championAtEnd = <T extends StandingLike>(
+  players: T[],
+  rounds: BracketRound[],
+  roundRobin: boolean = isRoundRobinGame(rounds),
+): string | null => {
+  if (roundRobin) {
+    return roundRobinStandings(players, rounds)[0]?.id ?? null;
+  }
+
+  const standing = players.filter(isStanding);
+  const pool = standing.length > 0 ? standing : players;
+
+  const lastFinal = rounds[rounds.length - 1]?.matchups.find((m) => m.series);
+  const series = lastFinal ? seriesScore(lastFinal) : null;
+  const seriesLeader =
+    lastFinal && series && series.winsA !== series.winsB
+      ? series.winsA > series.winsB
+        ? lastFinal.playerAId
+        : lastFinal.playerBId
+      : null;
+  if (seriesLeader && pool.some((p) => p.id === seriesLeader)) return seriesLeader;
+
+  const drawOrder = rounds[0] ? activePlayerIds(rounds[0]) : players.map((p) => p.id);
+  return rankStanding(pool, drawOrder)[0]?.id ?? null;
+};
+
 /** Who takes each prize the app tracks. Null where nobody qualifies. */
 export interface Podium {
   championId: string | null;
@@ -1179,7 +1484,15 @@ export interface Podium {
 }
 
 /**
- * The night's prize places, worked out the same way on every screen.
+ * The night's prize places — 1st, 2nd and 3rd — worked out the same way on
+ * every screen. With three or more players all three are always filled, so a
+ * host who ends the night early still has three names to read out.
+ *
+ * A round robin is the top three of its standings, in order. `roundRobin`
+ * says so for a game ended before any round was played, which has no rounds
+ * to read its format from.
+ *
+ * In a bracket game:
  *
  * - **Runner-up**: when the bracket decided the night, whoever the champion
  *   beat last — the grand final's loser, or the last matchup of a single
@@ -1189,13 +1502,33 @@ export interface Podium {
  *   answered in every round of the game, wherever it was played, before the
  *   win bonus. Everybody plays every round, so it compares the whole room
  *   like for like. The champion and runner-up are not eligible — they have
- *   already been paid — so it goes to the best of everybody else.
+ *   already been paid — so it goes to the best of everybody else. If nobody
+ *   else has answered a point, it goes to the next player in the standings,
+ *   so third place is never left empty.
  */
 export const podium = <T extends StandingLike>(
   players: T[],
   rounds: BracketRound[],
   championId: string | null,
+  roundRobin: boolean = isRoundRobinGame(rounds),
 ): Podium => {
+  if (roundRobin) {
+    const ranked = roundRobinStandings(players, rounds);
+    // The champion the game already called stays champion, even if a screen
+    // is a beat behind on the scores.
+    const order = championId
+      ? [
+          ...ranked.filter((p) => p.id === championId),
+          ...ranked.filter((p) => p.id !== championId),
+        ]
+      : ranked;
+    return {
+      championId: order[0]?.id ?? null,
+      runnerUpId: order[1]?.id ?? null,
+      redemptionId: order[2]?.id ?? null,
+    };
+  }
+
   const present = new Set(players.map((p) => p.id));
   const drawOrder = rounds[0]
     ? activePlayerIds(rounds[0])
@@ -1244,9 +1577,18 @@ export const podium = <T extends StandingLike>(
         seedOf(a.id) - seedOf(b.id),
     );
 
+  // Nobody else has answered a point: third place still goes to somebody —
+  // the best of the rest, in the order the champion was picked in.
+  const third =
+    redemption[0] ??
+    rankStanding(
+      players.filter((p) => p.id !== championId && p.id !== runnerUpId && !p.benched),
+      drawOrder,
+    )[0];
+
   return {
     championId,
     runnerUpId,
-    redemptionId: redemption[0]?.id ?? null,
+    redemptionId: championId && runnerUpId ? (third?.id ?? null) : null,
   };
 };

@@ -72,6 +72,11 @@ export const GLOSSARY: GlossaryEntry[] = [
       "Optional, chosen by the host at setup. A first loss drops you into the loser's bracket instead of out; a second loss there puts you on the Redemption Table. Both sides play every round on the same category, and the last player on each side meets in a grand final for the title.",
   },
   {
+    term: "Round robin",
+    definition:
+      "The other way to play the night, chosen by the host instead of a bracket. Every round pairs you with somebody you have not played yet, until everybody has played everybody; with odd numbers each player sits one round out on a bye, which counts as a win. Nobody goes out, beating your opponent still counts ×1.5 on your total, and the highest total wins.",
+  },
+  {
     term: "Redemption Table",
     definition:
       "Where you play once you are out of the bracket. Same spin, same category, same questions, your own clock and nobody across from you. Your redemption points keep building here: every point you score all game — qualifying, the bracket and the table alike — counts towards the redemption prize, third place.",
@@ -168,6 +173,8 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
       "Bots fill the lobby for a host testing alone. Switch them off for a real night — they can still be switched off in the lobby, and on round one's wheel before START ROUND.",
       "Typed answers are off unless you switch them on: most of a room does not enjoy spelling an answer out on a phone. Off, Claude is not asked to write them and an imported file's or the bank's typed rows are left out. It is one switch for every way questions come in.",
       "Loser's bracket turns the night into double elimination: a first loss drops a player into it rather than out. It needs roughly twice as many rounds to settle, and the lobby tells you exactly how many for the players who turn up.",
+      "Round robin replaces the bracket altogether: everybody plays everybody at least once, nobody goes out, and the highest total wins. It needs one round fewer than the number of players (one per player when the number is odd); the lobby says how many for the room you get. Qualifying rounds and the loser's bracket do not apply to it.",
+      "Whatever the format, END GAME on your desk or the remote stops the night whenever you choose and calls 1st, 2nd and 3rd on what has been played.",
     ],
   },
 
@@ -241,6 +248,7 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
       "START GAME draws the first round's matchups at random — a qualifying round, if there are any. Anybody who joins after it lands on the bench, with a DEAL IN button on your screen.",
       "Qualifying rounds can still be changed here, up until START GAME.",
       "The loser's bracket can still be switched on or off here, up until START GAME. The panel says how many rounds the bracket needs for the players in the room.",
+      "So can round robin — everybody plays everybody, highest total wins. The panel says how many rounds it takes for everyone to meet everyone.",
       "Hosting from more than one screen: CAST shows a link and QR code for putting the broadcast on any device, and REMOTE shows one for running the round from a tablet with the host password.",
       "The host password on this screen is what takes this game back if this window goes away. It is shown here and nowhere else — note it down now.",
     ],
@@ -283,6 +291,7 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
       "Players are not told whether they were right until their match is over. The board here shows you the points as they land; nobody else sees them mid-match.",
       "The projector holds whichever question the slowest player is still on, marks it once everyone is locked in, and shows the answer key only when the round is over.",
       "END ROUND NOW stops the whole round wherever it has got to and settles it on the scores as they stand. Nothing is lost by it: points are banked as each answer is given, and a question nobody reached is simply not played.",
+      "END GAME goes further: it settles the round the same way and then goes straight to the final results, with 1st, 2nd and 3rd called on everything played so far. It is on the wheel and between rounds too.",
       "Your own matchup is beside the board. 'Answering off' takes you out of it so nothing waits on you while you run the show.",
       "Players knocked out of the bracket are on the board too, on Redemption Table cards of their own: same questions, no opponent. The round waits for them like any table, and END ROUND NOW stops them with everyone else.",
       "Somebody joined late? They are under 'Joined late' with a DEAL IN button: during a round they are in from the next draw, between rounds they go straight into the draw on the screen. In qualifying they join the field; once the bracket is drawn they start on the Redemption Table.",
@@ -298,6 +307,7 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
       "In qualifying nobody goes out. After the last qualifying round the bracket is drawn on the totals — highest against lowest — and re-drawn the same way every round.",
       "Losers stay on the leaderboard with their score and move to the Redemption Table, where they keep playing every round. With a loser's bracket, a first loss drops a player into it instead, and only a second loss puts them on the table.",
       "When the next round has an odd seat, the best round on the Redemption Table takes it as a wildcard — knocked out this round included. It is marked WILDCARD on the pairings.",
+      "In a round robin nobody goes out: the next round pairs everybody with somebody they have not played yet, and the standings are the race for the night.",
       "The next round's pairings are drawn as soon as this one is settled, so who you play next is on your screen before the wheel is spun for it.",
       "Vote on what you want to play in future: the options are the same on every screen, and the host keeps the results.",
       "Liking the category you have just played tells the host to write more of it.",
@@ -306,9 +316,10 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
 
   gameOver: {
     title: "End of the game",
-    lead: "Whoever wins the best-of-3 final takes it — or, if the rounds run out first, whoever leads the final series, else the highest score still in, with anyone unbeaten ranked ahead of the loser's bracket.",
+    lead: "Whoever wins the best-of-3 final takes it — or, if the rounds run out or the host ends the game first, whoever leads the final series, else the highest score still in, with anyone unbeaten ranked ahead of the loser's bracket. A round robin goes to the highest total.",
     points: [
-      "Three places are called: the champion, the runner-up, and third place, the redemption winner — the most redemption points (every point answered in every round, before the ×1.5 win bonus) by anybody not already champion or runner-up.",
+      "Three places are called every time, however the game ended: 1st, the champion; 2nd, the runner-up; and 3rd, the redemption winner — the most redemption points (every point answered in every round, before the ×1.5 win bonus) by anybody not already champion or runner-up.",
+      "In a round robin, 1st, 2nd and 3rd are simply the top three totals. A tie goes to more matchups won, then more points answered, then the draw.",
       "PLAY AGAIN replays the same questions with the scores reset and the bracket redrawn.",
       "The category data — likes and votes — is kept between games, so it is worth checking after a few nights rather than one.",
     ],

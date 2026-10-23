@@ -29,7 +29,7 @@ import {
 import Button from "./Button";
 import AvatarDisplay from "./AvatarDisplay";
 import BracketView, { SideTag } from "./BracketView";
-import { matchupById, sideOf } from "../services/bracket";
+import { championAtEnd, matchupById, sideOf } from "../services/bracket";
 import QuestionCard from "./QuestionCard";
 import { QuestionPanel } from "./CyberQuestion";
 import PrizePodium from "./PrizePodium";
@@ -522,6 +522,77 @@ const EndRoundControl: React.FC<{ className?: string }> = ({
   );
 };
 
+/**
+ * Ending the whole night, from wherever it has got to.
+ *
+ * Open from the wheel, during a round and between rounds. A round in play is
+ * settled first exactly as END ROUND NOW settles it, then the final places are
+ * called on everything played — so a host who has to wrap up early still has
+ * a 1st, 2nd and 3rd to read out. It cannot be taken back, so it always asks.
+ */
+const EndGameControl: React.FC = () => {
+  const { phase, players, bracket, endGameNow, roundRobin } = useGame();
+  const [confirming, setConfirming] = React.useState(false);
+
+  // Who would take 1st if the night ended on this click — the same pick
+  // the final screen will make.
+  const played = bracket.filter((round) => round.resolved);
+  const leader = players.find(
+    (p) => p.id === championAtEnd(players, played, roundRobin),
+  );
+
+  if (!confirming) {
+    return (
+      <Button
+        variant="secondary"
+        fullWidth
+        onClick={() => setConfirming(true)}
+        className="flex items-center justify-center gap-2 border-yellow-500/50 text-yellow-200 hover:bg-yellow-500/10"
+        title="Stop the game here and go to the final results"
+      >
+        <Trophy size={16} /> END GAME
+      </Button>
+    );
+  }
+
+  return (
+    <div className="space-y-2 rounded-xl border border-yellow-500/50 bg-yellow-500/10 px-3 py-3">
+      <p className="text-xs text-yellow-50 leading-snug">
+        {phase === GamePhase.PLAYING
+          ? "The round in play is settled on the scores as they stand, then the game ends."
+          : phase === GamePhase.CATEGORY_SELECT
+            ? "This round has not been played, so it does not count. The game ends on the rounds already played."
+            : "The next round is not played. The game ends on the rounds already played."}{" "}
+        1st, 2nd and 3rd go up on every screen
+        {roundRobin ? ", on the totals" : ""}
+        {leader && phase !== GamePhase.PLAYING
+          ? ` — ${leader.name} would take 1st.`
+          : "."}{" "}
+        This cannot be undone.
+      </p>
+      <div className="flex items-center justify-end gap-2">
+        <Button
+          variant="secondary"
+          onClick={() => setConfirming(false)}
+          className="py-1.5 px-3 text-xs"
+        >
+          Keep playing
+        </Button>
+        <Button
+          variant="danger"
+          onClick={() => {
+            setConfirming(false);
+            endGameNow();
+          }}
+          className="py-1.5 px-3 text-xs"
+        >
+          End the game
+        </Button>
+      </div>
+    </div>
+  );
+};
+
 /** Every match, side by side. */
 const LaneBoard: React.FC = () => {
   const { lanes, setAllLanesPaused, addTimeToAllLanes, revealAllLanesNow } =
@@ -918,8 +989,15 @@ const RoundEndControls: React.FC = () => {
 const GameOverControls: React.FC<{ onShowInsights: () => void }> = ({
   onShowInsights,
 }) => {
-  const { players, bracket, currentRound, championId, playAgain, restartGame } =
-    useGame();
+  const {
+    players,
+    bracket,
+    currentRound,
+    championId,
+    roundRobin,
+    playAgain,
+    restartGame,
+  } = useGame();
   const champion = players.find((p) => p.id === championId);
 
   return (
@@ -929,7 +1007,7 @@ const GameOverControls: React.FC<{ onShowInsights: () => void }> = ({
       <div className="bg-slate-900 border border-yellow-600/50 rounded-2xl p-5 text-center">
         <Crown size={40} className="mx-auto text-yellow-400 mb-2" />
         <div className="text-xs font-mono uppercase tracking-[0.3em] text-yellow-400">
-          Champion
+          1st place{roundRobin ? "" : " · Champion"}
         </div>
         <div className="text-3xl font-black text-white mt-1">
           {champion?.name ?? "No one"}
@@ -942,6 +1020,7 @@ const GameOverControls: React.FC<{ onShowInsights: () => void }> = ({
         players={players}
         bracket={bracket}
         championId={championId}
+        roundRobin={roundRobin}
         size="desk"
         hideChampion
       />
@@ -1164,6 +1243,7 @@ const HostControlScreen: React.FC = () => {
     lanes,
     categoryLikes,
     championId,
+    roundRobin,
     loading,
     roomWarning,
     remotes,
@@ -1376,6 +1456,10 @@ const HostControlScreen: React.FC = () => {
             {phase === GamePhase.GAME_OVER && (
               <GameOverControls onShowInsights={() => setShowInsights(true)} />
             )}
+
+            {(phase === GamePhase.CATEGORY_SELECT ||
+              phase === GamePhase.PLAYING ||
+              phase === GamePhase.ROUND_END) && <EndGameControl />}
           </div>
 
           <HostPlayerPane />
@@ -1545,7 +1629,7 @@ const HostControlScreen: React.FC = () => {
           )}
 
           {bracket.length > 0 && (
-            <Panel title="Bracket">
+            <Panel title={roundRobin ? "Round robin" : "Bracket"}>
               <BracketView
                 bracket={bracket}
                 players={players}

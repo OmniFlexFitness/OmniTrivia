@@ -222,8 +222,10 @@ export interface AnswerRecord {
  * "final" is the one matchup between the last player standing on each side.
  * "qualifying" is a round before the bracket: everybody plays, nobody goes
  * out, and the totals it builds are what the bracket is seeded on.
+ * "roundRobin" is a round of a round-robin game: no bracket at all, everybody
+ * meets everybody, nobody goes out, and the highest total takes the night.
  */
-export type BracketSide = "qualifying" | "winners" | "losers" | "final";
+export type BracketSide = "qualifying" | "winners" | "losers" | "final" | "roundRobin";
 
 /**
  * Where a best-of final stands. Carried on every game of the series, as it
@@ -489,6 +491,13 @@ export interface GameState {
    * grand final. Chosen at setup and fixed once the first round is drawn.
    */
   losersBracket: boolean;
+  /**
+   * Round robin instead of a bracket: every round pairs each player with
+   * somebody they have not played yet, until everybody has met everybody.
+   * Nobody goes out, and the highest total takes the night. Overrides the
+   * loser's bracket and qualifying rounds. Fixed once the first round is drawn.
+   */
+  roundRobin: boolean;
   /**
    * Rounds played before the bracket: nobody is knocked out, beating your
    * opponent is worth WIN_MULTIPLIER times the round's points, and the totals
@@ -778,6 +787,8 @@ export interface BroadcastSnapshot {
   losersBracket: boolean;
   /** Rounds before the bracket, where nobody goes out. */
   qualifyingRounds: number;
+  /** Round robin: no bracket, everybody plays everybody, highest total wins. */
+  roundRobin: boolean;
   /** Bots may sit in this game — for the remote's switch. */
   botsEnabled: boolean;
   /**
@@ -862,6 +873,7 @@ export type RemoteCommand =
   | { kind: "add-bot" }
   | { kind: "set-losers-bracket"; enabled: boolean }
   | { kind: "set-qualifying-rounds"; rounds: number }
+  | { kind: "set-round-robin"; enabled: boolean }
   | { kind: "set-bots"; enabled: boolean }
   | { kind: "set-theme"; theme: Theme }
   | { kind: "spin"; round: number }
@@ -883,6 +895,8 @@ export type RemoteCommand =
   | { kind: "deal-in-all" }
   /** Send a knocked-out player back into the bracket. */
   | { kind: "reinstate"; playerId: string }
+  /** Stop the night where it stands and put the final places up. */
+  | { kind: "end-game" }
   | { kind: "play-again" };
 
 /** Messages on the host <-> broadcast channel. */

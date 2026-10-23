@@ -37,7 +37,12 @@ import {
 } from "../services/remoteControl";
 import { parseHostEnvelope, readHostSession } from "../services/hostSession";
 import { buildReveal, seatsOf } from "../services/snapshot";
-import { matchupById, roundsToDecide, sideOf } from "../services/bracket";
+import {
+  matchupById,
+  roundRobinRounds,
+  roundsToDecide,
+  sideOf,
+} from "../services/bracket";
 import AvatarDisplay from "./AvatarDisplay";
 import PrizePodium from "./PrizePodium";
 import QualifyingRoundsControl from "./QualifyingRoundsControl";
@@ -65,12 +70,14 @@ import {
   Pause,
   Play,
   Radio,
+  Repeat,
   RotateCcw,
   ShieldAlert,
   Shuffle,
   SkipForward,
   Swords,
   Tablet,
+  Trophy,
   Users,
   Zap,
 } from "lucide-react";
@@ -1035,7 +1042,34 @@ const LobbyRemote: React.FC<{ snapshot: BroadcastSnapshot; send: Send }> = ({
         </div>
       </Card>
 
-      <Card title="Bracket">
+      <Card title={snapshot.roundRobin ? "Format" : "Bracket"}>
+        <button
+          onClick={() =>
+            send(
+              { kind: "set-round-robin", enabled: !snapshot.roundRobin },
+              snapshot.roundRobin ? "Round robin off" : "Round robin on",
+            )
+          }
+          className={`w-full flex items-center gap-3 rounded-xl border p-3 text-left mb-3 ${
+            snapshot.roundRobin
+              ? "border-violet-400/70 bg-violet-500/10 text-violet-200"
+              : "border-slate-600 text-slate-300"
+          }`}
+        >
+          <Repeat size={20} />
+          <span className="flex-1">
+            <span className="block font-bold">
+              Round robin {snapshot.roundRobin ? "on" : "off"}
+            </span>
+            <span className="block text-xs text-slate-400">
+              {snapshot.roundRobin
+                ? `Everybody plays everybody, highest total wins · ${roundRobinRounds(snapshot.players.length)} rounds for ${snapshot.players.length} players · ${snapshot.totalRounds} loaded`
+                : "Off — the night is a bracket"}
+            </span>
+          </span>
+        </button>
+        {!snapshot.roundRobin && (
+        <>
         <button
           onClick={() =>
             send(
@@ -1071,6 +1105,8 @@ const LobbyRemote: React.FC<{ snapshot: BroadcastSnapshot; send: Send }> = ({
             }
           />
         </div>
+        </>
+        )}
       </Card>
 
       <Card title="Bots">
@@ -1348,11 +1384,15 @@ const GameOverRemote: React.FC<{ snapshot: BroadcastSnapshot; send: Send }> = ({
       <Card title="Game over">
         <div className="text-center space-y-2">
           <Crown size={36} className="mx-auto text-yellow-400" />
+          <div className="text-[11px] font-mono uppercase tracking-[0.3em] text-yellow-400">
+            1st place{snapshot.roundRobin ? "" : " · Champion"}
+          </div>
           <div className="text-3xl font-black text-white">{champion?.name ?? "No one"}</div>
           <PrizePodium
             players={snapshot.players}
             bracket={snapshot.bracket}
             championId={snapshot.championId}
+            roundRobin={snapshot.roundRobin}
             hideChampion
             className="pt-2 text-left"
           />
@@ -1375,6 +1415,29 @@ const GameOverRemote: React.FC<{ snapshot: BroadcastSnapshot; send: Send }> = ({
     </div>
   );
 };
+
+/**
+ * END GAME from the floor: on the wheel, during a round and between rounds.
+ * The host window settles a round in play first, then calls the places.
+ */
+const EndGameRemote: React.FC<{ snapshot: BroadcastSnapshot; send: Send }> = ({
+  snapshot,
+  send,
+}) => (
+  <ConfirmBig
+    label={
+      <>
+        <Trophy size={16} /> END GAME
+      </>
+    }
+    confirmText={`${
+      snapshot.phase === GamePhase.PLAYING
+        ? "The round in play is settled on the scores as they stand, then the game ends."
+        : "The game ends on the rounds already played."
+    } 1st, 2nd and 3rd go up on every screen. This cannot be undone.`}
+    onConfirm={() => send({ kind: "end-game" }, "End the game")}
+  />
+);
 
 /* ------------------------------------------------------------------ *
  * Shell
@@ -1556,7 +1619,15 @@ const RemoteControlScreen: React.FC = () => {
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2">{body()}</div>
+        <div className="lg:col-span-2 space-y-4">
+          {body()}
+          {snapshot &&
+            (snapshot.phase === GamePhase.CATEGORY_SELECT ||
+              snapshot.phase === GamePhase.PLAYING ||
+              snapshot.phase === GamePhase.ROUND_END) && (
+              <EndGameRemote snapshot={snapshot} send={send} />
+            )}
+        </div>
         {snapshot && (
           <div className="space-y-4">
             <BenchRemote snapshot={snapshot} send={send} />
@@ -1588,7 +1659,7 @@ const RemoteControlScreen: React.FC = () => {
               />
             </Card>
             {snapshot.bracket.length > 0 && (
-              <Card title="Bracket">
+              <Card title={snapshot.roundRobin ? "Round robin" : "Bracket"}>
                 <BracketView
                   bracket={snapshot.bracket}
                   players={snapshot.players}
