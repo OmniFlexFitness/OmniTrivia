@@ -1,5 +1,6 @@
 import { GamePhase, GameState, Player } from "../types";
 import { DEFAULT_DIFFICULTY, isDifficulty } from "./difficulty";
+import { isTheme } from "./theme";
 import { winBonuses } from "./bracket";
 
 /**
@@ -70,6 +71,7 @@ export type PersistedHostState = Pick<
   | "losersBracket"
   | "qualifyingRounds"
   | "botsEnabled"
+  | "theme"
   | "typedAnswersEnabled"
   | "questionDifficulty"
   | "hostAnsweringEnabled"
@@ -152,6 +154,7 @@ export const captureHostState = (state: GameState): PersistedHostState => ({
   losersBracket: state.losersBracket,
   qualifyingRounds: state.qualifyingRounds,
   botsEnabled: state.botsEnabled,
+  theme: state.theme,
   typedAnswersEnabled: state.typedAnswersEnabled,
   questionDifficulty: state.questionDifficulty,
   hostAnsweringEnabled: state.hostAnsweringEnabled,
@@ -262,6 +265,8 @@ export const applyHostState = (
     typeof state.qualifyingRounds === "number" ? state.qualifyingRounds : 0,
   // Games saved before bots could be turned off always allowed them.
   botsEnabled: state.botsEnabled !== false,
+  // A game saved before themes keeps whatever this window is showing.
+  theme: isTheme(state.theme) ? state.theme : previous.theme,
   // A game saved before typed answers had a switch was played with whatever
   // it was loaded with, so the setting only matters for what it was loaded
   // with; off is the default for anything loaded from here on.

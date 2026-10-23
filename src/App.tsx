@@ -15,6 +15,7 @@ import PlayerScreen from './components/PlayerScreen';
 import HostControlScreen from './components/HostControlScreen';
 import BroadcastScreen from './components/BroadcastScreen';
 import RemoteControlScreen from './components/RemoteControlScreen';
+import HalloweenDecor from './components/HalloweenDecor';
 
 const AppContent: React.FC = () => {
   const { phase, isHost, clientPin } = useGame();
@@ -48,7 +49,7 @@ const AppContent: React.FC = () => {
   }
 };
 
-const App: React.FC = () => {
+const Screens: React.FC = () => {
   // The projector view is a separate window with no game state of its own: it
   // renders whatever the host window publishes, so it stays outside the
   // provider entirely and can never mutate the game.
@@ -69,5 +70,14 @@ const App: React.FC = () => {
     </GameProvider>
   );
 };
+
+const App: React.FC = () => (
+  <>
+    <Screens />
+    {/* Code Red's decorations, over whichever window this is. Each window
+        sets the theme from its own source; this only draws it. */}
+    <HalloweenDecor />
+  </>
+);
 
 export default App;

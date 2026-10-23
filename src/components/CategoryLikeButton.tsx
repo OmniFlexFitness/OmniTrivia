@@ -36,7 +36,7 @@ const CategoryLikeButton: React.FC<{
       compact ? "px-3 py-1.5 text-xs" : "px-4 py-2 text-sm"
     } ${
       liked
-        ? "border-neon-pink bg-neon-pink/15 text-neon-pink shadow-[0_0_14px_rgba(255,0,255,0.25)]"
+        ? "border-neon-pink bg-neon-pink/15 text-neon-pink shadow-[0_0_14px_rgb(var(--neon-pink)/0.25)]"
         : "border-slate-700 bg-slate-900 text-slate-400 hover:border-neon-pink/60 hover:text-neon-pink"
     } ${className}`}
   >

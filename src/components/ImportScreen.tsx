@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import CodeRedBadge from './CodeRedBadge';
 import { useGame } from '../context/GameContext';
 import { fetchFromGoogleSheet } from '../services/importService';
 import { DEFAULT_QUESTION_BANK, QUESTION_TEMPLATE } from '../constants';
@@ -92,6 +93,7 @@ const ImportScreen: React.FC = () => {
         </button>
         <div className="text-center mb-6">
           <h2 className="text-3xl font-bold text-white">IMPORT TRIVIA</h2>
+          <CodeRedBadge size="sm" label="Pick your poison" className="mt-2" />
           <p className="text-slate-400 mt-2">
             Take the ready-made bank, upload a CSV or TSV file, or link a public Google Sheet.
           </p>

@@ -1,4 +1,5 @@
 import type { QuestionDifficulty } from "./services/difficulty";
+import type { Theme } from "./services/theme";
 
 export enum GamePhase {
   START = "START",
@@ -501,6 +502,11 @@ export interface GameState {
    */
   botsEnabled: boolean;
   /**
+   * How every screen in the room is dressed — neon, or Code Red for
+   * Halloween. Cosmetic only, and the host can flip it at any point.
+   */
+  theme: Theme;
+  /**
    * Typed-answer questions may be in this game. Off (the default), Claude is
    * not asked to write them and an import's typed rows are left out — most
    * of a room does not enjoy spelling an answer out on a phone.
@@ -775,6 +781,11 @@ export interface BroadcastSnapshot {
   /** Bots may sit in this game — for the remote's switch. */
   botsEnabled: boolean;
   /**
+   * The host's theme, for every screen to paint itself in. Optional because a
+   * host on a build from before themes sends none, and that means neon.
+   */
+  theme?: Theme;
+  /**
    * The host's own seat is in the answer count. A host running the room from
    * a remote usually switches it off, and the remote needs to show which way
    * it is set.
@@ -852,6 +863,7 @@ export type RemoteCommand =
   | { kind: "set-losers-bracket"; enabled: boolean }
   | { kind: "set-qualifying-rounds"; rounds: number }
   | { kind: "set-bots"; enabled: boolean }
+  | { kind: "set-theme"; theme: Theme }
   | { kind: "spin"; round: number }
   | { kind: "start-round"; round: number }
   | { kind: "pause-all"; paused: boolean }

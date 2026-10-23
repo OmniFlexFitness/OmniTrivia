@@ -1,4 +1,5 @@
 import React from 'react';
+import CodeRedBadge from './CodeRedBadge';
 import { useGame } from '../context/GameContext';
 import Button from './Button';
 import QuestionReviewCard from './QuestionReviewCard';
@@ -29,6 +30,7 @@ const ReviewScreen: React.FC = () => {
       <header className="w-full max-w-4xl flex justify-between items-center mb-8">
         <div>
           <h2 className="text-2xl font-bold text-white">REVIEW CONTENT</h2>
+          <CodeRedBadge size="sm" label="" className="mt-1" />
           <p className="text-slate-400 text-sm mt-1">
             {roundsConfig.length} round{roundsConfig.length === 1 ? '' : 's'} ·{' '}
             {totalQuestions} question{totalQuestions === 1 ? '' : 's'}

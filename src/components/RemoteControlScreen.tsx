@@ -46,6 +46,9 @@ import BracketView, { MatchupCard, SideTag } from "./BracketView";
 import CategoryVotePanel from "./CategoryVotePanel";
 import SpectatorWheel from "./SpectatorWheel";
 import Button from "./Button";
+import ThemeToggle from "./ThemeToggle";
+import CodeRedBadge from "./CodeRedBadge";
+import { readThemePreference, useApplyTheme } from "../services/theme";
 import {
   AlertTriangle,
   ArrowRight,
@@ -1404,6 +1407,10 @@ const RemoteControlScreen: React.FC = () => {
     [snapshot],
   );
 
+  // The host's theme, as the host window last published it. Before it has,
+  // this device's own — a host signing in on their own tablet.
+  useApplyTheme(snapshot?.theme, readThemePreference());
+
   if (
     !link.pin ||
     status === "signin" ||
@@ -1475,6 +1482,7 @@ const RemoteControlScreen: React.FC = () => {
           </span>
         )}
         <span className="text-xs font-mono text-slate-500">PIN {link.pin}</span>
+        <CodeRedBadge size="sm" label="" />
         {snapshot && snapshot.roundNumber > 0 && (
           <span className="text-xs font-mono text-slate-500">
             R{snapshot.roundNumber}/{snapshot.totalRounds}
@@ -1528,6 +1536,23 @@ const RemoteControlScreen: React.FC = () => {
             {snapshot.hostAnswering && " Nothing on this remote plays for you, so switch it off while you walk the room."}
           </span>
         </button>
+      )}
+
+      {/* Code Red, from the floor. Open all night: it is only how the
+          screens look. The host window does the switching, so the remote
+          shows the theme it reports, not the one this tap asked for. */}
+      {snapshot && (
+        <div className="mb-4">
+          <ThemeToggle
+            theme={snapshot.theme ?? "neon"}
+            onChange={(theme) =>
+              send(
+                { kind: "set-theme", theme },
+                theme === "code-red" ? "Code Red on" : "Code Red off",
+              )
+            }
+          />
+        </div>
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

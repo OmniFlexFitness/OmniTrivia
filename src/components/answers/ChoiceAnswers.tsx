@@ -121,7 +121,7 @@ export const TrueFalseAnswer: React.FC<AnswerProps> = ({ onSubmit, isSubmitted, 
       {/* The "or" between them, sitting on the seam. */}
       <span
         aria-hidden
-        className={`pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center rounded-full bg-[#070817] border-2 border-[#9d4dff] text-white font-hud font-black italic shadow-[0_0_18px_rgba(157,77,255,0.6)] ${
+        className={`pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center rounded-full bg-hud-ink border-2 border-hud-violet text-white font-hud font-black italic shadow-[0_0_18px_rgb(var(--hud-violet)/0.6)] ${
           compact ? "w-10 h-10 text-xs" : "w-14 h-14 text-base"
         } ${picked !== null ? "opacity-0" : ""}`}
       >
@@ -153,7 +153,7 @@ export const MultiSelectAnswer: React.FC<AnswerProps> = ({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="cyber-hud text-center text-[10px] sm:text-[11px] text-[#00f0ff]">
+      <div className="cyber-hud text-center text-[10px] sm:text-[11px] text-hud-cyan">
         Select all that apply · {picked.length} picked
       </div>
       <div className={`grid grid-cols-1 ${compact ? "sm:grid-cols-2 gap-2.5" : "md:grid-cols-2 gap-5"}`}>

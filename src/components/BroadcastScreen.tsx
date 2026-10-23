@@ -25,6 +25,8 @@ import {
   subscribeToMessages,
 } from "../services/broadcastBus";
 import { seatsOf } from "../services/snapshot";
+import { readThemePreference, useApplyTheme } from "../services/theme";
+import CodeRedBadge from "./CodeRedBadge";
 import AvatarDisplay from "./AvatarDisplay";
 import PrizePodium from "./PrizePodium";
 import BracketView, { MatchupCard, SideTag } from "./BracketView";
@@ -98,7 +100,7 @@ const CountdownRing: React.FC<{
           cy="90"
           r={radius}
           fill="none"
-          stroke="#1e293b"
+          style={{ stroke: "rgb(var(--slate-800))" }}
           strokeWidth="14"
         />
         <circle
@@ -106,22 +108,24 @@ const CountdownRing: React.FC<{
           cy="90"
           r={radius}
           fill="none"
-          stroke={urgent ? "#ef4444" : "#00ffff"}
           strokeWidth="14"
           strokeLinecap="round"
           strokeDasharray={circumference}
           strokeDashoffset={circumference * (1 - fraction)}
           style={{
+            // Set as a style, not an attribute: the colour is a theme
+            // variable, and SVG attributes do not read those.
+            stroke: urgent ? "rgb(var(--hud-alarm))" : "rgb(var(--neon-blue))",
             transition: "stroke-dashoffset 1s linear, stroke 0.3s ease",
             // A tight core and a wide, faint halo: a soft falloff rather
             // than one heavy blur with a visible outer edge.
-            filter: `drop-shadow(0 0 4px ${urgent ? "#ef4444" : "#00ffff"}) drop-shadow(0 0 14px ${urgent ? "rgba(239,68,68,0.55)" : "rgba(0,255,255,0.5)"})`,
+            filter: `drop-shadow(0 0 4px ${urgent ? "rgb(var(--hud-alarm))" : "rgb(var(--neon-blue))"}) drop-shadow(0 0 14px ${urgent ? "rgb(var(--hud-alarm) / 0.55)" : "rgb(var(--neon-blue) / 0.5)"})`,
           }}
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         <div
-          className={`text-6xl font-black font-mono ${urgent ? "text-red-500 animate-pulse-fast" : "text-white"}`}
+          className={`text-6xl font-black font-mono ${urgent ? "text-hud-alarm animate-pulse-fast" : "text-white"}`}
         >
           {Math.max(0, timeLeft)}
         </div>
@@ -153,7 +157,7 @@ const RoomProgress: React.FC<{
     <div className="w-full cyber-panel p-5">
       <div className="flex items-end justify-between mb-3">
         <div>
-          <div className="font-hud text-5xl font-black text-[#39ff88] leading-none">
+          <div className="font-hud text-5xl font-black text-hud-green leading-none">
             {snapshot.lanesCompleted}
             <span className="text-2xl text-slate-600">
               /{snapshot.lanesInPlay}
@@ -165,7 +169,7 @@ const RoomProgress: React.FC<{
         </div>
         <div className="text-right">
           <div
-            className={`font-hud text-5xl font-black leading-none ${waiting > 0 ? "text-[#f5ff3b]" : "text-slate-700"}`}
+            className={`font-hud text-5xl font-black leading-none ${waiting > 0 ? "text-hud-yellow" : "text-slate-700"}`}
           >
             {waiting}
           </div>
@@ -203,7 +207,7 @@ const RoomProgress: React.FC<{
                 size="md"
               />
               {isIn && (
-                <span className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center bg-slate-950 border border-[#00f0ff] text-[#00f0ff]">
+                <span className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center bg-slate-950 border border-hud-cyan text-hud-cyan">
                   <Lock size={10} />
                 </span>
               )}
@@ -391,7 +395,7 @@ const MatchupStrip: React.FC<{
                     {nameOf(matchup.playerBId)}
                   </span>
                   {matchup.wildcardId === matchup.playerBId && (
-                    <span className="cyber-hud text-[10px] text-[#f5ff3b]">
+                    <span className="cyber-hud text-[10px] text-hud-yellow">
                       wildcard
                     </span>
                   )}
@@ -760,7 +764,7 @@ const BroadcastOptions: React.FC<{ snapshot: BroadcastSnapshot }> = ({
       return (
         <div className="flex items-center justify-center py-6">
           <div className="cyber-panel px-12 py-8 text-center">
-            <div className="cyber-hud text-sm text-[#00f0ff]">Typed answer</div>
+            <div className="cyber-hud text-sm text-hud-cyan">Typed answer</div>
             <div className="cyber-question text-4xl mt-2">✍️ Type it on your phone</div>
           </div>
         </div>
@@ -770,7 +774,7 @@ const BroadcastOptions: React.FC<{ snapshot: BroadcastSnapshot }> = ({
       return (
         <div className="flex items-center justify-center py-6">
           <div className="cyber-panel px-12 py-8 text-center">
-            <div className="cyber-hud text-sm text-[#00f0ff]">Closest number</div>
+            <div className="cyber-hud text-sm text-hud-cyan">Closest number</div>
             <div className="cyber-question text-6xl mt-2 tabular-nums">
               ?{question.unit ? <span className="text-3xl text-slate-400 normal-case"> {question.unit}</span> : null}
             </div>
@@ -793,7 +797,7 @@ const BroadcastOptions: React.FC<{ snapshot: BroadcastSnapshot }> = ({
               [30, 70].map((at) => (
                 <div
                   key={at}
-                  className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 w-10 h-10 rounded-full border-4 border-[#00f0ff] bg-[#070817] shadow-[0_0_16px_rgba(0,240,255,0.8)]"
+                  className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 w-10 h-10 rounded-full border-4 border-hud-cyan bg-hud-ink shadow-[0_0_16px_rgb(var(--hud-cyan)/0.8)]"
                   style={{ left: `${at}%` }}
                 />
               ))}
@@ -908,7 +912,7 @@ const BroadcastOptions: React.FC<{ snapshot: BroadcastSnapshot }> = ({
             {lengths.map((length, w) => (
               <div key={w} className="flex gap-2">
                 {Array.from({ length }).map((_, i) => (
-                  <span key={i} className="w-10 h-1.5 rounded-full bg-[#00e5ff]/60" />
+                  <span key={i} className="w-10 h-1.5 rounded-full bg-hud-sky/60" />
                 ))}
               </div>
             ))}
@@ -936,7 +940,7 @@ const BroadcastOptions: React.FC<{ snapshot: BroadcastSnapshot }> = ({
               </div>
             );
           })}
-          <span className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-16 h-16 rounded-full bg-[#070817] border-2 border-[#9d4dff] flex items-center justify-center font-hud font-black italic text-lg shadow-[0_0_18px_rgba(157,77,255,0.6)]">
+          <span className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-16 h-16 rounded-full bg-hud-ink border-2 border-hud-violet flex items-center justify-center font-hud font-black italic text-lg shadow-[0_0_18px_rgb(var(--hud-violet)/0.6)]">
             OR
           </span>
         </div>
@@ -1006,14 +1010,14 @@ const QuestionStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
 
         {lockedIn ? (
           <div className="text-center">
-            <div className="cyber-question text-3xl text-[#00f0ff] neon-text">
+            <div className="cyber-question text-3xl text-hud-cyan neon-text">
               Everyone is locked in
             </div>
             <div className="cyber-hud text-sm text-slate-400 mt-2">
               Answers revealed when the round is over
             </div>
             {snapshot.autoAdvance && (
-              <div className="cyber-hud mt-3 text-base text-[#ff2bd6] animate-pulse">
+              <div className="cyber-hud mt-3 text-base text-hud-magenta animate-pulse">
                 Next question in {snapshot.revealSecondsLeft}…
               </div>
             )}
@@ -1033,9 +1037,9 @@ const QuestionStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
           inside it rather than be sliced off along the top. */}
       <div className="w-full lg:w-96 shrink-0 flex flex-col items-center gap-5 overflow-y-auto custom-scrollbar pt-8 px-2">
         {lockedIn ? (
-          <div className="w-48 h-48 shrink-0 rounded-full border-4 border-[#00f0ff] flex flex-col items-center justify-center bg-[#00f0ff]/5 shadow-[0_0_40px_rgba(0,240,255,0.35)]">
-            <Lock size={52} className="text-[#00f0ff]" />
-            <div className="cyber-hud mt-3 text-[10px] text-[#00f0ff] text-center px-4">
+          <div className="w-48 h-48 shrink-0 rounded-full border-4 border-hud-cyan flex flex-col items-center justify-center bg-hud-cyan/5 shadow-[0_0_40px_rgb(var(--hud-cyan)/0.35)]">
+            <Lock size={52} className="text-hud-cyan" />
+            <div className="cyber-hud mt-3 text-[10px] text-hud-cyan text-center px-4">
               All locked in
             </div>
           </div>
@@ -1075,7 +1079,7 @@ const AnswerKey: React.FC<{ review: RoundReviewItem[] }> = ({ review }) => (
       {review.map((item, index) => (
         <div key={`${item.question.id}-${index}`} className="cyber-panel px-5 py-4">
           <div className="flex items-baseline justify-between gap-4">
-            <span className="cyber-hud text-xs text-[#00f0ff]">
+            <span className="cyber-hud text-xs text-hud-cyan">
               Q{String(index + 1).padStart(2, "0")} · {typeInfo(item.question.type).badge}
             </span>
             <span className="cyber-hud text-[10px] text-slate-400 tracking-normal">
@@ -1138,7 +1142,7 @@ const StandingsList: React.FC<{
             <div className="text-2xl font-bold text-white truncate">
               {player.name}
               {!player.eliminated && player.wildcardUsed && (
-                <span className="ml-3 text-xs font-mono uppercase tracking-widest text-[#f5ff3b]">
+                <span className="ml-3 text-xs font-mono uppercase tracking-widest text-hud-yellow">
                   wildcard
                 </span>
               )}
@@ -1348,6 +1352,9 @@ const BroadcastScreen: React.FC = () => {
   const [hostSeenAt, setHostSeenAt] = useState(0);
   const [now, setNow] = useState(Date.now());
   const [outOfDate, setOutOfDate] = useState(false);
+  // The host's theme. Until a snapshot names one, whatever this machine last
+  // hosted with — usually the same laptop the projector is plugged into.
+  useApplyTheme(snapshot?.theme, readThemePreference());
   // The channel is shared by the whole origin, so a second host tab would
   // otherwise flip this screen between two different games. Follow the first
   // host we hear from, and only switch once it has gone quiet.
@@ -1529,8 +1536,11 @@ const BroadcastScreen: React.FC = () => {
   return (
     <div className="min-h-screen h-screen tron-backdrop text-white p-6 flex flex-col overflow-hidden">
       <header className="flex items-center justify-between mb-5 shrink-0">
-        <div className="text-2xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-neon-blue to-neon-pink">
-          OMNI<span className="text-white">TRIVIA</span>
+        <div className="flex items-center gap-4">
+          <div className="text-2xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-neon-blue to-neon-pink">
+            OMNI<span className="text-white">TRIVIA</span>
+          </div>
+          <CodeRedBadge label="Halloween Night" />
         </div>
 
         <div className="flex items-center gap-5 text-sm font-mono uppercase tracking-widest text-slate-500">

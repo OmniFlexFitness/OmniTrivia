@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import ThemeToggle from './ThemeToggle';
+import CodeRedBadge from './CodeRedBadge';
 import { useGame } from '../context/GameContext';
 import Button from './Button';
 import Instructions from './Instructions';
@@ -9,7 +11,8 @@ import { BarChart3, Gamepad2, KeyRound, ListPlus, Server } from 'lucide-react';
 import omniflexLogo from '../assets/omniflex-logo.webp';
 
 const StartScreen: React.FC = () => {
-  const { initHost, initJoin, initHostResume } = useGame();
+  const { initHost, initJoin, initHostResume, theme, setTheme } = useGame();
+  const codeRed = theme === 'code-red';
   const [showPool, setShowPool] = useState(false);
   const [showInsights, setShowInsights] = useState(false);
 
@@ -50,7 +53,14 @@ const StartScreen: React.FC = () => {
         <h1 className="text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-neon-blue to-neon-pink tracking-tighter mb-2 text-center">
           OMNI<span className="text-white">TRIVIA</span>
         </h1>
-        <p className="text-slate-400 mb-8 text-xl tracking-widest uppercase">Elevate</p>
+        {codeRed ? (
+          <div className="mb-8 flex flex-col items-center gap-3">
+            <p className="font-creep text-3xl text-neon-blue neon-text">Trick or Trivia</p>
+            <CodeRedBadge label="Halloween Night" />
+          </div>
+        ) : (
+          <p className="text-slate-400 mb-8 text-xl tracking-widest uppercase">Elevate</p>
+        )}
 
         <div className="w-full space-y-4">
           <Button
@@ -114,6 +124,11 @@ const StartScreen: React.FC = () => {
           >
             <ListPlus size={14} /> category pool
           </button>
+        </div>
+        {/* Halloween, for whoever hosts from this browser next. Players
+            joining a game wear their host's theme whatever this says. */}
+        <div className="mt-4">
+          <ThemeToggle theme={theme} onChange={setTheme} compact />
         </div>
 
         <Instructions guide="start" full className="w-full mt-8" />

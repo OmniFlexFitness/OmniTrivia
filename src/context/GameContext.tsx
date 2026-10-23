@@ -104,6 +104,13 @@ import {
   suggestHostPassword,
 } from "../services/proof";
 import {
+  Theme,
+  applyTheme,
+  isTheme,
+  readThemePreference,
+  saveThemePreference,
+} from "../services/theme";
+import {
   applyBotsSetting,
   botsSettingOpen,
   readBotsPreference,
@@ -225,6 +232,12 @@ interface GameContextType extends GameState {
    * also redraws the first round without them.
    */
   setBotsEnabled: (enabled: boolean) => void;
+  /**
+   * Dress every screen in the room — this one, the projector, the remote and
+   * every phone — in neon or Code Red. Cosmetic, so it is open at any point
+   * in the game. Remembered on this device.
+   */
+  setTheme: (theme: Theme) => void;
   /**
    * Whether typed-answer questions may be in this game. Off, Claude is not
    * asked to write them and an import's typed rows are left out. Remembered
@@ -675,6 +688,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     qualifyingRounds: DEFAULT_QUALIFYING_ROUNDS,
     // A host who turned bots off last time meant it for next time too.
     botsEnabled: readBotsPreference(),
+    // Code Red stays on for a host who left it on.
+    theme: readThemePreference(),
     // Off unless this host switched them on: typing is the format a room
     // likes least.
     typedAnswersEnabled: readTypedAnswersPreference(),
@@ -742,6 +757,13 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
 
     return () => clearInterval(timer);
   }, [state.phase]);
+
+  // This window's own theme — the host's choice, or this device's last one
+  // before it hosts anything. A window that has joined someone else's room
+  // wears that host's theme instead, and the player screen paints it.
+  useEffect(() => {
+    if (!state.clientPin) applyTheme(state.theme);
+  }, [state.clientPin, state.theme]);
 
   // Auto-add bots in the lobby so a host testing alone still gets a bracket.
   useEffect(() => {
@@ -1948,6 +1970,11 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
       return next;
     });
 
+  const setTheme = (theme: Theme) => {
+    saveThemePreference(theme);
+    setState((prev) => (prev.theme === theme ? prev : { ...prev, theme }));
+  };
+
   const setTypedAnswersEnabled = (enabled: boolean) => {
     saveTypedAnswersPreference(enabled);
     setState((prev) => ({ ...prev, typedAnswersEnabled: enabled }));
@@ -3042,6 +3069,10 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         }
         setBotsEnabled(command.enabled);
         return null;
+      case "set-theme":
+        if (!isTheme(command.theme)) return "This host window does not know that theme.";
+        setTheme(command.theme);
+        return null;
       case "set-losers-bracket":
         if (!is(GamePhase.LOBBY)) return "The bracket is already drawn.";
         setLosersBracket(command.enabled);
@@ -3255,6 +3286,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         setLosersBracket,
         setQualifyingRounds,
         setBotsEnabled,
+        setTheme,
         setTypedAnswersEnabled,
         setQuestionDifficulty,
         botsSettingOpen: botsSettingOpen(state),

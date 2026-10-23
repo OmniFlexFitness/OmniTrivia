@@ -1,4 +1,5 @@
 import React from "react";
+import CodeRedBadge from "./CodeRedBadge";
 import { useGame } from "../context/GameContext";
 import {
   GamePhase,
@@ -1093,7 +1094,7 @@ const HostPlayerPane: React.FC = () => {
           board beside this is the host's to read; this panel is the host
           playing, and plays by the players' rules. */}
       {seat?.status === LaneStatus.REVEAL && question && (
-        <div className="bg-slate-900 border border-[#00f0ff]/50 rounded-xl p-3 text-center space-y-2">
+        <div className="bg-slate-900 border border-hud-cyan/50 rounded-xl p-3 text-center space-y-2">
           <div className="cyber-question text-lg text-white">
             {record ? "Locked in" : "Time's up"}
           </div>
@@ -1170,6 +1171,8 @@ const HostControlScreen: React.FC = () => {
     setBotsEnabled,
     botsSettingOpen,
     admitPlayer,
+    theme,
+    setTheme,
   } = useGame();
 
   const [showPool, setShowPool] = React.useState(false);
@@ -1231,6 +1234,7 @@ const HostControlScreen: React.FC = () => {
           <span className="px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-xs font-mono uppercase tracking-widest text-neon-yellow">
             host control
           </span>
+          <CodeRedBadge size="sm" label="" />
           {gameName && (
             <span className="text-sm font-bold text-slate-300 truncate max-w-[16rem]">
               {gameName}
@@ -1283,6 +1287,22 @@ const HostControlScreen: React.FC = () => {
             {remotes.length > 0
               ? `remote · ${remotes.map((remote) => remote.label).join(", ")}`
               : "cast & remote"}
+          </button>
+
+          {/* Code Red, mid-game: it only changes how the screens look, so
+              it is one tap at any point in the night. */}
+          <button
+            onClick={() => setTheme(theme === "code-red" ? "neon" : "code-red")}
+            className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-xs font-mono uppercase tracking-widest transition-colors ${
+              theme === "code-red"
+                ? "border-neon-blue text-neon-blue bg-neon-blue/10"
+                : "border-slate-600 text-slate-400 hover:text-white"
+            }`}
+            role="switch"
+            aria-checked={theme === "code-red"}
+            title="Dress every screen for Halloween — the big screen, the remote and every phone"
+          >
+            <span aria-hidden="true">🎃</span> code red {theme === "code-red" ? "on" : "off"}
           </button>
 
           <button

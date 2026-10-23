@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import ThemeToggle from "./ThemeToggle";
+import CodeRedBadge from "./CodeRedBadge";
 import { useGame } from '../context/GameContext';
 import { AVATARS, WIN_MULTIPLIER } from '../constants';
 import Button from './Button';
@@ -13,7 +15,7 @@ import BroadcastTextEditor from './BroadcastTextEditor';
 import { Users, Zap, Settings, UserPlus, PlayCircle, Monitor, KeyRound, Eye, EyeOff, Tablet } from 'lucide-react';
 
 const LobbyScreen: React.FC = () => {
-  const { players, startGame, isHost, totalRounds, questionsPerRound, gamePin, gameName, hostPassword, addBot, hostJoinAsPlayer, currentPlayerId, openBroadcast, broadcastConnected, roomWarning, losersBracket, setLosersBracket, qualifyingRounds, setQualifyingRounds, remotes, botsEnabled, setBotsEnabled } = useGame();
+  const { players, startGame, isHost, totalRounds, questionsPerRound, gamePin, gameName, hostPassword, addBot, hostJoinAsPlayer, currentPlayerId, openBroadcast, broadcastConnected, roomWarning, losersBracket, setLosersBracket, qualifyingRounds, setQualifyingRounds, remotes, botsEnabled, setBotsEnabled, theme, setTheme } = useGame();
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [showScreens, setShowScreens] = useState(false);
   // Codes are hidden until asked for, for the same reason the password is:
@@ -78,6 +80,7 @@ const LobbyScreen: React.FC = () => {
         <div className="text-center md:text-left">
           <h2 className="text-2xl font-bold text-neon-blue">LOBBY <span className="text-white animate-pulse">///</span> WAITING</h2>
           <div className="text-3xl font-black text-white mt-1">{gameName}</div>
+          <CodeRedBadge label="Summoning the living" className="mt-2" />
           {gamePin && (
             <div className="mt-4">
               <JoinCode pin={gamePin} />
@@ -118,7 +121,7 @@ const LobbyScreen: React.FC = () => {
             {players.map((player) => (
               <div 
                 key={player.id}
-                className={`bg-slate-800 border p-4 rounded-xl flex flex-col items-center animate-bounce-short transition-colors ${player.isHost ? 'border-neon-yellow shadow-[0_0_10px_rgba(250,255,0,0.3)]' : 'border-slate-700 hover:border-neon-blue'}`}
+                className={`bg-slate-800 border p-4 rounded-xl flex flex-col items-center animate-bounce-short transition-colors ${player.isHost ? 'border-neon-yellow shadow-[0_0_10px_rgb(var(--neon-yellow)/0.3)]' : 'border-slate-700 hover:border-neon-blue'}`}
                 style={{ animationDelay: `${Math.random()}s`, animationDuration: '3s' }}
               >
                 <div className="mb-2 filter drop-shadow-[0_0_5px_rgba(255,255,255,0.5)]">
@@ -200,6 +203,9 @@ const LobbyScreen: React.FC = () => {
                     botCount={players.filter((p) => p.isBot).length}
                     stage="lobby"
                   />
+                </div>
+                <div className="mt-3">
+                  <ThemeToggle theme={theme} onChange={setTheme} />
                 </div>
               </div>
             ) : (
@@ -300,7 +306,7 @@ const LobbyScreen: React.FC = () => {
               <Button 
                 onClick={startGame} 
                 fullWidth 
-                className="flex items-center justify-center gap-3 h-20 text-xl shadow-[0_0_20px_rgba(250,255,0,0.3)]"
+                className="flex items-center justify-center gap-3 h-20 text-xl shadow-[0_0_20px_rgb(var(--neon-yellow)/0.3)]"
                 variant="neon"
                 disabled={players.length < 1}
               >

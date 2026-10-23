@@ -629,6 +629,7 @@ export const buildSnapshot = (
     losersBracket: state.losersBracket,
     qualifyingRounds: state.qualifyingRounds,
     botsEnabled: state.botsEnabled,
+    theme: state.theme,
     hostAnswering: state.hostAnsweringEnabled,
     category,
     wheelSpinning: state.wheelSpinning,

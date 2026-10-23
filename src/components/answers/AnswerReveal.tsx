@@ -127,16 +127,16 @@ export const AnswerReveal: React.FC<{
                 key={index}
                 style={accentStyle(index)}
                 className={`flex items-center gap-2 rounded-lg px-2.5 py-1.5 border ${
-                  correct.has(index) ? "border-[#39ff88] bg-[#39ff88]/10" : "border-slate-800 opacity-60"
+                  correct.has(index) ? "border-hud-green bg-hud-green/10" : "border-slate-800 opacity-60"
                 }`}
               >
                 <span className={`cyber-option-key ${big ? "w-8 h-8 text-sm" : "w-6 h-6 text-[10px]"}`}>
                   {CHOICE_KEYS[index] ?? index + 1}
                 </span>
-                <span className={`flex-1 font-cyber font-bold ${text} ${correct.has(index) ? "text-[#39ff88]" : "text-slate-300"}`}>
+                <span className={`flex-1 font-cyber font-bold ${text} ${correct.has(index) ? "text-hud-green" : "text-slate-300"}`}>
                   {option}
                 </span>
-                {correct.has(index) && <Check size={big ? 20 : 16} className="text-[#39ff88] shrink-0" />}
+                {correct.has(index) && <Check size={big ? 20 : 16} className="text-hud-green shrink-0" />}
                 {tallies && <TallyBar count={tallies[index] ?? 0} total={totalPicks} size={size} />}
               </div>
             ))}
@@ -154,10 +154,10 @@ export const AnswerReveal: React.FC<{
                   key={label}
                   style={accentStyle(index)}
                   className={`rounded-xl border-2 px-3 py-2 text-center ${
-                    right ? "border-[#39ff88] bg-[#39ff88]/10" : "border-slate-700 opacity-50"
+                    right ? "border-hud-green bg-hud-green/10" : "border-slate-700 opacity-50"
                   }`}
                 >
-                  <div className={`cyber-hud font-black ${big ? "text-2xl" : "text-base"} ${right ? "text-[#39ff88]" : "text-slate-400"}`}>
+                  <div className={`cyber-hud font-black ${big ? "text-2xl" : "text-base"} ${right ? "text-hud-green" : "text-slate-400"}`}>
                     {label}
                   </div>
                   {tallies && (
@@ -178,7 +178,7 @@ export const AnswerReveal: React.FC<{
         const band = reveal.correctRange ?? [0, 0];
         return (
           <>
-            <div className={`cyber-question text-[#39ff88] ${big ? "text-3xl" : "text-xl"}`}>{reveal.label}</div>
+            <div className={`cyber-question text-hud-green ${big ? "text-3xl" : "text-xl"}`}>{reveal.label}</div>
             <NumberStrip
               band={band}
               scale={question.type === QuestionType.NUMBER || !(max > min) ? null : [min, max]}
@@ -199,7 +199,7 @@ export const AnswerReveal: React.FC<{
         ];
         return (
           <>
-            <div className={`cyber-question text-[#39ff88] ${big ? "text-3xl" : "text-xl"}`}>{reveal.label}</div>
+            <div className={`cyber-question text-hud-green ${big ? "text-3xl" : "text-xl"}`}>{reveal.label}</div>
             <PinBoard
               image={reveal.image ?? question.image ?? ""}
               target={reveal.pin}
@@ -221,7 +221,7 @@ export const AnswerReveal: React.FC<{
         return (
           <ol className="space-y-1">
             {(reveal.correctOrder ?? []).map((item, index) => (
-              <li key={item} className={`flex items-center gap-2 font-cyber font-bold text-[#39ff88] ${text}`}>
+              <li key={item} className={`flex items-center gap-2 font-cyber font-bold text-hud-green ${text}`}>
                 <span className="cyber-hud text-xs text-slate-500 w-5">{index + 1}</span>
                 {item}
               </li>
@@ -238,7 +238,7 @@ export const AnswerReveal: React.FC<{
                   {item}
                 </span>
                 <span className="text-slate-500">→</span>
-                <span className={`font-cyber font-bold text-[#39ff88] ${text}`}>{partner}</span>
+                <span className={`font-cyber font-bold text-hud-green ${text}`}>{partner}</span>
               </React.Fragment>
             ))}
           </div>
@@ -274,7 +274,7 @@ export const AnswerReveal: React.FC<{
                 {[...word.toUpperCase()].map((letter, i) => (
                   <span
                     key={i}
-                    className={`rounded-md bg-[#39ff88] text-[#05060f] font-hud font-black flex items-center justify-center ${
+                    className={`rounded-md bg-hud-green text-hud-void font-hud font-black flex items-center justify-center ${
                       big ? "w-11 h-12 text-2xl" : "w-7 h-8 text-base"
                     }`}
                   >
@@ -287,7 +287,7 @@ export const AnswerReveal: React.FC<{
         );
 
       default:
-        return <div className={`cyber-question text-[#39ff88] ${big ? "text-2xl" : "text-lg"}`}>{reveal.label}</div>;
+        return <div className={`cyber-question text-hud-green ${big ? "text-2xl" : "text-lg"}`}>{reveal.label}</div>;
     }
   })();
 

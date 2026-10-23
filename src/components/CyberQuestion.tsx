@@ -16,20 +16,22 @@ import { FINAL_QUESTION_MULTIPLIER, questionMultiplier } from "../services/lanes
  */
 
 export interface OptionAccent {
+  /** Any CSS colour — a theme variable, so not literally hex any more. */
   hex: string;
   /** For rgba() — the CSS reads `--accent-rgb`. */
   rgb: string;
 }
 
-/** A, B, C, D, E, F — each its own neon, readable on near-black. */
-export const OPTION_ACCENTS: OptionAccent[] = [
-  { hex: "#00f0ff", rgb: "0, 240, 255" }, // cyan
-  { hex: "#ff2bd6", rgb: "255, 43, 214" }, // magenta
-  { hex: "#f5ff3b", rgb: "245, 255, 59" }, // acid yellow
-  { hex: "#39ff88", rgb: "57, 255, 136" }, // green
-  { hex: "#ff8a00", rgb: "255, 138, 0" }, // orange
-  { hex: "#a855ff", rgb: "168, 85, 255" }, // violet
-];
+/**
+ * A, B, C, D, E, F — each its own colour, readable on near-black. The colours
+ * are the theme's (`--opt-1` … `--opt-6` in index.html): cyan, magenta, acid
+ * yellow, green, orange and violet in neon; blood, pumpkin, bone, slime, witch
+ * purple and ghost blue in Code Red.
+ */
+export const OPTION_ACCENTS: OptionAccent[] = [1, 2, 3, 4, 5, 6].map((n) => ({
+  hex: `rgb(var(--opt-${n}))`,
+  rgb: `var(--opt-${n})`,
+}));
 
 export const CHOICE_KEYS = ["A", "B", "C", "D", "E", "F"];
 
@@ -86,7 +88,7 @@ export const QuestionPanel: React.FC<{
           }`}
         >
           {number !== undefined ? (
-            <span className="text-[#00f0ff]">
+            <span className="text-hud-cyan">
               Q{pad(number)}
               {total ? <span className="text-slate-500"> / {pad(total)}</span> : null}
             </span>
@@ -94,7 +96,7 @@ export const QuestionPanel: React.FC<{
             <span />
           )}
           {category && (
-            <span className="text-[#ff2bd6] truncate">// {category}</span>
+            <span className="text-hud-magenta truncate">// {category}</span>
           )}
         </div>
       )}
@@ -113,7 +115,7 @@ export const DoublePointsBadge: React.FC<{
   className?: string;
 }> = ({ size = "phone", className = "" }) => (
   <div
-    className={`flex items-center justify-center gap-2 border border-[#f5ff3b] bg-[#f5ff3b]/10 text-[#f5ff3b] shadow-[0_0_18px_rgba(245,255,59,0.35)] cyber-hud ${
+    className={`flex items-center justify-center gap-2 border border-hud-yellow bg-hud-yellow/10 text-hud-yellow shadow-[0_0_18px_rgb(var(--hud-yellow)/0.35)] cyber-hud ${
       size === "room" ? "text-lg py-2" : "text-[11px] py-1.5"
     } ${className}`}
   >
@@ -146,7 +148,7 @@ export const CyberTimer: React.FC<{
       <span
         className={`cyber-hud tabular-nums shrink-0 text-right ${
           size === "lg" ? "text-lg w-16" : "text-xs w-10"
-        } ${urgent ? "text-[#ff3b3b] animate-pulse" : "text-[#00f0ff]"}`}
+        } ${urgent ? "text-hud-urgent animate-pulse" : "text-hud-cyan"}`}
       >
         {paused ? "II" : `${Math.max(0, timeLeft)}s`}
       </span>

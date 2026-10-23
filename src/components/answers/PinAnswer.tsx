@@ -39,7 +39,7 @@ export const PinAnswer: React.FC<AnswerProps> = ({ question, onSubmit, isSubmitt
         label={`${frame ? frame.name : "Picture"} — tap to drop your pin`}
       />
       <div className="cyber-hud text-[10px] text-slate-400 flex items-center gap-1.5 tracking-[0.15em]">
-        <MapPin size={12} className="text-[#00f0ff]" />
+        <MapPin size={12} className="text-hud-cyan" />
         {spot ? (where ? `Pin at ${where} — tap to move it` : "Pin dropped — tap to move it") : "Tap to drop your pin · pinch or + to zoom"}
       </div>
       {!isSubmitted && (

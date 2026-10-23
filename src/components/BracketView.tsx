@@ -205,7 +205,7 @@ export const MatchupCard: React.FC<{
     <div
       className={`rounded-xl border p-2 space-y-1 ${
         isLive
-          ? "border-neon-blue bg-slate-900 shadow-[0_0_12px_rgba(0,255,255,0.15)]"
+          ? "border-neon-blue bg-slate-900 shadow-[0_0_12px_rgb(var(--neon-blue)/0.15)]"
           : "border-slate-800 bg-slate-900/60"
       }`}
     >

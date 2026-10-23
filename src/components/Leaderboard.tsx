@@ -55,7 +55,7 @@ const Leaderboard: React.FC = () => {
             key={player.id}
             className={`flex items-center p-4 rounded-xl border transition-all ${
               player.id === 'user-1' || player.isHost 
-                ? 'bg-slate-800 border-neon-blue shadow-[0_0_10px_rgba(0,255,255,0.2)]' 
+                ? 'bg-slate-800 border-neon-blue shadow-[0_0_10px_rgb(var(--neon-blue)/0.2)]' 
                 : 'bg-slate-900 border-slate-800'
             }`}
           >

@@ -16,12 +16,16 @@ import AvatarDisplay from "./AvatarDisplay";
  * players), so it can never announce anything the host has not published.
  */
 
-const CYAN = "#00f0ff";
-const MAGENTA = "#ff2bd6";
+// The two sides' colours, as the theme's variables: cyan and magenta in neon,
+// blood red and pumpkin in Code Red. `tone` adds the alpha.
+const CYAN = "--hud-cyan";
+const MAGENTA = "--hud-magenta";
+const tone = (accent: string, alpha = 1) => `rgb(var(${accent}) / ${alpha})`;
 
 interface FighterProps {
   player: PublicPlayer;
   label: string;
+  /** The side's colour, as a theme variable name (`--hud-cyan`). */
   accent: string;
   /** Which side it enters from. */
   from: "left" | "right";
@@ -37,14 +41,14 @@ const Fighter: React.FC<FighterProps> = ({ player, label, accent, from, reduced 
     style={{
       // A rounded card outlined in a line of light, in this side's colour —
       // the same edge every panel in the game is drawn with.
-      border: `2px solid ${accent}`,
-      background: `radial-gradient(120% 120% at ${from === "left" ? "0% 0%" : "100% 0%"}, ${accent}38, rgba(7,8,22,0.95) 65%)`,
-      boxShadow: `0 0 22px ${accent}66, 0 0 48px ${accent}26, inset 0 0 26px ${accent}22`,
+      border: `2px solid ${tone(accent)}`,
+      background: `radial-gradient(120% 120% at ${from === "left" ? "0% 0%" : "100% 0%"}, ${tone(accent, 0.22)}, rgb(var(--hud-ink) / 0.95) 65%)`,
+      boxShadow: `0 0 22px ${tone(accent, 0.4)}, 0 0 48px ${tone(accent, 0.15)}, inset 0 0 26px ${tone(accent, 0.13)}`,
     }}
   >
     <div
       className="shrink-0 rounded-full p-1"
-      style={{ boxShadow: `0 0 18px ${accent}`, border: `2px solid ${accent}` }}
+      style={{ boxShadow: `0 0 18px ${tone(accent)}`, border: `2px solid ${tone(accent)}` }}
     >
       <AvatarDisplay
         avatar={player.avatar}
@@ -54,7 +58,7 @@ const Fighter: React.FC<FighterProps> = ({ player, label, accent, from, reduced 
       />
     </div>
     <div className="min-w-0 sm:text-center">
-      <div className="cyber-hud text-[10px]" style={{ color: accent }}>
+      <div className="cyber-hud text-[10px]" style={{ color: tone(accent) }}>
         {label}
       </div>
       <div className="cyber-question text-2xl leading-tight truncate">{player.name}</div>
@@ -68,7 +72,7 @@ const VersusMark: React.FC<{ reduced: boolean; text?: string }> = ({ reduced, te
     {!reduced && (
       <motion.div
         className="absolute w-28 h-28 rounded-full"
-        style={{ background: `radial-gradient(circle, rgba(255,255,255,0.9), ${MAGENTA}55 40%, transparent 70%)` }}
+        style={{ background: `radial-gradient(circle, rgba(255,255,255,0.9), ${tone(MAGENTA, 0.33)} 40%, transparent 70%)` }}
         initial={{ scale: 0, opacity: 0 }}
         animate={{ scale: [0, 1.6, 1.1], opacity: [0, 1, 0] }}
         transition={{ duration: 0.7, delay: 0.5, times: [0, 0.35, 1] }}
@@ -78,7 +82,7 @@ const VersusMark: React.FC<{ reduced: boolean; text?: string }> = ({ reduced, te
       className="relative font-hud font-black italic text-6xl leading-none select-none"
       style={{
         color: "#ffffff",
-        textShadow: `-3px 0 0 ${CYAN}, 3px 0 0 ${MAGENTA}, 0 0 18px ${MAGENTA}, 0 0 36px ${CYAN}`,
+        textShadow: `-3px 0 0 ${tone(CYAN)}, 3px 0 0 ${tone(MAGENTA)}, 0 0 18px ${tone(MAGENTA)}, 0 0 36px ${tone(CYAN)}`,
       }}
       initial={reduced ? { opacity: 0 } : { opacity: 0, scale: 3.2, rotate: -14 }}
       animate={{ opacity: 1, scale: 1, rotate: -8 }}
@@ -109,7 +113,7 @@ const VersusIntro: React.FC<VersusIntroProps> = ({ me, opponent, roundNumber, to
         aria-hidden
         className="absolute inset-0 -z-10 rounded-[28px]"
         style={{
-          background: `radial-gradient(60% 70% at 15% 45%, ${CYAN}24, transparent 70%), radial-gradient(60% 70% at 85% 55%, ${MAGENTA}24, transparent 70%), radial-gradient(30% 40% at 50% 50%, #9d4dff22, transparent 70%)`,
+          background: `radial-gradient(60% 70% at 15% 45%, ${tone(CYAN, 0.14)}, transparent 70%), radial-gradient(60% 70% at 85% 55%, ${tone(MAGENTA, 0.14)}, transparent 70%), radial-gradient(30% 40% at 50% 50%, ${tone("--hud-violet", 0.13)}, transparent 70%)`,
         }}
       />
 
@@ -134,7 +138,7 @@ const VersusIntro: React.FC<VersusIntroProps> = ({ me, opponent, roundNumber, to
             transition={{ delay: reduced ? 0 : 0.8 }}
             className="cyber-panel w-full sm:w-44 px-4 py-5 text-center"
           >
-            <div className="cyber-hud text-[10px] text-[#39ff88]">No opponent</div>
+            <div className="cyber-hud text-[10px] text-hud-green">No opponent</div>
             <div className="cyber-question text-lg mt-1">You advance automatically this round</div>
           </motion.div>
         )}
@@ -159,18 +163,18 @@ export const VersusStrip: React.FC<{ me: PublicPlayer; opponent: PublicPlayer | 
 }) => (
   <div className="cyber-panel flex items-center justify-center gap-3 px-4 py-2.5 w-full max-w-sm">
     <AvatarDisplay avatar={me.avatar} color={me.avatarColor} accessory={me.avatarAccessory} size="sm" />
-    <span className="cyber-question text-base truncate" style={{ color: CYAN }}>
+    <span className="cyber-question text-base truncate" style={{ color: tone(CYAN) }}>
       You
     </span>
     <span
       className="font-hud font-black italic text-xl"
-      style={{ textShadow: `-2px 0 0 ${CYAN}, 2px 0 0 ${MAGENTA}` }}
+      style={{ textShadow: `-2px 0 0 ${tone(CYAN)}, 2px 0 0 ${tone(MAGENTA)}` }}
     >
       {opponent ? "VS" : "BYE"}
     </span>
     {opponent && (
       <>
-        <span className="cyber-question text-base truncate" style={{ color: MAGENTA }}>
+        <span className="cyber-question text-base truncate" style={{ color: tone(MAGENTA) }}>
           {opponent.name}
         </span>
         <AvatarDisplay
