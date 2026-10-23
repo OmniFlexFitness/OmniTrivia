@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import CodeRedBadge from "./CodeRedBadge";
+import ThemeToggle from "./ThemeToggle";
 import { useGame } from '../context/GameContext';
 import Button from './Button';
 import Instructions from './Instructions';
@@ -35,6 +37,8 @@ const HostConfigScreen: React.FC = () => {
     setTypedAnswersEnabled,
     questionDifficulty,
     setQuestionDifficulty,
+    theme,
+    setTheme,
   } = useGame();
   // Seven covers two qualifying rounds, a seeded bracket for eight and a
   // best-of-3 final; the lobby says exactly how many the room needs.
@@ -104,6 +108,7 @@ const HostConfigScreen: React.FC = () => {
         <div className="flex items-center gap-3 mb-8">
           <Settings className="text-neon-blue" size={32} />
           <h2 className="text-3xl font-bold text-white">GAME SETUP</h2>
+          <CodeRedBadge size="sm" label="" className="ml-auto" />
         </div>
 
         {error && (
@@ -223,6 +228,10 @@ const HostConfigScreen: React.FC = () => {
               not want them, and the place to say so is before the lobby
               starts seating them. */}
           <BotsToggle enabled={botsEnabled} onChange={setBotsEnabled} stage="setup" />
+
+          {/* Halloween for the whole room. Only looks, so it can wait until
+              the lobby or the middle of the game — but it is here too. */}
+          <ThemeToggle theme={theme} onChange={setTheme} />
 
           {/* One switch for the format a room likes least, applied to every
               way questions come in — so it sits above the picker that only

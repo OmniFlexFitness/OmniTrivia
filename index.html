@@ -7,11 +7,13 @@
     <!-- Orbitron for the HUD labels (question numbers, VS, the clock) and
          Exo 2 for the questions and answers themselves: rounded and futuristic,
          and open enough to read from the back of a room. Both fall back to the
-         system sans, so a blocked font costs looks, not legibility. -->
+         system sans, so a blocked font costs looks, not legibility.
+         Creepster is Code Red's dripping display face — badges and one
+         tagline only, never anything a player has to read in a hurry. -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Exo+2:wght@500;600;700;800&family=Orbitron:wght@600;800;900&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Creepster&family=Exo+2:wght@500;600;700;800&family=Orbitron:wght@600;800;900&display=swap"
       rel="stylesheet"
     />
     <script src="https://cdn.tailwindcss.com"></script>
@@ -19,17 +21,56 @@
       tailwind.config = {
         theme: {
           extend: {
+            // Every colour the app paints with reads a CSS variable (defined
+            // under :root below), so a theme can repaint the whole app by
+            // changing variables instead of every component's classes.
             colors: {
               neon: {
-                pink: "#ff00ff",
-                blue: "#00ffff",
-                purple: "#bc13fe",
-                green: "#0aff00",
-                yellow: "#faff00",
+                pink: "rgb(var(--neon-pink) / <alpha-value>)",
+                blue: "rgb(var(--neon-blue) / <alpha-value>)",
+                purple: "rgb(var(--neon-purple) / <alpha-value>)",
+                green: "rgb(var(--neon-green) / <alpha-value>)",
+                yellow: "rgb(var(--neon-yellow) / <alpha-value>)",
               },
               dark: {
-                bg: "#0f172a",
-                card: "#1e293b",
+                bg: "rgb(var(--dark-bg) / <alpha-value>)",
+                card: "rgb(var(--dark-card) / <alpha-value>)",
+              },
+              slate: {
+                50: "rgb(var(--slate-50) / <alpha-value>)",
+                100: "rgb(var(--slate-100) / <alpha-value>)",
+                200: "rgb(var(--slate-200) / <alpha-value>)",
+                300: "rgb(var(--slate-300) / <alpha-value>)",
+                400: "rgb(var(--slate-400) / <alpha-value>)",
+                500: "rgb(var(--slate-500) / <alpha-value>)",
+                600: "rgb(var(--slate-600) / <alpha-value>)",
+                700: "rgb(var(--slate-700) / <alpha-value>)",
+                800: "rgb(var(--slate-800) / <alpha-value>)",
+                900: "rgb(var(--slate-900) / <alpha-value>)",
+                950: "rgb(var(--slate-950) / <alpha-value>)",
+              },
+              // Tailwind's cyan is the one stock hue the app uses as an accent
+              // rather than as a category's colour, so it follows the theme.
+              cyan: {
+                300: "rgb(var(--cyan-300) / <alpha-value>)",
+                400: "rgb(var(--cyan-400) / <alpha-value>)",
+                500: "rgb(var(--cyan-500) / <alpha-value>)",
+              },
+              // The question screens' own neons, which used to be written
+              // into components as hex: hud-cyan is #00f0ff, and so on.
+              hud: {
+                cyan: "rgb(var(--hud-cyan) / <alpha-value>)",
+                sky: "rgb(var(--hud-sky) / <alpha-value>)",
+                violet: "rgb(var(--hud-violet) / <alpha-value>)",
+                magenta: "rgb(var(--hud-magenta) / <alpha-value>)",
+                yellow: "rgb(var(--hud-yellow) / <alpha-value>)",
+                green: "rgb(var(--hud-green) / <alpha-value>)",
+                amber: "rgb(var(--hud-amber) / <alpha-value>)",
+                red: "rgb(var(--hud-red) / <alpha-value>)",
+                urgent: "rgb(var(--hud-urgent) / <alpha-value>)",
+                alarm: "rgb(var(--hud-alarm) / <alpha-value>)",
+                ink: "rgb(var(--hud-ink) / <alpha-value>)",
+                void: "rgb(var(--hud-void) / <alpha-value>)",
               },
             },
             fontFamily: {
@@ -50,8 +91,120 @@
       };
     </script>
     <style>
+      /* ------------------------------------------------------------------
+       * The palette, as variables.
+       *
+       * Every colour below — and every Tailwind colour in the config above —
+       * reads one of these, so a theme is nothing more than a different set of
+       * values under `data-theme` on <html> (see src/services/theme.ts). The
+       * values are space-separated RGB so Tailwind's opacity modifiers
+       * (`bg-neon-blue/10`) keep working; `--opt-*` are comma-separated
+       * because the answer options feed them to rgba().
+       *
+       * These defaults are the neon look exactly as it was before themes.
+       * ------------------------------------------------------------------ */
+      :root {
+        --neon-blue: 0 255 255;
+        --neon-pink: 255 0 255;
+        --neon-purple: 188 19 254;
+        --neon-green: 10 255 0;
+        --neon-yellow: 250 255 0;
+        --dark-bg: 15 23 42;
+        --dark-card: 30 41 59;
+
+        --slate-50: 248 250 252;
+        --slate-100: 241 245 249;
+        --slate-200: 226 232 240;
+        --slate-300: 203 213 225;
+        --slate-400: 148 163 184;
+        --slate-500: 100 116 139;
+        --slate-600: 71 85 105;
+        --slate-700: 51 65 85;
+        --slate-800: 30 41 59;
+        --slate-900: 15 23 42;
+        --slate-950: 2 6 23;
+        --cyan-300: 103 232 249;
+        --cyan-400: 34 211 238;
+        --cyan-500: 6 182 212;
+
+        --hud-cyan: 0 240 255;
+        --hud-sky: 0 229 255;
+        --hud-violet: 157 77 255;
+        --hud-magenta: 255 43 214;
+        --hud-yellow: 245 255 59;
+        --hud-green: 57 255 136;
+        --hud-amber: 255 176 32;
+        --hud-red: 255 59 92;
+        --hud-urgent: 255 59 59;
+        --hud-alarm: 239 68 68;
+        --hud-ink: 7 8 23;
+        --hud-void: 5 6 15;
+        --panel-top: 16 14 40;
+        --map-land: 18 28 61;
+
+        /* Answer options A–F: cyan, magenta, acid yellow, green, orange, violet. */
+        --opt-1: 0, 240, 255;
+        --opt-2: 255, 43, 214;
+        --opt-3: 245, 255, 59;
+        --opt-4: 57, 255, 136;
+        --opt-5: 255, 138, 0;
+        --opt-6: 168, 85, 255;
+      }
+
+      /* Code Red: Halloween with the alarm going off. Blood red leads where
+         neon blue did, pumpkin orange takes magenta's place, the greys turn
+         to charred, red-black neutrals, and the answers become six colours a
+         room can still call out — blood, pumpkin, bone, slime, witch purple
+         and ghost blue. Green still means right and the "close" amber still
+         differs from the warning yellow, so nothing the colours say changes. */
+      :root[data-theme="code-red"] {
+        --neon-blue: 255 45 61;
+        --neon-pink: 255 110 0;
+        --neon-purple: 200 16 46;
+        --neon-green: 140 255 26;
+        --neon-yellow: 255 196 30;
+        --dark-bg: 12 3 5;
+        --dark-card: 34 10 13;
+
+        --slate-50: 252 246 244;
+        --slate-100: 246 234 230;
+        --slate-200: 234 216 210;
+        --slate-300: 216 192 185;
+        --slate-400: 176 143 136;
+        --slate-500: 132 99 93;
+        --slate-600: 98 64 60;
+        --slate-700: 72 38 38;
+        --slate-800: 44 17 20;
+        --slate-900: 24 7 9;
+        --slate-950: 11 2 4;
+        --cyan-300: 255 176 110;
+        --cyan-400: 255 140 50;
+        --cyan-500: 240 100 20;
+
+        --hud-cyan: 255 45 61;
+        --hud-sky: 255 52 52;
+        --hud-violet: 190 14 40;
+        --hud-magenta: 255 110 0;
+        --hud-yellow: 255 196 30;
+        --hud-green: 140 255 26;
+        --hud-amber: 255 150 40;
+        --hud-red: 255 77 120;
+        --hud-urgent: 255 214 10;
+        --hud-alarm: 255 214 10;
+        --hud-ink: 12 3 5;
+        --hud-void: 7 1 2;
+        --panel-top: 36 6 10;
+        --map-land: 46 12 16;
+
+        --opt-1: 255, 45, 61;
+        --opt-2: 255, 122, 0;
+        --opt-3: 244, 232, 204;
+        --opt-4: 140, 255, 26;
+        --opt-5: 182, 92, 255;
+        --opt-6: 120, 222, 255;
+      }
       body {
-        background-color: #0f172a;
+        background-color: rgb(var(--dark-bg));
         color: white;
         font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
         overflow-x: hidden;
@@ -72,13 +225,13 @@
         font-size: 2rem;
         font-weight: 900;
         letter-spacing: -0.03em;
-        color: #00ffff;
+        color: rgb(var(--neon-blue));
       }
       .boot-mark span {
         color: #fff;
       }
       .boot-note {
-        color: #94a3b8;
+        color: rgb(var(--slate-400));
         font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
         font-size: 0.8rem;
         letter-spacing: 0.15em;
@@ -90,9 +243,9 @@
         margin-top: 8px;
         padding: 12px 24px;
         border-radius: 12px;
-        border: 2px solid #ff00ff;
+        border: 2px solid rgb(var(--neon-pink));
         background: transparent;
-        color: #ff00ff;
+        color: rgb(var(--neon-pink));
         font-weight: 700;
         font-size: 1rem;
         cursor: pointer;
@@ -103,9 +256,9 @@
       .neon-text {
         text-shadow:
           0 0 2px rgba(255, 255, 255, 0.35),
-          0 0 12px rgba(0, 229, 255, 0.55),
-          0 0 28px rgba(0, 229, 255, 0.28),
-          0 0 52px rgba(157, 77, 255, 0.28);
+          0 0 12px rgb(var(--hud-sky) / 0.55),
+          0 0 28px rgb(var(--hud-sky) / 0.28),
+          0 0 52px rgb(var(--hud-violet) / 0.28);
       }
       /* Room for that glow to fade out. A heading at the top of a scrolling
          column has its glow sliced off along the column's edge otherwise. */
@@ -125,32 +278,32 @@
       }
       .neon-box {
         box-shadow:
-          0 0 5px #00ffff,
-          0 0 10px #00ffff;
+          0 0 5px rgb(var(--neon-blue)),
+          0 0 10px rgb(var(--neon-blue));
       }
       .neon-box-pink {
         box-shadow:
-          0 0 5px #ff00ff,
-          0 0 10px #ff00ff;
+          0 0 5px rgb(var(--neon-pink)),
+          0 0 10px rgb(var(--neon-pink));
       }
       /* Custom Scrollbar */
       ::-webkit-scrollbar {
         width: 8px;
       }
       ::-webkit-scrollbar-track {
-        background: #1e293b;
+        background: rgb(var(--dark-card));
       }
       ::-webkit-scrollbar-thumb {
-        background: #bc13fe;
+        background: rgb(var(--neon-purple));
         border-radius: 4px;
       }
       ::-webkit-scrollbar-thumb:hover {
-        background: #ff00ff;
+        background: rgb(var(--neon-pink));
       }
       .text-neon-shadow {
         text-shadow:
-          0 0 8px rgba(0, 255, 255, 0.7),
-          0 0 12px rgba(0, 255, 255, 0.5);
+          0 0 8px rgb(var(--neon-blue) / 0.7),
+          0 0 12px rgb(var(--neon-blue) / 0.5);
       }
 
       /* ------------------------------------------------------------------
@@ -168,20 +321,20 @@
        * on body copy.
        * ------------------------------------------------------------------ */
       :root {
-        --grid-blue: #00e5ff;
-        --grid-purple: #9d4dff;
-        --grid-magenta: #ff2bd6;
-        --grid-ink: rgba(7, 8, 22, 0.94);
+        --grid-blue: rgb(var(--hud-sky));
+        --grid-purple: rgb(var(--hud-violet));
+        --grid-magenta: rgb(var(--hud-magenta));
+        --grid-ink: rgb(var(--hud-ink) / 0.94);
       }
 
       /* The floor of the Grid, faint, behind a whole screen. */
       .tron-backdrop {
-        background-color: #070817;
+        background-color: rgb(var(--hud-ink));
         background-image:
-          radial-gradient(ellipse 80% 55% at 50% -10%, rgba(157, 77, 255, 0.20), transparent 70%),
-          radial-gradient(ellipse 70% 50% at 50% 115%, rgba(0, 229, 255, 0.14), transparent 70%),
-          linear-gradient(rgba(0, 229, 255, 0.055) 1px, transparent 1px),
-          linear-gradient(90deg, rgba(157, 77, 255, 0.055) 1px, transparent 1px);
+          radial-gradient(ellipse 80% 55% at 50% -10%, rgb(var(--hud-violet) / 0.20), transparent 70%),
+          radial-gradient(ellipse 70% 50% at 50% 115%, rgb(var(--hud-sky) / 0.14), transparent 70%),
+          linear-gradient(rgb(var(--hud-sky) / 0.055) 1px, transparent 1px),
+          linear-gradient(90deg, rgb(var(--hud-violet) / 0.055) 1px, transparent 1px);
         background-size: 100% 100%, 100% 100%, 56px 56px, 56px 56px;
         background-position: center, center, center top, center top;
       }
@@ -193,13 +346,13 @@
            ring: an edge that runs blue into purple into magenta. */
         border: 2px solid transparent;
         background:
-          linear-gradient(180deg, rgba(16, 14, 40, 0.97), rgba(7, 8, 22, 0.98)) padding-box,
+          linear-gradient(180deg, rgb(var(--panel-top) / 0.97), rgb(var(--hud-ink) / 0.98)) padding-box,
           linear-gradient(135deg, var(--grid-blue), var(--grid-purple) 55%, var(--grid-magenta)) border-box;
         box-shadow:
-          0 0 0 1px rgba(0, 229, 255, 0.10),
-          0 0 22px rgba(0, 229, 255, 0.22),
-          0 0 46px rgba(157, 77, 255, 0.16),
-          inset 0 0 36px rgba(157, 77, 255, 0.12);
+          0 0 0 1px rgb(var(--hud-sky) / 0.10),
+          0 0 22px rgb(var(--hud-sky) / 0.22),
+          0 0 46px rgb(var(--hud-violet) / 0.16),
+          inset 0 0 36px rgb(var(--hud-violet) / 0.12);
       }
       /* A second, fainter trace just inside the edge — the doubled light line
          the Grid draws its shapes with. */
@@ -208,7 +361,7 @@
         position: absolute;
         inset: 5px;
         border-radius: 16px;
-        border: 1px solid rgba(0, 229, 255, 0.16);
+        border: 1px solid rgb(var(--hud-sky) / 0.16);
         pointer-events: none;
       }
       /* A soft sheen across the top, so the panel reads as lit glass. */
@@ -225,7 +378,7 @@
         font-weight: 800;
         color: #f8fafc;
         letter-spacing: 0.005em;
-        text-shadow: 0 0 20px rgba(0, 229, 255, 0.25);
+        text-shadow: 0 0 20px rgb(var(--hud-sky) / 0.25);
       }
       .cyber-hud {
         font-family: Orbitron, "Segoe UI", system-ui, sans-serif;
@@ -241,8 +394,8 @@
          Each option keeps its accent (A cyan, B magenta, C yellow, D green…)
          so it is the same colour on a phone, the host's seat and the wall. */
       .cyber-option {
-        --accent: #00e5ff;
-        --accent-rgb: 0, 229, 255;
+        --accent: rgb(var(--hud-sky));
+        --accent-rgb: var(--opt-1);
         position: relative;
         display: flex;
         align-items: center;
@@ -253,7 +406,7 @@
         font-weight: 700;
         border-radius: 0.75rem;
         border: 2px solid var(--accent);
-        background: rgba(5, 6, 15, 0.55);
+        background: rgb(var(--hud-void) / 0.55);
         text-shadow: 0 0 8px rgba(var(--accent-rgb), 0.45);
         box-shadow: 0 0 15px rgba(var(--accent-rgb), 0.5);
         transition:
@@ -266,7 +419,7 @@
       }
       button.cyber-option:not(:disabled):hover {
         transform: scale(1.02);
-        color: #05060f;
+        color: rgb(var(--hud-void));
         text-shadow: none;
         background: var(--accent);
         box-shadow: 0 0 25px rgba(var(--accent-rgb), 0.8);
@@ -283,7 +436,7 @@
       .cyber-option-key {
         font-family: Orbitron, "Segoe UI", system-ui, sans-serif;
         font-weight: 900;
-        color: #05060f;
+        color: rgb(var(--hud-void));
         text-shadow: none;
         border-radius: 999px;
         background: var(--accent);
@@ -296,7 +449,7 @@
       }
       button.cyber-option:not(:disabled):hover .cyber-option-key,
       .cyber-option.is-picked .cyber-option-key {
-        background: #05060f;
+        background: rgb(var(--hud-void));
         color: var(--accent);
         box-shadow: none;
       }
@@ -304,7 +457,7 @@
          colour here ever means right or wrong — that is for the end of the
          match. */
       .cyber-option.is-picked {
-        color: #05060f;
+        color: rgb(var(--hud-void));
         text-shadow: none;
         background: var(--accent);
         box-shadow:
@@ -312,7 +465,7 @@
           0 0 55px rgba(var(--accent-rgb), 0.3);
       }
       .cyber-option.is-picked svg {
-        color: #05060f;
+        color: rgb(var(--hud-void));
       }
       .cyber-option.is-muted {
         opacity: 0.32;
@@ -324,20 +477,20 @@
         position: relative;
         overflow: hidden;
         border-radius: 999px;
-        background: rgba(7, 8, 22, 0.92);
-        border: 2px solid rgba(0, 229, 255, 0.35);
-        box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.6), 0 0 12px rgba(0, 229, 255, 0.12);
+        background: rgb(var(--hud-ink) / 0.92);
+        border: 2px solid rgb(var(--hud-sky) / 0.35);
+        box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.6), 0 0 12px rgb(var(--hud-sky) / 0.12);
       }
       .cyber-timer-fill {
         height: 100%;
         border-radius: 999px;
         background: linear-gradient(90deg, var(--grid-purple), var(--grid-blue));
-        box-shadow: 0 0 14px rgba(0, 229, 255, 0.75);
+        box-shadow: 0 0 14px rgb(var(--hud-sky) / 0.75);
         transition: width 1s linear;
       }
       .cyber-timer-fill.is-urgent {
-        background: linear-gradient(90deg, var(--grid-magenta), #ff3b3b);
-        box-shadow: 0 0 16px rgba(255, 59, 59, 0.85);
+        background: linear-gradient(90deg, var(--grid-magenta), rgb(var(--hud-urgent)));
+        box-shadow: 0 0 16px rgb(var(--hud-urgent) / 0.85);
       }
 
       /* A field a player types into, or a tile they drag. */
@@ -347,15 +500,15 @@
         color: #f8fafc;
         border-radius: 16px;
         background: var(--grid-ink);
-        border: 2px solid rgba(0, 229, 255, 0.6);
-        box-shadow: 0 0 14px rgba(0, 229, 255, 0.18), inset 0 0 18px rgba(0, 229, 255, 0.08);
+        border: 2px solid rgb(var(--hud-sky) / 0.6);
+        box-shadow: 0 0 14px rgb(var(--hud-sky) / 0.18), inset 0 0 18px rgb(var(--hud-sky) / 0.08);
         outline: none;
       }
       .cyber-input:focus {
         border-color: var(--grid-blue);
         box-shadow:
-          0 0 22px rgba(0, 229, 255, 0.45),
-          inset 0 0 18px rgba(0, 229, 255, 0.15);
+          0 0 22px rgb(var(--hud-sky) / 0.45),
+          inset 0 0 18px rgb(var(--hud-sky) / 0.15);
       }
 
       @keyframes cyber-flicker {
@@ -370,21 +523,208 @@
          instead of fading with it. */
       @keyframes logo-halo {
         0%, 100% {
-          box-shadow: 0 0 22px rgba(255, 0, 255, 0.55), 0 0 60px rgba(157, 77, 255, 0.25);
+          box-shadow: 0 0 22px rgb(var(--neon-pink) / 0.55), 0 0 60px rgb(var(--hud-violet) / 0.25);
         }
         50% {
-          box-shadow: 0 0 34px rgba(255, 0, 255, 0.85), 0 0 90px rgba(0, 229, 255, 0.30);
+          box-shadow: 0 0 34px rgb(var(--neon-pink) / 0.85), 0 0 90px rgb(var(--hud-sky) / 0.30);
         }
       }
       .logo-halo {
         animation: logo-halo 2.8s ease-in-out infinite;
-        box-shadow: 0 0 26px rgba(255, 0, 255, 0.65), 0 0 70px rgba(157, 77, 255, 0.25);
+        box-shadow: 0 0 26px rgb(var(--neon-pink) / 0.65), 0 0 70px rgb(var(--hud-violet) / 0.25);
       }
+
+      /* ------------------------------------------------------------------
+       * Code Red's decorations (src/components/HalloweenDecor.tsx).
+       *
+       * All of it sits above the page but takes no clicks, stays at the edges
+       * — corners, the top strip, the floor — and is faint enough that a
+       * question in the middle of the screen never has to compete with it.
+       * ------------------------------------------------------------------ */
+      .font-creep {
+        font-family: Creepster, Orbitron, "Segoe UI", system-ui, sans-serif;
+        letter-spacing: 0.06em;
+      }
+      .cr-decor {
+        position: fixed;
+        inset: 0;
+        z-index: 45;
+        pointer-events: none;
+        overflow: hidden;
+      }
+      /* The alarm: a red glow around the edge of the screen that rises and
+         falls like an emergency light — slow, so it reads as atmosphere and
+         not as a flashing screen. */
+      @keyframes cr-siren {
+        0%, 100% { opacity: 0.55; }
+        50% { opacity: 1; }
+      }
+      .cr-vignette {
+        position: absolute;
+        inset: 0;
+        box-shadow:
+          inset 0 0 90px rgba(255, 20, 40, 0.28),
+          inset 0 0 220px rgba(120, 0, 10, 0.35);
+        animation: cr-siren 4.5s ease-in-out infinite;
+      }
+      /* Blood along the top edge: a thin band, and drips that slowly
+         lengthen. Each drip is its own small drawing, positioned across the
+         band, so it stays a drip at any width. */
+      .cr-drips {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 40px;
+        filter: drop-shadow(0 2px 5px rgba(180, 0, 20, 0.55));
+      }
+      .cr-drip-band {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 9px;
+      }
+      @keyframes cr-drip {
+        0%, 30% { transform: scaleY(1); }
+        70% { transform: scaleY(1.3); }
+        100% { transform: scaleY(1); }
+      }
+      .cr-drip {
+        position: absolute;
+        top: 3px;
+        transform-origin: top;
+        animation: cr-drip 7s ease-in-out infinite;
+      }
+      /* Cobwebs in the two top corners. */
+      .cr-web {
+        position: absolute;
+        top: 0;
+        width: clamp(84px, 12vw, 190px);
+        height: auto;
+        opacity: 0.5;
+      }
+      .cr-web-left { left: 0; }
+      .cr-web-right { right: 0; transform: scaleX(-1); }
+      /* A spider letting itself down on a thread from the right-hand web. */
+      @keyframes cr-spider {
+        0%, 100% { transform: translateY(0); }
+        45%, 60% { transform: translateY(clamp(40px, 9vh, 120px)); }
+      }
+      .cr-spider {
+        position: absolute;
+        top: 0;
+        right: clamp(34px, 5vw, 80px);
+        width: clamp(30px, 3.2vw, 48px);
+        animation: cr-spider 11s ease-in-out infinite;
+      }
+      /* Bats that cross the top of the screen now and then. */
+      @keyframes cr-bat-fly {
+        0% { transform: translate(-12vw, 18vh) scale(0.8); opacity: 0; }
+        8% { opacity: 1; }
+        50% { transform: translate(50vw, 6vh) scale(1); }
+        92% { opacity: 1; }
+        100% { transform: translate(112vw, 16vh) scale(0.8); opacity: 0; }
+      }
+      @keyframes cr-bat-flap {
+        0%, 100% { transform: scaleY(1); }
+        50% { transform: scaleY(0.45); }
+      }
+      .cr-bat {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: clamp(26px, 3vw, 48px);
+        opacity: 0;
+        animation: cr-bat-fly 22s linear infinite;
+        filter: drop-shadow(0 0 6px rgba(255, 30, 50, 0.6));
+      }
+      .cr-bat svg {
+        display: block;
+        width: 100%;
+        transform-origin: center 40%;
+        animation: cr-bat-flap 0.32s ease-in-out infinite;
+      }
+      /* A red mist along the floor, drifting. */
+      @keyframes cr-fog-drift {
+        from { background-position: 0 0, 0 0; }
+        to { background-position: 1200px 0, -900px 0; }
+      }
+      .cr-fog {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 22vh;
+        opacity: 0.42;
+        /* Each wisp is centred in its own tile and fades out before the
+           tile's edge, so the repeats join without a seam. */
+        background-image:
+          radial-gradient(ellipse 290px 120px at 300px 100%, rgba(255, 60, 70, 0.32), transparent 100%),
+          radial-gradient(ellipse 430px 150px at 450px 100%, rgba(255, 120, 60, 0.20), transparent 100%);
+        background-size: 600px 100%, 900px 100%;
+        background-repeat: repeat-x;
+        animation: cr-fog-drift 60s linear infinite;
+        -webkit-mask-image: linear-gradient(to top, black 30%, transparent);
+        mask-image: linear-gradient(to top, black 30%, transparent);
+      }
+      /* The badge a screen wears in Code Red: hazard tape behind the words. */
+      @keyframes cr-beacon {
+        0%, 100% { opacity: 1; box-shadow: 0 0 10px rgba(255, 30, 40, 0.9); }
+        50% { opacity: 0.35; box-shadow: 0 0 2px rgba(255, 30, 40, 0.4); }
+      }
+      .cr-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5em;
+        padding: 0.3em 0.9em;
+        border-radius: 999px;
+        border: 2px solid rgb(var(--neon-blue));
+        color: #fff;
+        background:
+          repeating-linear-gradient(-45deg, rgba(255, 45, 61, 0.28) 0 10px, rgba(0, 0, 0, 0.55) 10px 20px),
+          rgb(var(--hud-void));
+        box-shadow: 0 0 18px rgb(var(--neon-blue) / 0.45);
+        text-shadow: 0 0 8px rgba(255, 40, 50, 0.9);
+        white-space: nowrap;
+      }
+      .cr-beacon {
+        width: 0.6em;
+        height: 0.6em;
+        border-radius: 999px;
+        background: #ff2d3d;
+        animation: cr-beacon 1.4s ease-in-out infinite;
+        flex-shrink: 0;
+      }
+      /* Code Red's screens: the grid floor turns to an emergency-lit bunker,
+         and the plain dark pages get the same red light from above. */
+      :root[data-theme="code-red"] body {
+        background-image:
+          radial-gradient(ellipse 90% 50% at 50% -5%, rgba(255, 30, 40, 0.16), transparent 70%),
+          radial-gradient(ellipse 80% 45% at 50% 110%, rgba(255, 110, 0, 0.10), transparent 70%);
+        background-attachment: fixed;
+      }
+      :root[data-theme="code-red"] .tron-backdrop {
+        background-image:
+          radial-gradient(ellipse 80% 55% at 50% -10%, rgba(255, 30, 40, 0.26), transparent 70%),
+          radial-gradient(ellipse 70% 50% at 50% 115%, rgba(255, 110, 0, 0.16), transparent 70%),
+          linear-gradient(rgb(var(--hud-sky) / 0.06) 1px, transparent 1px),
+          linear-gradient(90deg, rgb(var(--hud-violet) / 0.07) 1px, transparent 1px);
+      }
+      :root[data-theme="code-red"] .cyber-panel {
+        background:
+          linear-gradient(180deg, rgb(var(--panel-top) / 0.97), rgb(var(--hud-ink) / 0.98)) padding-box,
+          linear-gradient(135deg, #ff2d3d, #8a0014 50%, #ff6e00) border-box;
+      }
+
       @media (prefers-reduced-motion: reduce) {
         .logo-halo { animation: none; }
         .neon-pop { animation: none; }
         .cyber-flicker { animation: none; }
         .cyber-option, .cyber-timer-fill { transition: none; }
+        .cr-vignette, .cr-drip, .cr-spider, .cr-fog, .cr-beacon { animation: none; }
+        /* Bats are nothing but movement, so they stay home. */
+        .cr-bat { display: none; }
       }
     </style>
   </head>

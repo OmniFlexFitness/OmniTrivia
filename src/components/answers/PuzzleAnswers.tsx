@@ -83,7 +83,7 @@ const TileButton: React.FC<{
     onPointerDown={(event) => event.stopPropagation()}
     onClick={onClick}
     disabled={disabled}
-    className="w-8 h-8 rounded-md flex items-center justify-center border border-current/60 bg-[#05060f]/70 disabled:opacity-25 active:scale-90"
+    className="w-8 h-8 rounded-md flex items-center justify-center border border-current/60 bg-hud-void/70 disabled:opacity-25 active:scale-90"
   >
     {children}
   </button>
@@ -234,7 +234,7 @@ export const CategorizeAnswer: React.FC<AnswerProps> = ({ question, onSubmit, is
           <div
             key={item}
             className={`flex items-center gap-2 rounded-xl border px-3 ${compact ? "py-2" : "py-3"} ${
-              placed[item] ? "border-slate-600 bg-slate-900/70" : "border-[#00e5ff]/40 bg-[#070817]/80"
+              placed[item] ? "border-slate-600 bg-slate-900/70" : "border-hud-sky/40 bg-hud-ink/80"
             }`}
           >
             <span className={`flex-1 font-cyber font-bold text-white leading-snug ${compact ? "text-base" : "text-xl"}`}>
@@ -368,8 +368,8 @@ export const ScrambleAnswer: React.FC<AnswerProps> = ({ question, onSubmit, isSu
                   aria-label={letter ? `Remove ${letter}` : "Empty"}
                   className={`${slotSize} rounded-lg flex items-center justify-center font-hud font-black ${
                     letter
-                      ? "bg-[#00f0ff] text-[#05060f] shadow-[0_0_14px_rgba(0,240,255,0.75)]"
-                      : "border-2 border-dashed border-[#00e5ff]/50 text-transparent"
+                      ? "bg-hud-cyan text-hud-void shadow-[0_0_14px_rgb(var(--hud-cyan)/0.75)]"
+                      : "border-2 border-dashed border-hud-sky/50 text-transparent"
                   }`}
                 >
                   {letter ?? "·"}

@@ -12,6 +12,8 @@ import {
 } from "../types";
 import { useGame } from "../context/GameContext";
 import { seatsOf } from "../services/snapshot";
+import { useApplyTheme } from "../services/theme";
+import CodeRedBadge from "./CodeRedBadge";
 import { readSeat } from "../services/seat";
 import { SideTag } from "./BracketView";
 import { matchupById, seriesScore, sideOf, winBonusFor } from "../services/bracket";
@@ -407,7 +409,7 @@ const OpponentStrip: React.FC<{
   return (
     <div className="cyber-panel flex items-center justify-between gap-3 px-4 py-3 mb-4">
       <div className="flex items-center gap-2 min-w-0">
-        <span className="cyber-question text-base text-[#00f0ff] truncate">You</span>
+        <span className="cyber-question text-base text-hud-cyan truncate">You</span>
         <span className="cyber-hud text-[10px] text-slate-400 tracking-normal">
           {where(mySeat)}
         </span>
@@ -415,7 +417,7 @@ const OpponentStrip: React.FC<{
 
       <span
         className="font-hud font-black italic text-lg shrink-0"
-        style={{ textShadow: "-2px 0 0 #00f0ff, 2px 0 0 #ff2bd6" }}
+        style={{ textShadow: "-2px 0 0 rgb(var(--hud-cyan)), 2px 0 0 rgb(var(--hud-magenta))" }}
       >
         VS
       </span>
@@ -427,7 +429,7 @@ const OpponentStrip: React.FC<{
           <span className="cyber-hud text-[10px] text-slate-400 tracking-normal shrink-0">
             {where(opponentSeat)}
           </span>
-          <span className="cyber-question text-base text-[#ff2bd6] truncate">
+          <span className="cyber-question text-base text-hud-magenta truncate">
             {opponent.name}
           </span>
           <AvatarDisplay
@@ -459,11 +461,11 @@ const ResultChip: React.FC<{ index: number; answered: boolean; correct: boolean;
     <div
       className={`flex flex-col items-center justify-center gap-0.5 w-14 py-2 border ${
         correct
-          ? "border-[#39ff88] bg-[#39ff88]/10 text-[#39ff88]"
+          ? "border-hud-green bg-hud-green/10 text-hud-green"
           : close
-            ? "border-[#ffb020] bg-[#ffb020]/10 text-[#ffb020]"
+            ? "border-hud-amber bg-hud-amber/10 text-hud-amber"
             : answered
-              ? "border-[#ff3b5c] bg-[#ff3b5c]/10 text-[#ff3b5c]"
+              ? "border-hud-red bg-hud-red/10 text-hud-red"
               : "border-slate-600 bg-slate-800/60 text-slate-400"
       }`}
       title={close ? "Close — part of the points" : undefined}
@@ -559,13 +561,13 @@ const MatchResult: React.FC<{
       : "You win the match";
   const verdict = !opponent
     ? side === "qualifying"
-      ? { text: "Bye — counts as a win", tone: "text-[#39ff88]" }
-      : { text: "Bye — you advance", tone: "text-[#39ff88]" }
+      ? { text: "Bye — counts as a win", tone: "text-hud-green" }
+      : { text: "Bye — you advance", tone: "text-hud-green" }
     : mine > theirs
-      ? { text: winning, tone: "text-[#39ff88]" }
+      ? { text: winning, tone: "text-hud-green" }
       : mine < theirs
-        ? { text: losing, tone: "text-[#ff3b5c]" }
-        : { text: "Dead level — settled on total score", tone: "text-[#f5ff3b]" };
+        ? { text: losing, tone: "text-hud-red" }
+        : { text: "Dead level — settled on total score", tone: "text-hud-yellow" };
   // The bonus is paid when the round settles; until then, say what it will be.
   const bonus =
     (opponent && mine > theirs) || (!opponent && side === "qualifying")
@@ -578,7 +580,7 @@ const MatchResult: React.FC<{
         <div className="cyber-hud text-[11px] text-slate-500">Match complete</div>
         <div className={`cyber-question text-3xl mt-1 ${verdict.tone}`}>{verdict.text}</div>
         {bonus > 0 && (
-          <div className="cyber-hud text-xs text-[#39ff88] mt-2">
+          <div className="cyber-hud text-xs text-hud-green mt-2">
             +{bonus} win bonus (×{WIN_MULTIPLIER}) on your total
           </div>
         )}
@@ -586,7 +588,7 @@ const MatchResult: React.FC<{
 
       <div className="cyber-panel grid grid-cols-[1fr_auto_1fr] items-center gap-3 px-4 py-4">
         <div className="text-center min-w-0">
-          <div className="cyber-hud text-[10px] text-[#00f0ff]">You</div>
+          <div className="cyber-hud text-[10px] text-hud-cyan">You</div>
           <div className="font-hud font-black text-3xl text-white tabular-nums">{mine}</div>
           <div className="text-xs text-slate-400">
             {correct}/{results.length} correct
@@ -594,12 +596,12 @@ const MatchResult: React.FC<{
         </div>
         <span
           className="font-hud font-black italic text-xl"
-          style={{ textShadow: "-2px 0 0 #00f0ff, 2px 0 0 #ff2bd6" }}
+          style={{ textShadow: "-2px 0 0 rgb(var(--hud-cyan)), 2px 0 0 rgb(var(--hud-magenta))" }}
         >
           VS
         </span>
         <div className="text-center min-w-0">
-          <div className="cyber-hud text-[10px] text-[#ff2bd6] truncate">
+          <div className="cyber-hud text-[10px] text-hud-magenta truncate">
             {opponent?.name ?? "No opponent"}
           </div>
           <div className="font-hud font-black text-3xl text-white tabular-nums">
@@ -659,7 +661,7 @@ const RoundReview: React.FC<{
         <div key={`${item.question.id}-${index}`} className="cyber-panel px-4 py-3">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <div className="cyber-hud text-[9px] text-[#00f0ff] mb-1">
+              <div className="cyber-hud text-[9px] text-hud-cyan mb-1">
                 Q{String(index + 1).padStart(2, "0")} · {typeInfo(item.question.type).badge}
               </div>
               <div className="cyber-question text-base leading-snug">
@@ -670,11 +672,11 @@ const RoundReview: React.FC<{
               <span
                 className={`shrink-0 mt-1 ${
                   result.correct
-                    ? "text-[#39ff88]"
+                    ? "text-hud-green"
                     : close
-                      ? "text-[#ffb020]"
+                      ? "text-hud-amber"
                       : result.answered
-                        ? "text-[#ff3b5c]"
+                        ? "text-hud-red"
                         : "text-slate-500"
                 }`}
               >
@@ -697,11 +699,11 @@ const RoundReview: React.FC<{
               <span className="text-slate-300">
                 {describeAnswer(result.answer, item.question, item.reveal)}
               </span>
-              {close && <span className="text-[#ffb020]"> — close, +{result.points}</span>}
+              {close && <span className="text-hud-amber"> — close, +{result.points}</span>}
             </div>
           )}
           {result?.correct && (
-            <div className="text-xs font-mono text-[#39ff88] mt-1">+{result.points}</div>
+            <div className="text-xs font-mono text-hud-green mt-1">+{result.points}</div>
           )}
           {item.reveal.explanation && (
             <p className="text-xs text-slate-400 mt-1">{item.reveal.explanation}</p>
@@ -777,6 +779,8 @@ const PlayerScreen: React.FC = () => {
   const [now, setNow] = useState(Date.now());
   const [outOfDate, setOutOfDate] = useState(false);
   const latchedHost = useRef<string | null>(null);
+  // This phone wears the host's theme, whatever it wore before it joined.
+  useApplyTheme(snapshot?.theme);
 
   useEffect(() => {
     const unsubscribe = subscribeToMessages((message) => {
@@ -919,7 +923,7 @@ const PlayerScreen: React.FC = () => {
 
       return (
         <div className="text-center py-12">
-          <Flag size={40} className="mx-auto text-[#39ff88] mb-3" />
+          <Flag size={40} className="mx-auto text-hud-green mb-3" />
           <div className="cyber-question text-3xl text-white mb-2">You're through</div>
           <p className="text-slate-400 max-w-sm mx-auto">
             All {snapshot?.questionsInRound} questions locked in.{" "}
@@ -940,8 +944,8 @@ const PlayerScreen: React.FC = () => {
           <div
             className={`inline-flex items-center justify-center w-20 h-20 rounded-full border-2 mb-4 ${
               timedOut
-                ? "border-[#f5ff3b] text-[#f5ff3b] shadow-[0_0_24px_rgba(245,255,59,0.35)]"
-                : "border-[#00f0ff] text-[#00f0ff] shadow-[0_0_24px_rgba(0,240,255,0.4)]"
+                ? "border-hud-yellow text-hud-yellow shadow-[0_0_24px_rgb(var(--hud-yellow)/0.35)]"
+                : "border-hud-cyan text-hud-cyan shadow-[0_0_24px_rgb(var(--hud-cyan)/0.4)]"
             }`}
           >
             {timedOut ? <TimerOff size={34} /> : <Lock size={34} />}
@@ -976,7 +980,7 @@ const PlayerScreen: React.FC = () => {
     if (seat.answered) {
       return (
         <div className="text-center py-12">
-          <Lock size={36} className="mx-auto text-[#00f0ff] mb-3" />
+          <Lock size={36} className="mx-auto text-hud-cyan mb-3" />
           <div className="cyber-question text-3xl text-white mb-1">Locked in</div>
           <p className="cyber-hud text-[10px] text-slate-500">Sending it…</p>
         </div>
@@ -1231,6 +1235,7 @@ const PlayerScreen: React.FC = () => {
           <div className="text-lg font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-neon-blue to-neon-pink">
             OMNI<span className="text-white">TRIVIA</span>
           </div>
+          <CodeRedBadge size="sm" label="" className="my-1" />
           <div className="text-xs font-mono uppercase tracking-widest text-slate-500">
             {snapshot?.gameName || gameName} · PIN {clientPin}
             {rejoinCode && <span className="text-neon-yellow/80"> · code {rejoinCode}</span>}

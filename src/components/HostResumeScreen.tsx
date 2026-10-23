@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import CodeRedBadge from "./CodeRedBadge";
 import { useGame } from '../context/GameContext';
 import Button from './Button';
 import Instructions from './Instructions';
@@ -40,7 +41,7 @@ const HostResumeScreen: React.FC = () => {
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-slate-900">
-      <div className="w-full max-w-md bg-slate-800 border border-neon-blue p-8 rounded-2xl shadow-[0_0_30px_rgba(0,255,255,0.2)] relative">
+      <div className="w-full max-w-md bg-slate-800 border border-neon-blue p-8 rounded-2xl shadow-[0_0_30px_rgb(var(--neon-blue)/0.2)] relative">
         <button
           onClick={restartGame}
           className="absolute top-4 left-4 text-slate-400 hover:text-white"
@@ -56,6 +57,9 @@ const HostResumeScreen: React.FC = () => {
           <h2 className="text-2xl font-black text-white text-center">
             TAKE THE GAME BACK
           </h2>
+          <div className="text-center mt-2">
+            <CodeRedBadge size="sm" label="Back from the dead" />
+          </div>
           <p className="text-slate-400 text-sm text-center mt-2">
             The room, the scores and the bracket are still where you left them.
           </p>

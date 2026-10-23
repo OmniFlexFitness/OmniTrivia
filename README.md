@@ -709,6 +709,23 @@ both under **BIG SCREEN TEXT** in the lobby or on the control screen, and
 **PUT IT UP**; **DEFAULT** puts the two back. The last text used is remembered
 in the host's browser for the next game.
 
+### Code Red: the Halloween theme
+
+**🎃 CODE RED** dresses every screen in the room for Halloween: blood red and
+pumpkin on black, cobwebs in the corners, a spider on a thread, bats, blood
+dripping along the top edge, red fog on the floor, a Halloween wheel with a
+jack-o'-lantern hub, and a "CODE RED" badge on every screen. The host flips it
+from the home screen, the setup screen, the lobby, the control screen's header,
+or the remote, at any point in the night. It changes how things look and
+nothing else: the game plays exactly the same.
+
+The host's window publishes the choice with the game, so the big screen, the
+remote and every player's phone switch with it within a second. A phone that
+has not joined yet still shows the everyday look until it does. The choice is
+remembered in the host's browser, so it stays on until they switch it off.
+Anyone whose device asks for reduced motion gets the colours and the still
+decorations without the animation.
+
 ### Hosting from more than one device
 
 With [multiplayer configured](MULTIPLAYER.md), neither the broadcast nor the

@@ -92,7 +92,7 @@ const QuestionCard: React.FC<{
       <Panel question={question} onSubmit={handleSubmit} isSubmitted={isSubmitted} compact={compact} />
 
       {isSubmitted && (
-        <div className="cyber-hud mt-4 flex items-center justify-center gap-2 text-xs text-[#00f0ff] cyber-flicker">
+        <div className="cyber-hud mt-4 flex items-center justify-center gap-2 text-xs text-hud-cyan cyber-flicker">
           <Lock size={12} /> Locked in — results at the end of the match
         </div>
       )}

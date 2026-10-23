@@ -67,7 +67,7 @@ export const MarginChip: React.FC<{ margin?: AnswerMargin; type: QuestionType; c
       className={`cyber-hud inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[10px] tracking-[0.15em] ${
         margin === "none"
           ? "border-slate-600 text-slate-400"
-          : "border-[#f5ff3b]/60 text-[#f5ff3b] shadow-[0_0_10px_rgba(245,255,59,0.25)]"
+          : "border-hud-yellow/60 text-hud-yellow shadow-[0_0_10px_rgb(var(--hud-yellow)/0.25)]"
       } ${className}`}
     >
       {(type === QuestionType.NUMBER && NUMBER_MARGIN_WORDS[margin]) || MARGIN_WORDS[margin]}

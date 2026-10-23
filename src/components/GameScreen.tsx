@@ -1,4 +1,5 @@
 import React from 'react';
+import CodeRedBadge from "./CodeRedBadge";
 import { useGame } from '../context/GameContext';
 import { GamePhase, LaneStatus } from '../types';
 import { answerBy, laneForPlayer, seatFor } from '../services/lanes';
@@ -170,6 +171,7 @@ const GameScreen: React.FC = () => {
         <div className="text-xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-neon-blue to-neon-pink">
           OMNI<span className="text-white">TRIVIA</span>
         </div>
+        <CodeRedBadge size="sm" label="" />
         <div className="text-sm font-mono text-slate-500">
           PHASE: {phase}
         </div>

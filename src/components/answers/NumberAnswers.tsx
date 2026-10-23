@@ -56,7 +56,7 @@ export const SliderAnswer: React.FC<AnswerProps> = ({ question, onSubmit, isSubm
     <div className="flex flex-col items-center gap-5">
       <MarginChip margin={question.margin} type={question.type} />
       <div
-        className={`cyber-hud font-black text-[#00f0ff] text-neon-shadow tracking-normal tabular-nums ${
+        className={`cyber-hud font-black text-hud-cyan text-neon-shadow tracking-normal tabular-nums ${
           compact ? "text-5xl" : "text-6xl"
         }`}
         style={KEEP_CASE}
@@ -104,7 +104,7 @@ const NudgeButton: React.FC<{
     onClick={onClick}
     disabled={disabled}
     aria-label={label}
-    className="w-11 h-11 shrink-0 rounded-full flex items-center justify-center border-2 border-[#00e5ff]/70 text-[#00e5ff] bg-[#070817] shadow-[0_0_10px_rgba(0,229,255,0.3)] active:scale-95 disabled:opacity-40"
+    className="w-11 h-11 shrink-0 rounded-full flex items-center justify-center border-2 border-hud-sky/70 text-hud-sky bg-hud-ink shadow-[0_0_10px_rgb(var(--hud-sky)/0.3)] active:scale-95 disabled:opacity-40"
   >
     {children}
   </button>
@@ -186,7 +186,7 @@ export const RangeAnswer: React.FC<AnswerProps> = ({ question, onSubmit, isSubmi
   return (
     <div className="flex flex-col items-center gap-5">
       <div
-        className={`cyber-hud font-black text-[#00f0ff] text-neon-shadow tracking-normal tabular-nums text-center ${
+        className={`cyber-hud font-black text-hud-cyan text-neon-shadow tracking-normal tabular-nums text-center ${
           compact ? "text-3xl" : "text-5xl"
         }`}
         style={KEEP_CASE}
@@ -204,9 +204,9 @@ export const RangeAnswer: React.FC<AnswerProps> = ({ question, onSubmit, isSubmi
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
         >
-          <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-3 rounded-full bg-slate-800 border border-[#00e5ff]/30" />
+          <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-3 rounded-full bg-slate-800 border border-hud-sky/30" />
           <div
-            className="absolute top-1/2 -translate-y-1/2 h-3 rounded-full bg-gradient-to-r from-[#9d4dff] to-[#00e5ff] shadow-[0_0_14px_rgba(0,229,255,0.7)]"
+            className="absolute top-1/2 -translate-y-1/2 h-3 rounded-full bg-gradient-to-r from-hud-violet to-hud-sky shadow-[0_0_14px_rgb(var(--hud-sky)/0.7)]"
             style={{ left: at(ends[0]), width: `calc(${at(ends[1])} - ${at(ends[0])})` }}
           />
           {([0, 1] as const).map((handle) => (
@@ -219,7 +219,7 @@ export const RangeAnswer: React.FC<AnswerProps> = ({ question, onSubmit, isSubmi
               aria-valuemax={max}
               aria-valuenow={ends[handle]}
               onKeyDown={onKey(handle)}
-              className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-[#070817] border-[3px] border-[#00f0ff] shadow-[0_0_14px_rgba(0,240,255,0.85)] focus:outline-none focus-visible:ring-4 focus-visible:ring-[#00f0ff]/40"
+              className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-hud-ink border-[3px] border-hud-cyan shadow-[0_0_14px_rgb(var(--hud-cyan)/0.85)] focus:outline-none focus-visible:ring-4 focus-visible:ring-hud-cyan/40"
               style={{ left: at(ends[handle]) }}
             />
           ))}
@@ -233,13 +233,13 @@ export const RangeAnswer: React.FC<AnswerProps> = ({ question, onSubmit, isSubmi
       <div className="w-full max-w-xl">
         <div className="flex items-center justify-between cyber-hud text-[10px] tracking-[0.15em] mb-1">
           <span className="text-slate-400">If the answer is inside</span>
-          <span className={payout > 0 ? "text-[#39ff88]" : "text-[#ff3b5c]"}>
+          <span className={payout > 0 ? "text-hud-green" : "text-hud-red"}>
             {payout > 0 ? `${Math.round(payout * 100)}% of the points` : "too wide to score"}
           </span>
         </div>
         <div className="h-2 rounded-full bg-slate-800 overflow-hidden">
           <div
-            className={`h-full transition-all ${payout > 0 ? "bg-[#39ff88]" : "bg-[#ff3b5c]"}`}
+            className={`h-full transition-all ${payout > 0 ? "bg-hud-green" : "bg-hud-red"}`}
             style={{ width: `${Math.max(4, payout * 100)}%` }}
           />
         </div>
@@ -294,7 +294,7 @@ export const NumberAnswer: React.FC<AnswerProps> = ({ question, onSubmit, isSubm
           </span>
         )}
       </div>
-      <div className="h-6 cyber-hud text-sm text-[#00f0ff] tracking-normal" style={KEEP_CASE}>
+      <div className="h-6 cyber-hud text-sm text-hud-cyan tracking-normal" style={KEEP_CASE}>
         {value !== null ? formatNumber(value, question.unit) : ""}
       </div>
       {!isSubmitted && <LockButton compact={compact} disabled={value === null} label="LOCK IN GUESS" onClick={() => value !== null && onSubmit(value)} />}
@@ -348,14 +348,14 @@ export const NumberStrip: React.FC<{
       <div className="relative" style={{ height: `${(size === "room" ? 34 : 26) + rows * 7}px` }}>
         <div className="absolute inset-x-0 top-3 h-2 rounded-full bg-slate-800" />
         <div
-          className="absolute top-1.5 h-5 rounded-md bg-[#39ff88]/30 border-2 border-[#39ff88] shadow-[0_0_12px_rgba(57,255,136,0.5)]"
+          className="absolute top-1.5 h-5 rounded-md bg-hud-green/30 border-2 border-hud-green shadow-[0_0_12px_rgb(var(--hud-green)/0.5)]"
           style={{ left: at(band[0]), width: `max(8px, calc(${at(band[1])} - ${at(band[0])}))`, transform: "translateX(-4px)" }}
         />
         {values.map((value, i) =>
           Array.isArray(value) ? (
             <div
               key={i}
-              className="absolute h-1 rounded-full bg-[#ff2bd6]/80"
+              className="absolute h-1 rounded-full bg-hud-magenta/80"
               style={{
                 left: at(value[0]),
                 width: `calc(${at(value[1])} - ${at(value[0])})`,
@@ -365,7 +365,7 @@ export const NumberStrip: React.FC<{
           ) : (
             <div
               key={i}
-              className="absolute top-2.5 w-3 h-3 -translate-x-1/2 rounded-full bg-[#ff2bd6] border border-[#05060f]"
+              className="absolute top-2.5 w-3 h-3 -translate-x-1/2 rounded-full bg-hud-magenta border border-hud-void"
               style={{ left: at(value) }}
             />
           ),
@@ -373,12 +373,12 @@ export const NumberStrip: React.FC<{
         {own !== null &&
           (Array.isArray(own) ? (
             <div
-              className="absolute top-0 h-8 border-x-[3px] border-[#00f0ff] shadow-[0_0_10px_rgba(0,240,255,0.8)]"
+              className="absolute top-0 h-8 border-x-[3px] border-hud-cyan shadow-[0_0_10px_rgb(var(--hud-cyan)/0.8)]"
               style={{ left: at(own[0]), width: `calc(${at(own[1])} - ${at(own[0])})` }}
             />
           ) : (
             <div
-              className="absolute top-0 w-1 h-8 -translate-x-1/2 rounded bg-[#00f0ff] shadow-[0_0_10px_rgba(0,240,255,0.9)]"
+              className="absolute top-0 w-1 h-8 -translate-x-1/2 rounded bg-hud-cyan shadow-[0_0_10px_rgb(var(--hud-cyan)/0.9)]"
               style={{ left: at(own) }}
             />
           ))}

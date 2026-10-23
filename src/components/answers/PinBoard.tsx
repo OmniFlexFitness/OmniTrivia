@@ -243,7 +243,7 @@ export const PinBoard: React.FC<{
         ref={boxRef}
         role={onPick ? "application" : "img"}
         aria-label={label ?? (frame ? frame.name : "Picture")}
-        className={`relative w-full overflow-hidden rounded-2xl border-2 border-[#00e5ff]/50 bg-[#070817] shadow-[0_0_22px_rgba(0,229,255,0.2)] ${
+        className={`relative w-full overflow-hidden rounded-2xl border-2 border-hud-sky/50 bg-hud-ink shadow-[0_0_22px_rgb(var(--hud-sky)/0.2)] ${
           onPick ? "cursor-crosshair" : ""
         }`}
         style={{ aspectRatio: `${1 / aspect}`, touchAction: onPick || canZoom ? "none" : "auto" }}
@@ -260,17 +260,17 @@ export const PinBoard: React.FC<{
             <svg viewBox={`0 0 ${frame.width} ${frame.height}`} className="absolute inset-0 w-full h-full">
               <defs>
                 <pattern id={gridId} width="50" height="50" patternUnits="userSpaceOnUse">
-                  <path d="M50 0H0V50" fill="none" stroke="rgba(0,229,255,0.07)" strokeWidth="1" />
+                  <path d="M50 0H0V50" fill="none" style={{ stroke: "rgb(var(--hud-sky) / 0.07)" }} strokeWidth="1" />
                 </pattern>
               </defs>
               <rect width={frame.width} height={frame.height} fill={`url(#${gridId})`} />
               {paths ? (
                 <>
-                  <path d={paths.land} fill="#121c3d" stroke="#00e5ff" strokeWidth={1.1 * k} strokeLinejoin="round" />
-                  <path d={paths.borders} fill="none" stroke="#9d4dff" strokeOpacity={0.75} strokeWidth={0.7 * k} />
+                  <path d={paths.land} style={{ fill: "rgb(var(--map-land))", stroke: "rgb(var(--hud-sky))" }} strokeWidth={1.1 * k} strokeLinejoin="round" />
+                  <path d={paths.borders} fill="none" style={{ stroke: "rgb(var(--hud-violet))" }} strokeOpacity={0.75} strokeWidth={0.7 * k} />
                 </>
               ) : (
-                <text x={frame.width / 2} y={frame.height / 2} textAnchor="middle" fill="#64748b" fontSize="28">
+                <text x={frame.width / 2} y={frame.height / 2} textAnchor="middle" style={{ fill: "rgb(var(--slate-500))" }} fontSize="28">
                   Loading map…
                 </text>
               )}
@@ -303,8 +303,7 @@ export const PinBoard: React.FC<{
                     cx={target.x * W}
                     cy={target.y * H}
                     r={(target.radius + marginReach) * W}
-                    fill="rgba(245,255,59,0.06)"
-                    stroke="#f5ff3b"
+                    style={{ fill: "rgb(var(--hud-yellow) / 0.06)", stroke: "rgb(var(--hud-yellow))" }}
                     strokeOpacity={0.55}
                     strokeDasharray={`${dot(6)} ${dot(5)}`}
                     strokeWidth={dot(1.5)}
@@ -314,11 +313,10 @@ export const PinBoard: React.FC<{
                   cx={target.x * W}
                   cy={target.y * H}
                   r={Math.max(target.radius * W, dot(5))}
-                  fill="rgba(57,255,136,0.22)"
-                  stroke="#39ff88"
+                  style={{ fill: "rgb(var(--hud-green) / 0.22)", stroke: "rgb(var(--hud-green))" }}
                   strokeWidth={dot(2.5)}
                 />
-                <circle cx={target.x * W} cy={target.y * H} r={dot(2.5)} fill="#39ff88" />
+                <circle cx={target.x * W} cy={target.y * H} r={dot(2.5)} style={{ fill: "rgb(var(--hud-green))" }} />
               </g>
             )}
             {pins
@@ -329,9 +327,8 @@ export const PinBoard: React.FC<{
                   cx={pin.x * W}
                   cy={pin.y * H}
                   r={dot(4.5)}
-                  fill="#ff2bd6"
+                  style={{ fill: "rgb(var(--hud-magenta))", stroke: "rgb(var(--hud-void))" }}
                   fillOpacity={0.85}
-                  stroke="#05060f"
                   strokeWidth={dot(1)}
                 />
               ))}
@@ -342,12 +339,14 @@ export const PinBoard: React.FC<{
                   {/* A map pin: a teardrop whose point is the spot. */}
                   <path
                     d={`M0 0 C ${dot(-3)} ${dot(-8)} ${dot(-9)} ${dot(-11)} ${dot(-9)} ${dot(-18)} A ${dot(9)} ${dot(9)} 0 1 1 ${dot(9)} ${dot(-18)} C ${dot(9)} ${dot(-11)} ${dot(3)} ${dot(-8)} 0 0 Z`}
-                    fill="#00f0ff"
-                    stroke="#05060f"
                     strokeWidth={dot(1.5)}
-                    style={{ filter: "drop-shadow(0 0 6px rgba(0,240,255,0.9))" }}
+                    style={{
+                      fill: "rgb(var(--hud-cyan))",
+                      stroke: "rgb(var(--hud-void))",
+                      filter: "drop-shadow(0 0 6px rgb(var(--hud-cyan) / 0.9))",
+                    }}
                   />
-                  <circle cy={dot(-18)} r={dot(3.2)} fill="#05060f" />
+                  <circle cy={dot(-18)} r={dot(3.2)} style={{ fill: "rgb(var(--hud-void))" }} />
                 </g>
               ))}
           </svg>
@@ -367,7 +366,7 @@ export const PinBoard: React.FC<{
               onClick={button.act}
               aria-label={button.label}
               title={button.label}
-              className="w-9 h-9 rounded-lg flex items-center justify-center bg-[#070817]/85 border border-[#00e5ff]/60 text-[#00e5ff] shadow-[0_0_10px_rgba(0,229,255,0.35)] active:scale-95"
+              className="w-9 h-9 rounded-lg flex items-center justify-center bg-hud-ink/85 border border-hud-sky/60 text-hud-sky shadow-[0_0_10px_rgb(var(--hud-sky)/0.35)] active:scale-95"
             >
               {button.icon}
             </button>
@@ -396,7 +395,7 @@ export const QuestionImage: React.FC<{ image?: string; className?: string }> = (
         alt=""
         referrerPolicy="no-referrer"
         onError={() => setFailed(true)}
-        className="max-h-[32vh] w-auto max-w-full rounded-2xl border-2 border-[#00e5ff]/40 shadow-[0_0_18px_rgba(0,229,255,0.18)] object-contain"
+        className="max-h-[32vh] w-auto max-w-full rounded-2xl border-2 border-hud-sky/40 shadow-[0_0_18px_rgb(var(--hud-sky)/0.18)] object-contain"
       />
     </div>
   );

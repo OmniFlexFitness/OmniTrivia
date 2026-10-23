@@ -1,5 +1,6 @@
 import React from "react";
 import { Category } from "../types";
+import { Theme, useTheme } from "../services/theme";
 
 /**
  * The wheel itself: slices, pointer, hub. Nothing that decides anything.
@@ -105,6 +106,22 @@ const FALLBACK_SLICE_COLORS = [
   "#f59e0b",
 ];
 
+// Code Red's wheel: Halloween colours, light against dark, so neighbouring
+// slices always read apart and every icon sits on something it shows up on.
+// Painted by position, not by category — the night is one look.
+const CODE_RED_SLICE_COLORS = [
+  "#b3001b", // blood
+  "#ff6a00", // pumpkin
+  "#4b1470", // witch purple
+  "#e8dcc0", // bone
+  "#6e0012", // dried blood
+  "#6cc417", // slime
+  "#26161a", // crypt
+  "#ffaa00", // candle
+  "#7a2bbf", // potion
+  "#ff3d00", // ember
+];
+
 const resolveSliceColor = (colorClass: string, index: number): string => {
   const match = /^bg-([a-z]+)-(\d{2,3})$/.exec(colorClass || "");
   if (match) {
@@ -128,8 +145,11 @@ const clamp = (value: number, min: number, max: number) =>
  * gone, and two categories can share a hue. Deterministic, so every screen
  * drawing the same list paints the same wheel.
  */
-const sliceFills = (categories: Category[]): string[] => {
-  const fills = categories.map((cat, index) => resolveSliceColor(cat.color, index));
+const sliceFills = (categories: Category[], theme: Theme): string[] => {
+  const palette = theme === "code-red" ? CODE_RED_SLICE_COLORS : FALLBACK_SLICE_COLORS;
+  const fills = categories.map((cat, index) =>
+    theme === "code-red" ? palette[index % palette.length] : resolveSliceColor(cat.color, index),
+  );
   if (fills.length < 2) return fills;
 
   for (let i = 0; i < fills.length; i++) {
@@ -137,7 +157,7 @@ const sliceFills = (categories: Category[]): string[] => {
     const next = i === fills.length - 1 ? fills[0] : null;
     if (fills[i] !== prev && fills[i] !== next) continue;
     fills[i] =
-      FALLBACK_SLICE_COLORS.find(
+      palette.find(
         (color) => color !== prev && color !== fills[(i + 1) % fills.length],
       ) ?? fills[i];
   }
@@ -158,10 +178,10 @@ const sliceFills = (categories: Category[]): string[] => {
  * it does. Pass a stable array and a spinning wheel costs one style write a
  * frame instead of rebuilding its SVG nodes.
  */
-const Slices = React.memo<{ categories: Category[] }>(({ categories }) => {
+const Slices = React.memo<{ categories: Category[]; theme: Theme }>(({ categories, theme }) => {
   const sliceCount = categories.length;
   const sliceAngle = 360 / sliceCount;
-  const fills = sliceFills(categories);
+  const fills = sliceFills(categories, theme);
   const iconSize = clamp(
     chordAt(ICON_RADIUS, sliceAngle) * 0.62,
     MIN_ICON_SIZE,
@@ -192,7 +212,7 @@ const Slices = React.memo<{ categories: Category[] }>(({ categories }) => {
               <path
                 d={slicePath(startAngle, startAngle + sliceAngle)}
                 fill={fill}
-                stroke="#0f172a"
+                stroke={theme === "code-red" ? "#0b0204" : "#0f172a"}
                 strokeWidth={1.5}
                 strokeLinejoin="round"
               />
@@ -248,37 +268,46 @@ const WheelFace: React.FC<WheelFaceProps> = ({
   faceRef,
   onMouseDown,
   onTouchStart,
-}) => (
-  <div className={`relative select-none ${className}`}>
-    {/* Pointer */}
-    <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-4 z-20 w-0 h-0 border-l-[20px] border-l-transparent border-r-[20px] border-r-transparent border-t-[40px] border-t-white drop-shadow-[0_0_10px_rgba(255,255,255,0.8)]"></div>
+}) => {
+  const theme = useTheme();
+  const codeRed = theme === "code-red";
+  return (
+    <div className={`relative select-none ${className}`}>
+      {/* Pointer */}
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-4 z-20 w-0 h-0 border-l-[20px] border-l-transparent border-r-[20px] border-r-transparent border-t-[40px] border-t-white drop-shadow-[0_0_10px_rgba(255,255,255,0.8)]"></div>
 
-    {/* Wheel */}
-    <div
-      ref={faceRef}
-      className="w-full h-full rounded-full border-4 border-slate-700 relative overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.5)]"
-      style={{
-        transform: `rotate(${rotation}deg)`,
-        transition: transition ?? "none",
-        cursor: cursor ?? "default",
-      }}
-      onMouseDown={onMouseDown}
-      onTouchStart={onTouchStart}
-    >
-      <Slices categories={categories} />
-    </div>
-
-    {/* Center Hub */}
-    {/* Sized as a fraction of the wheel rather than in pixels: the same face is
-        drawn at phone size, desk size and projector size. */}
-    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-1/5 h-1/5 bg-slate-900 rounded-full border-4 border-white z-10 flex items-center justify-center shadow-lg pointer-events-none">
+      {/* Wheel */}
       <div
-        className={`w-4/5 h-4/5 rounded-full ${landed ? landed.color : "bg-neon-pink"} flex items-center justify-center transition-colors`}
+        ref={faceRef}
+        className="w-full h-full rounded-full border-4 border-slate-700 relative overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.5)]"
+        style={{
+          transform: `rotate(${rotation}deg)`,
+          transition: transition ?? "none",
+          cursor: cursor ?? "default",
+        }}
+        onMouseDown={onMouseDown}
+        onTouchStart={onTouchStart}
       >
-        {landed && <span className="text-2xl">{landed.icon}</span>}
+        <Slices categories={categories} theme={theme} />
+      </div>
+
+      {/* Center Hub */}
+      {/* Sized as a fraction of the wheel rather than in pixels: the same face is
+          drawn at phone size, desk size and projector size. */}
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-1/5 h-1/5 bg-slate-900 rounded-full border-4 border-white z-10 flex items-center justify-center shadow-lg pointer-events-none">
+        <div
+          className={`w-4/5 h-4/5 rounded-full ${landed ? landed.color : "bg-neon-pink"} flex items-center justify-center transition-colors`}
+        >
+          {landed ? (
+            <span className="text-2xl">{landed.icon}</span>
+          ) : (
+            // Code Red's hub is a jack-o'-lantern until the wheel has landed.
+            codeRed && <span className="text-2xl">🎃</span>
+          )}
+        </div>
       </div>
     </div>
-  </div>
-);
+  );
+};
 
 export default WheelFace;

@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import CodeRedBadge from './CodeRedBadge';
 import { useGame } from '../context/GameContext';
 import Button from './Button';
 import Instructions from './Instructions';
@@ -90,6 +91,7 @@ const ImportSelectScreen: React.FC = () => {
         </button>
         <div className="text-right">
           <h2 className="text-2xl font-bold text-white">WHAT TO PLAY</h2>
+          <CodeRedBadge size="sm" label="" className="mt-1" />
           <p className="text-slate-400 text-sm">
             {contents.length} categories · {questionsFound} questions found
           </p>

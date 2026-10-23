@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import CodeRedBadge from './CodeRedBadge';
 import { useGame } from '../context/GameContext';
 import { AVATARS, AVATAR_COLORS, AVATAR_ACCESSORIES } from '../constants';
 import Button from './Button';
@@ -74,7 +75,7 @@ const JoinScreen: React.FC = () => {
     <div className="relative min-h-screen flex flex-col items-center p-3 sm:p-4 bg-[url('https://images.unsplash.com/photo-1550751827-4bd374c3f58b?q=80&w=2070&auto=format&fit=crop')] bg-cover bg-center">
       <div className="absolute inset-0 bg-slate-900/90 backdrop-blur-sm"></div>
 
-      <div className="relative z-10 my-auto w-full max-w-md bg-slate-800/90 border border-neon-blue p-4 sm:p-6 rounded-2xl shadow-[0_0_30px_rgba(0,255,255,0.2)] flex flex-col">
+      <div className="relative z-10 my-auto w-full max-w-md bg-slate-800/90 border border-neon-blue p-4 sm:p-6 rounded-2xl shadow-[0_0_30px_rgb(var(--neon-blue)/0.2)] flex flex-col">
         <button
           type="button"
           onClick={restartGame}
@@ -88,6 +89,7 @@ const JoinScreen: React.FC = () => {
           <h1 className="text-2xl font-black text-white tracking-tighter mb-1">
             {isHost ? 'HOST PROFILE' : 'PLAYER ENTRY'}
           </h1>
+          <CodeRedBadge size="sm" label={isHost ? 'Your costume' : 'Enter if you dare'} className="mb-2" />
           {!isHost && (
             <p className="text-xs text-slate-400 text-center mb-3 max-w-xs">
               New here or coming back to a seat you already had — same form
