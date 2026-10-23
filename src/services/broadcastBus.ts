@@ -76,8 +76,12 @@ const ROOM_TTL_MS = 20000;
  *
  * 10: seven new question types. An older phone would draw a pin, a range or a
  * match puzzle as a multiple-choice question with no options, so it reloads.
+ *
+ * 11: the host's theme. An older phone or projector cannot paint Code Red and
+ * would stay neon all night while the room around it turned red, so it
+ * reloads onto a build that can.
  */
-export const SNAPSHOT_VERSION = 10;
+export const SNAPSHOT_VERSION = 11;
 
 /** How a snapshot's version compares to what this build can render. */
 export type SnapshotFit = "ok" | "sender-is-newer" | "sender-is-older";
