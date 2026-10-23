@@ -321,6 +321,9 @@ const LaneRace: React.FC<{
 const roundKind = (matchups: Matchup[] | null | undefined): string | null => {
   const first = matchups?.[0];
   if (!first) return null;
+  if (sideOf(first) === "roundRobin") {
+    return `Round robin — nobody goes out · wins count ×${WIN_MULTIPLIER}`;
+  }
   if (sideOf(first) === "qualifying") {
     return `Qualifying — nobody goes out · wins count ×${WIN_MULTIPLIER}`;
   }
@@ -1223,7 +1226,9 @@ const RoundEndStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
           <div className="text-center text-xs font-mono uppercase tracking-[0.3em] text-slate-500 mb-3">
             {round?.matchups.some((m) => sideOf(m) === "qualifying")
               ? "Standings — the bracket is seeded on these"
-              : "Standings"}
+              : round?.matchups.some((m) => sideOf(m) === "roundRobin")
+                ? "Standings — the highest total wins the night"
+                : "Standings"}
           </div>
           <StandingsList players={snapshot.players} showRoundScore />
         </div>
@@ -1252,7 +1257,7 @@ const RoundEndStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
       {snapshot.bracket.length > 0 && (
         <div>
           <div className="text-xs font-mono uppercase tracking-[0.3em] text-slate-500 mb-3">
-            Bracket
+            {snapshot.roundRobin ? "Every round so far" : "Bracket"}
           </div>
           <BracketView
             bracket={snapshot.bracket}
@@ -1278,7 +1283,7 @@ const GameOverStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
           <>
             <Crown size={72} className="mx-auto text-yellow-400 mb-2" />
             <div className="text-sm font-mono uppercase tracking-[0.4em] text-yellow-400">
-              Champion
+              1st place{snapshot.roundRobin ? "" : " · Champion"}
             </div>
             <div className="flex flex-col items-center gap-3 mt-4">
               <AvatarDisplay

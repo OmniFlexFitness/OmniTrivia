@@ -190,7 +190,11 @@ const StakesLine: React.FC<{
     : 0;
 
   const line =
-    side === "qualifying"
+    side === "roundRobin"
+      ? hasOpponent
+        ? `Round robin — nobody goes out, and you'll play everybody. Beat them and this round's points count ×${WIN_MULTIPLIER} on your total; the highest total wins the night.`
+        : `Round robin bye — play the round on your own; it counts as a win, so your points count ×${WIN_MULTIPLIER}.`
+      : side === "qualifying"
       ? hasOpponent
         ? `Qualifying — nobody goes out. Beat them and this round's points count ×${WIN_MULTIPLIER} on your total, which is what the bracket is seeded on.`
         : `Qualifying bye — play the round on your own; it counts as a win, so your points count ×${WIN_MULTIPLIER}.`
@@ -548,7 +552,9 @@ const MatchResult: React.FC<{
   // A first loss is not the end when there is a loser's bracket to fall into,
   // and saying "you lose" without that would send a player home early.
   const losing =
-    side === "qualifying"
+    side === "roundRobin"
+      ? "You lose this one — nobody goes out in a round robin"
+      : side === "qualifying"
       ? "You lose this one — nobody goes out in qualifying"
       : side === "final" && matchup?.series
         ? `You lose game ${matchup.series.game}`
@@ -559,8 +565,9 @@ const MatchResult: React.FC<{
     side === "final" && matchup?.series
       ? `You win game ${matchup.series.game}`
       : "You win the match";
+  const open = side === "qualifying" || side === "roundRobin";
   const verdict = !opponent
-    ? side === "qualifying"
+    ? open
       ? { text: "Bye — counts as a win", tone: "text-hud-green" }
       : { text: "Bye — you advance", tone: "text-hud-green" }
     : mine > theirs
@@ -570,7 +577,7 @@ const MatchResult: React.FC<{
         : { text: "Dead level — settled on total score", tone: "text-hud-yellow" };
   // The bonus is paid when the round settles; until then, say what it will be.
   const bonus =
-    (opponent && mine > theirs) || (!opponent && side === "qualifying")
+    (opponent && mine > theirs) || (!opponent && open)
       ? winBonusFor(mine)
       : 0;
 

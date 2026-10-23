@@ -28,6 +28,8 @@ exactly as they are defined here, and so does the code.
 | **Bracket** | Single elimination by default. The higher round score in a matchup advances; the other player is out of the bracket — not out of the game. When the field is odd, the spare seat goes to a **wildcard** from the Redemption Table, or, if nobody there has earned one, to a **bye**. Either way it lands on whoever has had the fewest so far, so the same person cannot keep drawing it. |
 | **Loser's bracket** | Optional double elimination, switched on at setup or in the lobby. A first loss drops a player into the loser's bracket instead of out; a loss there ends their night. Both sides play in every round, on the same category, and the last player on each side meets in a best-of-3 **grand final**. |
 | **Redemption Table** | Where a player knocked out of the bracket keeps playing: every round, same spin, same category, same questions, their own seat and nobody across from them. Their **redemption score** keeps building there — the points they answered their way to in every round of the game, qualifying and bracket included — and it decides the redemption prize (third place). |
+| **Round robin** | The other format, switched on at setup or in the lobby instead of a bracket. Every round pairs each player with somebody they have not played yet, until everybody has played everybody — one round fewer than the number of players, or one per player when the number is odd (each sits out once on a bye, which counts as a win). Nobody goes out, a win still counts **×1.5** on the total, and the highest total wins. Qualifying rounds and the loser's bracket do not apply to it. |
+| **END GAME** | The host's button — on the desk and the remote, from the wheel, during a round or between rounds — that stops the night where it stands and puts the final results up. A round in play is settled first on the scores as they stand; an unplayed draw is dropped. 1st, 2nd and 3rd are called on what was played. |
 | **Wildcard** | The bracket's odd seat, handed to the best round on the Redemption Table instead of a free bye. One per player per game, never on a round of zero. In a loser's-bracket game it comes back into the loser's bracket only. |
 | **Remote** | A tablet or phone running the round for the host — spin, start, pause, +10s, close, end the round, next round — once it has the PIN and the host password. The host's window still runs the game; the remote drives it. |
 | **Category pool** | The host's own standing list of categories. The end-of-round vote draws its options from it. It is separate from the questions a game happens to be loaded with. |
@@ -63,13 +65,33 @@ exactly as they are defined here, and so does the code.
    anybody there has earned one.
 7. **The final is best of 3.** Each game is its own spin of the wheel; the
    series score carries from game to game, and a 2–0 ends it a round early.
-8. The game ends when the final is won, or when the rounds run out — whichever
-   comes first. If the rounds run out first, whoever leads the final series
-   takes it; failing that, the highest total among the players still in, with
-   anybody still unbeaten ranked ahead of the loser's bracket.
+8. The game ends when the final is won, when the rounds run out, or when the
+   host presses **END GAME** — whichever comes first. If it ends before the
+   final is won, whoever leads the final series takes it; failing that, the
+   highest total among the players still in, with anybody still unbeaten
+   ranked ahead of the loser's bracket.
 
 Set **QUALIFYING ROUNDS** to 0 for the old game: elimination from round one,
 drawn at random, and re-seeded on the totals from round two.
+
+### Round robin
+
+Switch **ROUND ROBIN** on at setup or in the lobby (any time before **START
+GAME**) and there is no bracket at all:
+
+- **Everybody plays everybody.** Round one is drawn at random, and every round
+  after it pairs each player with somebody they have not met — the standard
+  circle schedule, so a full cycle takes the fewest rounds it can: 7 for 8
+  players, 9 for 9. The lobby shows the count next to the rounds loaded.
+- **Nobody goes out.** With an odd field each player sits out exactly one
+  round on a bye, which counts as a win.
+- **Wins still pay.** Beat your opponent and the round counts ×1.5 on your
+  total, exactly as in qualifying.
+- **The highest total wins.** 1st, 2nd and 3rd are the top three totals; a tie
+  goes to more matchups won, then more points answered, then the draw.
+- **More rounds than a cycle** are rematches; fewer, and not everybody meets.
+  A latecomer dealt in joins the field, and from then on the rounds are paired
+  to keep rematches to a minimum.
 
 ### The loser's bracket
 
@@ -152,10 +174,13 @@ sure they are safe or sure they are beaten until that last answer is in. Both
 players get the same question at the same value: the deficit shrinks, not the
 fairness. A one-question round has no double question.
 
-**Three places are called at the end:** the champion, the runner-up (whoever
-the champion beat last, or the next player standing if the rounds ran out),
-and third place, the **redemption winner** — the most redemption points by
-anybody who is not champion or runner-up. See [PRIZES.md](PRIZES.md) for how to split a prize pot
+**Three places are called at the end — 1st, 2nd and 3rd — however the game
+ends,** including when the host ends it early: the champion, the runner-up
+(whoever the champion beat last, or the next player standing if the game
+ended first), and third place, the **redemption winner** — the most
+redemption points by anybody who is not champion or runner-up, or, if nobody
+else has scored, the next player in the standings. In a round robin they are
+the three highest totals. See [PRIZES.md](PRIZES.md) for how to split a prize pot
 across them, and across two games in one night.
 
 ### Nobody waits for anybody

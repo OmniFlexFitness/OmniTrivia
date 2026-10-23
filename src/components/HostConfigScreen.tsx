@@ -9,6 +9,7 @@ import { MIN_HOST_PASSWORD_LENGTH, suggestHostPassword } from '../services/proof
 import { Settings, ArrowRight, KeyRound, Library, ListPlus, Loader2, RefreshCw, Upload, AlertTriangle } from 'lucide-react';
 import LosersBracketToggle from './LosersBracketToggle';
 import QualifyingRoundsControl from "./QualifyingRoundsControl";
+import RoundRobinToggle from "./RoundRobinToggle";
 import BotsToggle from './BotsToggle';
 import TypedAnswersToggle from './TypedAnswersToggle';
 import DifficultyPicker from './DifficultyPicker';
@@ -31,6 +32,8 @@ const HostConfigScreen: React.FC = () => {
     setLosersBracket,
     qualifyingRounds,
     setQualifyingRounds,
+    roundRobin,
+    setRoundRobin,
     botsEnabled,
     setBotsEnabled,
     typedAnswersEnabled,
@@ -210,19 +213,26 @@ const HostConfigScreen: React.FC = () => {
             </p>
           </div>
 
-          {/* The shape of the bracket, not of the questions — but it decides
+          {/* The shape of the night, not of the questions — but it decides
               how many rounds the night needs, so it belongs beside the two
-              sliders that say how many there are. */}
-          <QualifyingRoundsControl
-            rounds={qualifyingRounds}
-            onChange={setQualifyingRounds}
-          />
+              sliders that say how many there are. A round robin has no
+              bracket, so the bracket's own settings step aside for it. */}
+          <RoundRobinToggle enabled={roundRobin} onChange={setRoundRobin} />
 
-          <LosersBracketToggle
-            enabled={losersBracket}
-            onChange={setLosersBracket}
-            qualifying={qualifyingRounds}
-          />
+          {!roundRobin && (
+            <>
+              <QualifyingRoundsControl
+                rounds={qualifyingRounds}
+                onChange={setQualifyingRounds}
+              />
+
+              <LosersBracketToggle
+                enabled={losersBracket}
+                onChange={setLosersBracket}
+                qualifying={qualifyingRounds}
+              />
+            </>
+          )}
 
           {/* Bots fill a lobby for a host testing alone. A real night does
               not want them, and the place to say so is before the lobby

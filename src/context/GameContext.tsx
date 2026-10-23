@@ -52,13 +52,10 @@ import {
   withoutTypedAnswers,
 } from "../services/questionSet";
 import {
-  activePlayerIds,
   buildFirstRound,
+  championAtEnd,
   enterRound,
-  isStanding,
   openingOptions,
-  rankStanding,
-  seriesScore,
   settleRound,
 } from "../services/bracket";
 import {
@@ -226,6 +223,18 @@ interface GameContextType extends GameState {
    * loser's bracket: up until the first round is drawn.
    */
   setQualifyingRounds: (rounds: number) => void;
+  /**
+   * Play a round robin instead of a bracket: everybody meets everybody,
+   * nobody goes out, and the highest total wins. Same window as the loser's
+   * bracket: up until the first round is drawn.
+   */
+  setRoundRobin: (enabled: boolean) => void;
+  /**
+   * End the night now and put the final places up — from the wheel, in the
+   * middle of a round (which is settled on the scores as they stand first), or
+   * between rounds. Whatever has been played decides 1st, 2nd and 3rd.
+   */
+  endGameNow: () => void;
   /**
    * Allow bots in this game, or take them out. Open while setting up, in the
    * lobby, and on round one's wheel before START ROUND — where turning them off
@@ -437,9 +446,13 @@ const DISPLACED_WARNING =
 
 /**
  * Settle the round's matchups and draw the next one. Called when the last
- * question of a round has been revealed.
+ * question of a round has been revealed — or, with `drawNext` off, when the
+ * host is ending the game and there is no next round to draw.
  */
-const finishRound = (prev: GameState): GameState => {
+const finishRound = (
+  prev: GameState,
+  { drawNext = true }: { drawNext?: boolean } = {},
+): GameState => {
   const roundIndex = prev.currentRound - 1;
   const current = prev.bracket[roundIndex];
 
@@ -459,7 +472,7 @@ const finishRound = (prev: GameState): GameState => {
   const outcome = settleRound(current, prev.players, {
     losersBracket: prev.losersBracket,
     playedRounds: prev.bracket.slice(0, roundIndex),
-    hasMoreRounds: prev.currentRound < prev.totalRounds,
+    hasMoreRounds: drawNext && prev.currentRound < prev.totalRounds,
     // A bye is a dead seat in a room of people who came to play; the best
     // round on the Redemption Table takes it instead.
     wildcards: true,
@@ -528,6 +541,26 @@ const finishRound = (prev: GameState): GameState => {
     championId: outcome.championId,
     categoryPoll: poll,
     phase: GamePhase.ROUND_END,
+  };
+};
+
+/**
+ * End the night: settle who won, and go to the final results.
+ *
+ * Reached two ways — the rounds ran out or the bracket was decided, or the
+ * host ended the game early. Either way the places are decided on what was
+ * actually played: a draw for a round nobody has played yet (on the wheel, or
+ * up on the screen between rounds) is taken off the bracket, because it
+ * decides nothing and would otherwise sit on the final screen as "live".
+ */
+const concludeGame = (prev: GameState): GameState => {
+  const bracket = prev.bracket.filter((round) => round.resolved);
+  return {
+    ...prev,
+    bracket,
+    championId: prev.championId ?? championAtEnd(prev.players, bracket),
+    wheelSpinning: false,
+    phase: GamePhase.GAME_OVER,
   };
 };
 
@@ -685,6 +718,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     broadcastRevealSecondsLeft: REVEAL_DURATION,
     autoAdvance: true,
     losersBracket: false,
+    roundRobin: false,
     qualifyingRounds: DEFAULT_QUALIFYING_ROUNDS,
     // A host who turned bots off last time meant it for next time too.
     botsEnabled: readBotsPreference(),
@@ -1992,6 +2026,13 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         : { ...prev, losersBracket: enabled },
     );
 
+  const setRoundRobin = (enabled: boolean) =>
+    setState((prev) =>
+      prev.bracket.length > 0 && prev.phase !== GamePhase.LOBBY
+        ? prev
+        : { ...prev, roundRobin: enabled },
+    );
+
   const setQualifyingRounds = (rounds: number) =>
     setState((prev) =>
       prev.bracket.length > 0 && prev.phase !== GamePhase.LOBBY
@@ -2721,6 +2762,28 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         : prev,
     );
 
+  /**
+   * End the game here and go to the final results.
+   *
+   * Mid-round, the round is settled first exactly as END ROUND NOW settles it
+   * — every answer already banked counts, the win bonuses are paid — and no
+   * next round is drawn. On the wheel or between rounds, the unplayed draw is
+   * simply dropped. Then the places are called on what was played.
+   */
+  const endGameNow = () =>
+    setState((prev) => {
+      if (prev.phase === GamePhase.PLAYING) {
+        return concludeGame(finishRound(stopRoundInPlace(prev), { drawNext: false }));
+      }
+      if (
+        prev.phase === GamePhase.CATEGORY_SELECT ||
+        prev.phase === GamePhase.ROUND_END
+      ) {
+        return concludeGame(prev);
+      }
+      return prev;
+    });
+
   const toggleAutoAdvance = () =>
     setState((prev) => ({ ...prev, autoAdvance: !prev.autoAdvance }));
 
@@ -2733,41 +2796,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
       const gameIsOver =
         prev.championId !== null || prev.currentRound >= prev.totalRounds;
 
-      if (gameIsOver) {
-        // Rounds can run out before the bracket resolves. The leader among
-        // the players still standing takes it — somebody nobody has beaten
-        // ahead of somebody in the loser's bracket, then on score. A tie
-        // falls to the draw, the same as a matchup does, not to whoever
-        // joined first, which is what sorting the lobby array alone used.
-        const standing = prev.players.filter(isStanding);
-        const pool = standing.length > 0 ? standing : prev.players;
-        // A final series cut short goes to whoever is ahead in it.
-        const lastFinal = prev.bracket[prev.currentRound - 1]?.matchups.find(
-          (m) => m.series,
-        );
-        const series = lastFinal ? seriesScore(lastFinal) : null;
-        const seriesLeader =
-          lastFinal && series && series.winsA !== series.winsB
-            ? series.winsA > series.winsB
-              ? lastFinal.playerAId
-              : lastFinal.playerBId
-            : null;
-        const leader = seriesLeader
-          ? pool.find((p) => p.id === seriesLeader)
-          : undefined;
-        const ranked = rankStanding(
-          pool,
-          prev.bracket[0]
-            ? activePlayerIds(prev.bracket[0])
-            : prev.players.map((p) => p.id),
-        )[0];
-
-        return {
-          ...prev,
-          championId: prev.championId ?? leader?.id ?? ranked?.id ?? null,
-          phase: GamePhase.GAME_OVER,
-        };
-      }
+      // Rounds can run out before the bracket resolves; `concludeGame` picks
+      // the champion from the standings then.
+      if (gameIsOver) return concludeGame(prev);
 
       return {
         ...prev,
@@ -3081,6 +3112,10 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         if (!is(GamePhase.LOBBY)) return "The bracket is already drawn.";
         setQualifyingRounds(command.rounds);
         return null;
+      case "set-round-robin":
+        if (!is(GamePhase.LOBBY)) return "The first round is already drawn.";
+        setRoundRobin(command.enabled);
+        return null;
       case "spin":
         if (!is(GamePhase.CATEGORY_SELECT) || current.currentRound !== command.round) {
           return "That wheel has already been played.";
@@ -3157,6 +3192,16 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
           return "Nobody is waiting on the bench.";
         }
         admitLatecomers();
+        return null;
+      case "end-game":
+        if (
+          !is(GamePhase.CATEGORY_SELECT) &&
+          !is(GamePhase.PLAYING) &&
+          !is(GamePhase.ROUND_END)
+        ) {
+          return is(GamePhase.GAME_OVER) ? "The game is already over." : "The game has not started yet.";
+        }
+        endGameNow();
         return null;
       case "play-again":
         if (!is(GamePhase.GAME_OVER)) return "The game is not over yet.";
@@ -3285,6 +3330,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         setBroadcastText,
         setLosersBracket,
         setQualifyingRounds,
+        setRoundRobin,
+        endGameNow,
         setBotsEnabled,
         setTheme,
         setTypedAnswersEnabled,

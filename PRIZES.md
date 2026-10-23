@@ -24,9 +24,13 @@ phone show the same three names:
 
 | Place | Who gets it | Why it exists |
 | --- | --- | --- |
-| **Champion** | Last player standing in the bracket — or, if the rounds run out first, the top of the standings (unbeaten players ahead of the loser's bracket, then total score). | The main event. |
-| **Runner-up** | The finalist who lost the best-of-3 series. If the rounds ran out, the next player in the same order the champion was picked in. | Rewards a deep run, and gives the semi-finalists something real to play for. |
-| **Redemption** (third place) | Most **redemption points** — every point a player answered their way to, in every round of the game, before the win bonus — among players who are *not champion or runner-up*. | Rewards the best night of trivia by anybody who is not champion or runner-up, and keeps everybody who loses early playing hard: every point they score still counts. |
+| **Champion** (1st) | Last player standing in the bracket — or, if the rounds run out or the host presses END GAME first, the top of the standings (unbeaten players ahead of the loser's bracket, then total score). | The main event. |
+| **Runner-up** (2nd) | The finalist who lost the best-of-3 series. If the game ended before the final did, the next player in the same order the champion was picked in. | Rewards a deep run, and gives the semi-finalists something real to play for. |
+| **Redemption** (third place) | Most **redemption points** — every point a player answered their way to, in every round of the game, before the win bonus — among players who are *not champion or runner-up* (or, if none of them scored, the next player in the standings). | Rewards the best night of trivia by anybody who is not champion or runner-up, and keeps everybody who loses early playing hard: every point they score still counts. |
+
+**A round-robin game** has no bracket, so the three places are simply the
+three highest totals (ties to more matchups won, then points answered). The
+55 / 25 / 20 split below works the same way for it.
 
 Two things about Redemption matter for prize design:
 
