@@ -538,7 +538,7 @@ const EndGameControl: React.FC = () => {
   // the final screen will make.
   const played = bracket.filter((round) => round.resolved);
   const leader = players.find(
-    (p) => p.id === championAtEnd(players, played),
+    (p) => p.id === championAtEnd(players, played, roundRobin),
   );
 
   if (!confirming) {
@@ -1020,6 +1020,7 @@ const GameOverControls: React.FC<{ onShowInsights: () => void }> = ({
         players={players}
         bracket={bracket}
         championId={championId}
+        roundRobin={roundRobin}
         size="desk"
         hideChampion
       />

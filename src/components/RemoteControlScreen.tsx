@@ -1392,6 +1392,7 @@ const GameOverRemote: React.FC<{ snapshot: BroadcastSnapshot; send: Send }> = ({
             players={snapshot.players}
             bracket={snapshot.bracket}
             championId={snapshot.championId}
+            roundRobin={snapshot.roundRobin}
             hideChampion
             className="pt-2 text-left"
           />

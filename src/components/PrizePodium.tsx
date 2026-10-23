@@ -62,6 +62,11 @@ const PrizePodium: React.FC<{
   players: PodiumPlayer[];
   bracket: BracketRound[];
   championId: string | null;
+  /**
+   * The game's format, from its settings. Read off the bracket when absent —
+   * which cannot tell for a game ended before a round was played.
+   */
+  roundRobin?: boolean;
   size?: PodiumSize;
   /** Leave the champion out, for a screen that already headlines them. */
   hideChampion?: boolean;
@@ -70,14 +75,15 @@ const PrizePodium: React.FC<{
   players,
   bracket,
   championId,
+  roundRobin: roundRobinSetting,
   size = "phone",
   hideChampion = false,
   className = "",
 }) => {
-  const places = podium(players, bracket, championId);
   // A round robin has no bracket to have won or a redemption table to have
   // played on: its places are the standings, and the record is worth showing.
-  const roundRobin = isRoundRobinGame(bracket);
+  const roundRobin = roundRobinSetting ?? isRoundRobinGame(bracket);
+  const places = podium(players, bracket, championId, roundRobin);
   const records = roundRobin ? matchRecords(bracket) : null;
   const shown = PLACES.filter(
     (place) => !(hideChampion && place.key === "championId"),

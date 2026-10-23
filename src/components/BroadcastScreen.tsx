@@ -1311,6 +1311,7 @@ const GameOverStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
         players={snapshot.players}
         bracket={snapshot.bracket}
         championId={snapshot.championId}
+        roundRobin={snapshot.roundRobin}
         size="room"
         hideChampion={Boolean(champion)}
         className="w-full max-w-4xl mx-auto"

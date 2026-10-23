@@ -943,6 +943,22 @@ const pairCounts = (rounds: BracketRound[]): Map<string, number> => {
       new Set([nothing.championId, nothing.runnerUpId, nothing.redemptionId]).size === 3,
   );
 
+  // A round robin ended on round one's wheel: its only round is unplayed and
+  // dropped, so the format has to come from the setting, not the rounds.
+  const early = makePlayers(4).map((p, i) => ({ ...p, score: 0, redemptionScore: [0, 0, 300, 0][i] }));
+  const earlyChamp = championAtEnd(early, [], true);
+  const earlyPlaces = podium(early, [], earlyChamp, true);
+  check(
+    "a round robin ended before any round is played is still placed as a round robin",
+    // Round-robin tiebreaks — points answered before the draw — put p3
+    // first; read as a bracket, the draw alone would have picked p1.
+    earlyChamp === "p3" &&
+      earlyPlaces.runnerUpId === "p1" &&
+      earlyPlaces.redemptionId === "p2" &&
+      championAtEnd(early, []) === "p1",
+    `${earlyChamp}, ${earlyPlaces.runnerUpId}, ${earlyPlaces.redemptionId}`,
+  );
+
   // Third place falls back to the standings when nobody else has a
   // redemption point.
   const quiet = makePlayers(4).map((p, i) => ({ ...p, score: [300, 200, 0, 0][i] }));

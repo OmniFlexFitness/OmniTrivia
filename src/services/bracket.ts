@@ -1437,7 +1437,8 @@ export const rankStanding = <T extends StandingLike>(
  * the rounds ran out, or the host ended the game early.
  *
  * `rounds` is what was actually played: an unplayed draw sitting on the
- * screen decides nothing.
+ * screen decides nothing. `roundRobin` is the game's own format, for a game
+ * ended before a round was played — with no rounds left to read it from.
  *
  * - **A round robin** goes to the top of its standings.
  * - **A bracket** goes to the leader among the players still standing:
@@ -1448,8 +1449,9 @@ export const rankStanding = <T extends StandingLike>(
 export const championAtEnd = <T extends StandingLike>(
   players: T[],
   rounds: BracketRound[],
+  roundRobin: boolean = isRoundRobinGame(rounds),
 ): string | null => {
-  if (isRoundRobinGame(rounds)) {
+  if (roundRobin) {
     return roundRobinStandings(players, rounds)[0]?.id ?? null;
   }
 
@@ -1486,7 +1488,9 @@ export interface Podium {
  * every screen. With three or more players all three are always filled, so a
  * host who ends the night early still has three names to read out.
  *
- * A round robin is the top three of its standings, in order.
+ * A round robin is the top three of its standings, in order. `roundRobin`
+ * says so for a game ended before any round was played, which has no rounds
+ * to read its format from.
  *
  * In a bracket game:
  *
@@ -1506,8 +1510,9 @@ export const podium = <T extends StandingLike>(
   players: T[],
   rounds: BracketRound[],
   championId: string | null,
+  roundRobin: boolean = isRoundRobinGame(rounds),
 ): Podium => {
-  if (isRoundRobinGame(rounds)) {
+  if (roundRobin) {
     const ranked = roundRobinStandings(players, rounds);
     // The champion the game already called stays champion, even if a screen
     // is a beat behind on the scores.

@@ -558,7 +558,10 @@ const concludeGame = (prev: GameState): GameState => {
   return {
     ...prev,
     bracket,
-    championId: prev.championId ?? championAtEnd(prev.players, bracket),
+    // The format comes from the setting: a round robin ended on round one's
+    // wheel has no rounds left to say it was one.
+    championId:
+      prev.championId ?? championAtEnd(prev.players, bracket, prev.roundRobin),
     wheelSpinning: false,
     phase: GamePhase.GAME_OVER,
   };

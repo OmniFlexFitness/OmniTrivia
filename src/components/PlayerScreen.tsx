@@ -1138,6 +1138,7 @@ const PlayerScreen: React.FC = () => {
                 players={snapshot.players}
                 bracket={snapshot.bracket ?? []}
                 championId={snapshot.championId}
+                roundRobin={snapshot.roundRobin}
                 className="my-4"
               />
             )}
