@@ -746,8 +746,10 @@ nothing else: the game plays exactly the same.
 
 The host's window publishes the choice with the game, so the big screen, the
 remote and every player's phone switch with it within a second. A phone that
-has not joined yet still shows the everyday look until it does. The choice is
-remembered in the host's browser, so it stays on until they switch it off.
+has not joined yet still shows the everyday look until it does. It is off by
+default and is a choice for one game: every new game opens in the everyday
+look, so switch it on again for the next Halloween night. A game in progress
+keeps it through a reload or a host taking the game back.
 Anyone whose device asks for reduced motion gets the colours and the still
 decorations without the animation.
 
