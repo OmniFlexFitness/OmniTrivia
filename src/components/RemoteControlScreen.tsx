@@ -46,9 +46,16 @@ import {
 import AvatarDisplay from "./AvatarDisplay";
 import PrizePodium from "./PrizePodium";
 import QualifyingRoundsControl from "./QualifyingRoundsControl";
-import { FINAL_BEST_OF } from "../constants";
+import { AVATARS, FINAL_BEST_OF } from "../constants";
 import BracketView, { MatchupCard, SideTag } from "./BracketView";
 import CategoryVotePanel from "./CategoryVotePanel";
+import CategoryLikeButton from "./CategoryLikeButton";
+import { BroadcastTextForm } from "./BroadcastTextEditor";
+import {
+  DEFAULT_BROADCAST_SUBTITLE,
+  DEFAULT_BROADCAST_TITLE,
+  renderBroadcastText,
+} from "../services/broadcastText";
 import SpectatorWheel from "./SpectatorWheel";
 import Button from "./Button";
 import ThemeToggle from "./ThemeToggle";
@@ -104,6 +111,15 @@ const SESSION_KEY = "omnitrivia:remote";
 
 /** How long a command may go unanswered before the remote says so. */
 const ACK_TIMEOUT_MS = 6000;
+
+/** How often scores are re-read while a round is played — the host saves every 6s. */
+const LIVE_SCORE_REFRESH_MS = 6000;
+
+/** One player's points as the host window has them, ahead of the snapshot. */
+interface LiveScore {
+  score: number;
+  roundScore: number;
+}
 
 /** How often to ask again when the host window has not answered a hello. */
 const HELLO_RETRY_MS = 5000;
@@ -210,6 +226,11 @@ const useRemoteLink = () => {
   const [answers, setAnswers] = useState<Map<string, Question>>(new Map());
   /** Each player's rejoin code, for the one who has lost theirs. */
   const [codes, setCodes] = useState<Map<string, string>>(new Map());
+  // Scores as the host window has them right now. The snapshot holds a
+  // round's points back until it is over — the room is not told who is
+  // ahead mid-match — but the host's own desk shows them live, and so does
+  // this. Empty when the saved game cannot be read.
+  const [liveScores, setLiveScores] = useState<Map<string, LiveScore>>(new Map());
   /** The proof the database accepted, which is what reads the saved game. */
   const [readProof, setReadProof] = useState<string | null>(null);
   const canReadGame = readProof !== null;
@@ -412,10 +433,13 @@ const useRemoteLink = () => {
     setAnswers(map);
 
     const codeMap = new Map<string, string>();
+    const scoreMap = new Map<string, LiveScore>();
     state.players.forEach((player) => {
       if (player.rejoinCode) codeMap.set(player.id, player.rejoinCode);
+      scoreMap.set(player.id, { score: player.score, roundScore: player.roundScore ?? 0 });
     });
     setCodes(codeMap);
+    setLiveScores(scoreMap);
   }, [pin, readProof]);
 
   // Only when the snapshot names a question this remote cannot answer: the
@@ -440,6 +464,16 @@ const useRemoteLink = () => {
     );
     if (missing) void refreshAnswers(15000);
   }, [snapshot, codes, refreshAnswers]);
+
+  // While a round is being played the saved game is re-read on the host's own
+  // save cadence, so the scores here keep up with the desk's.
+  const playing = snapshot?.phase === GamePhase.PLAYING;
+  useEffect(() => {
+    if (!playing || !readProof) return;
+    void refreshAnswers(0);
+    const timer = setInterval(() => void refreshAnswers(LIVE_SCORE_REFRESH_MS), LIVE_SCORE_REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [playing, readProof, refreshAnswers]);
 
   /* --- sending --- */
   const send = useCallback(
@@ -493,6 +527,7 @@ const useRemoteLink = () => {
     feedback,
     answers,
     codes,
+    liveScores,
     canReadGame,
     send,
     signIn,
@@ -639,12 +674,46 @@ const Big: React.FC<React.ComponentProps<typeof Button>> = ({ className = "", ..
   />
 );
 
-/** The answer to one question, hidden until the host asks — players walk past. */
-const AnswerPeek: React.FC<{ question: Question | undefined; canRead: boolean }> = ({
-  question,
-  canRead,
-}) => {
+/**
+ * Whether the host is still to answer the question at this place in the
+ * round themselves. The desk holds the answer key back until they are
+ * through it, so a host playing their own seat does not read the answer
+ * before they have given one — and so does this.
+ */
+const hostStillOn = (snapshot: BroadcastSnapshot, index: number): boolean => {
+  if (!snapshot.hostAnswering) return false;
+  const host = snapshot.players.find((player) => player.isHost);
+  const seat = host
+    ? snapshot.lanes.flatMap(seatsOf).find((candidate) => candidate.playerId === host.id)
+    : undefined;
+  if (!seat || seat.status === LaneStatus.DONE) return false;
+  return (
+    index > seat.completed ||
+    (index === seat.completed && seat.status !== LaneStatus.REVEAL)
+  );
+};
+
+/**
+ * The answer to one question, hidden until the host asks — players walk past.
+ * Mounted per question (callers key it by id), so a peek at one answer never
+ * carries over to show the next one unasked.
+ */
+const AnswerPeek: React.FC<{
+  question: Question | undefined;
+  canRead: boolean;
+  /** The host has not answered this one on their own seat yet. */
+  held?: boolean;
+}> = ({ question, canRead, held = false }) => {
   const [shown, setShown] = useState(false);
+
+  if (held) {
+    return (
+      <div className="text-xs text-slate-500">
+        Answer it on your own seat first — the key shows once you are through it,
+        or switch your answering off.
+      </div>
+    );
+  }
 
   if (!question) {
     return (
@@ -666,7 +735,14 @@ const AnswerPeek: React.FC<{ question: Question | undefined; canRead: boolean }>
           Answer
         </span>
         {shown ? (
-          <span className="block font-bold text-green-400">{reveal.label}</span>
+          <>
+            <span className="block font-bold text-green-400">{reveal.label}</span>
+            {reveal.explanation && (
+              <span className="block text-xs text-slate-400 mt-1 leading-snug">
+                {reveal.explanation}
+              </span>
+            )}
+          </>
         ) : (
           <span className="block text-slate-500 text-sm">Tap to show</span>
         )}
@@ -678,7 +754,10 @@ const AnswerPeek: React.FC<{ question: Question | undefined; canRead: boolean }>
 const seatLine = (seat: PublicSeat, questions: number): string => {
   if (seat.status === LaneStatus.DONE) return "through the round";
   const where = `Q${Math.min(seat.completed + 1, questions)}/${questions}`;
-  if (seat.status === LaneStatus.REVEAL) return `${where} · locked in`;
+  if (seat.status === LaneStatus.REVEAL) {
+    const how = seat.revealReason === "time" && !seat.answered ? "timed out" : "locked in";
+    return `${where} · ${how}${seat.revealSecondsLeft > 0 ? ` · next in ${seat.revealSecondsLeft}s` : ""}`;
+  }
   if (seat.timerPaused) return `${where} · paused`;
   return `${where} · ${seat.timeLeft}s${seat.answered ? " · in" : ""}`;
 };
@@ -766,7 +845,12 @@ const LaneRemote: React.FC<{
       {!done && slowest?.question && (
         <div className="space-y-2 pt-1">
           <p className="text-sm text-slate-300 leading-snug">{slowest.question.text}</p>
-          <AnswerPeek question={answers.get(slowest.question.id)} canRead={canRead} />
+          <AnswerPeek
+            key={slowest.question.id}
+            question={answers.get(slowest.question.id)}
+            canRead={canRead}
+            held={hostStillOn(snapshot, slowest.completed)}
+          />
         </div>
       )}
 
@@ -805,7 +889,9 @@ const LaneRemote: React.FC<{
 };
 
 /**
- * Latecomers waiting to be dealt in, with the button that does it. Only on
+ * Latecomers waiting on the host, with the buttons that let them in or send
+ * them away — the same two the desk has. Nobody else in the room sees this
+ * list; the big screen leaves them off until they are dealt in. Only on
  * screen while somebody is on the bench.
  */
 const BenchRemote: React.FC<{ snapshot: BroadcastSnapshot; send: Send }> = ({
@@ -818,7 +904,7 @@ const BenchRemote: React.FC<{ snapshot: BroadcastSnapshot; send: Send }> = ({
 
   return (
     <Card
-      title={`Joined late · ${bench.length}`}
+      title={`Waiting to join · ${waiting.length}`}
       action={
         waiting.length > 1 ? (
           <button
@@ -840,13 +926,23 @@ const BenchRemote: React.FC<{ snapshot: BroadcastSnapshot; send: Send }> = ({
                 in from next round
               </span>
             ) : (
-              <Button
-                variant="neon"
-                className="!py-1 !px-3 text-xs"
-                onClick={() => send({ kind: "deal-in", playerId: player.id }, `Deal in ${player.name}`)}
-              >
-                DEAL IN
-              </Button>
+              <>
+                <button
+                  onClick={() =>
+                    send({ kind: "turn-away", playerId: player.id }, `Turn ${player.name} away`)
+                  }
+                  className="px-2 py-2 rounded border border-slate-600 text-[10px] font-mono uppercase tracking-widest text-slate-400"
+                >
+                  turn away
+                </button>
+                <Button
+                  variant="neon"
+                  className="!py-2 !px-3 text-xs"
+                  onClick={() => send({ kind: "deal-in", playerId: player.id }, `Deal in ${player.name}`)}
+                >
+                  DEAL IN
+                </Button>
+              </>
             )}
           </div>
         ))}
@@ -854,7 +950,9 @@ const BenchRemote: React.FC<{ snapshot: BroadcastSnapshot; send: Send }> = ({
       <p className="text-[11px] text-slate-500 mt-2 leading-snug">
         {snapshot.phase === GamePhase.PLAYING
           ? "In from the next round."
-          : "Into the draw on the screen."}{" "}
+          : snapshot.phase === GamePhase.CATEGORY_SELECT && snapshot.roundNumber === 1
+            ? "Round one is drawn again with them in it."
+            : "Into the draw on the screen."}{" "}
         In qualifying they join the field; once the bracket is drawn they start on
         the Redemption Table.
       </p>
@@ -868,10 +966,14 @@ const Standings: React.FC<{
   showCodes: boolean;
   /** Set while there is a draw to send a knocked-out player back into. */
   reinstate?: (player: PublicPlayer) => void;
-}> = ({ players, codes, showCodes, reinstate }) => (
+  /** Points as the host window has them right now, mid-round included. */
+  live?: Map<string, LiveScore>;
+}> = ({ players, codes, showCodes, reinstate, live }) => {
+  const scoreOf = (player: PublicPlayer) => live?.get(player.id)?.score ?? player.score;
+  return (
   <div className="space-y-1.5">
     {[...players]
-      .sort((a, b) => b.score - a.score)
+      .sort((a, b) => scoreOf(b) - scoreOf(a))
       .map((player) => (
         <div
           key={player.id}
@@ -923,11 +1025,17 @@ const Standings: React.FC<{
               </button>
             )
           )}
-          <span className="font-mono font-bold text-neon-pink">{player.score}</span>
+          {(live?.get(player.id)?.roundScore ?? 0) > 0 && (
+            <span className="font-mono text-[11px] text-neon-green">
+              +{live?.get(player.id)?.roundScore}
+            </span>
+          )}
+          <span className="font-mono font-bold text-neon-pink">{scoreOf(player)}</span>
         </div>
       ))}
   </div>
-);
+  );
+};
 
 /** Asks once before doing the one thing that cannot be taken back. */
 const ConfirmBig: React.FC<{
@@ -1006,6 +1114,90 @@ const BotsSwitch: React.FC<{ snapshot: BroadcastSnapshot; send: Send }> = ({
         </span>
       </span>
     </button>
+  );
+};
+
+/**
+ * The host's own player — name and avatar — the EDIT MY PLAYER the lobby has
+ * on the desk. Lobby only, there as here: after START GAME a name is on the
+ * bracket.
+ */
+const HostPlayerRemote: React.FC<{ snapshot: BroadcastSnapshot; send: Send }> = ({
+  snapshot,
+  send,
+}) => {
+  const host = snapshot.players.find((player) => player.isHost);
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState(host?.name ?? "Host");
+  const [avatar, setAvatar] = useState(host?.avatar ?? AVATARS[0]);
+
+  // Follow the desk while this is closed, so opening it starts from what the
+  // game has now rather than from what it had when the remote signed in.
+  useEffect(() => {
+    if (open || !host) return;
+    setName(host.name);
+    setAvatar(host.avatar);
+  }, [open, host?.name, host?.avatar]);
+
+  return (
+    <Card
+      title="Your player"
+      action={
+        <button
+          onClick={() => setOpen((value) => !value)}
+          className="text-[10px] font-mono uppercase tracking-widest text-slate-400"
+        >
+          {open ? "close" : host ? "edit" : "join"}
+        </button>
+      }
+    >
+      {!open ? (
+        <div className="flex items-center gap-2 text-sm">
+          {host ? (
+            <>
+              <AvatarDisplay avatar={host.avatar} color={host.avatarColor} size="sm" />
+              <span className="font-bold">{host.name}</span>
+            </>
+          ) : (
+            <span className="text-slate-400">You are not playing this game.</span>
+          )}
+        </div>
+      ) : (
+        <form
+          className="space-y-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            send({ kind: "set-host-player", name: name.trim(), avatar }, "Your player");
+            setOpen(false);
+          }}
+        >
+          <input
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            maxLength={24}
+            aria-label="Your name"
+            className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white focus:border-neon-blue outline-none"
+          />
+          <div className="grid grid-cols-8 gap-1.5 max-h-32 overflow-y-auto">
+            {AVATARS.map((option) => (
+              <button
+                key={option}
+                type="button"
+                onClick={() => setAvatar(option)}
+                className={`p-1.5 rounded text-xl ${
+                  avatar === option ? "bg-neon-blue/20 border border-neon-blue" : "border border-transparent"
+                }`}
+              >
+                {option}
+              </button>
+            ))}
+          </div>
+          <Big variant="neon" fullWidth type="submit" disabled={!name.trim()}>
+            SAVE
+          </Big>
+        </form>
+      )}
+    </Card>
   );
 };
 
@@ -1214,6 +1406,26 @@ const WheelRemote: React.FC<{ snapshot: BroadcastSnapshot; send: Send }> = ({
   );
 };
 
+/** The big screen moving itself on once the field is through a question. */
+const AutoAdvanceSwitch: React.FC<{ snapshot: BroadcastSnapshot; send: Send }> = ({
+  snapshot,
+  send,
+}) => (
+  <button
+    onClick={() =>
+      send(
+        { kind: "set-auto-advance", enabled: !snapshot.autoAdvance },
+        `Auto-advance ${snapshot.autoAdvance ? "off" : "on"}`,
+      )
+    }
+    className={`px-2 py-1 rounded border text-[10px] font-mono uppercase tracking-widest ${
+      snapshot.autoAdvance ? "border-neon-green text-neon-green" : "border-slate-600 text-slate-400"
+    }`}
+  >
+    auto-advance {snapshot.autoAdvance ? "on" : "off"}
+  </button>
+);
+
 const PlayingRemote: React.FC<{
   snapshot: BroadcastSnapshot;
   send: Send;
@@ -1231,7 +1443,14 @@ const PlayingRemote: React.FC<{
 
   return (
     <div className="space-y-4">
-      <Card title={`Round ${snapshot.roundNumber} · every table`}>
+      <Card
+        title={`Round ${snapshot.roundNumber} · every table`}
+        action={
+          <span className="text-[10px] font-mono uppercase tracking-widest text-slate-400">
+            {seats.length - live}/{seats.length} through
+          </span>
+        }
+      >
         <div className="grid grid-cols-2 gap-2">
           <Big
             variant="secondary"
@@ -1266,29 +1485,25 @@ const PlayingRemote: React.FC<{
 
       <Card
         title={`Big screen · Q${snapshot.questionNumber} of ${snapshot.questionsInRound}`}
-        action={
-          <button
-            onClick={() =>
-              send(
-                { kind: "set-auto-advance", enabled: !snapshot.autoAdvance },
-                `Auto-advance ${snapshot.autoAdvance ? "off" : "on"}`,
-              )
-            }
-            className={`px-2 py-1 rounded border text-[10px] font-mono uppercase tracking-widest ${
-              snapshot.autoAdvance ? "border-neon-green text-neon-green" : "border-slate-600 text-slate-400"
-            }`}
-          >
-            auto-advance {snapshot.autoAdvance ? "on" : "off"}
-          </button>
-        }
+        action={<AutoAdvanceSwitch snapshot={snapshot} send={send} />}
       >
         {snapshot.question && (
           <div className="space-y-2">
             <p className="text-sm text-slate-200">{snapshot.question.text}</p>
-            <AnswerPeek question={answers.get(snapshot.question.id)} canRead={canRead} />
+            <AnswerPeek
+              key={snapshot.question.id}
+              question={answers.get(snapshot.question.id)}
+              canRead={canRead}
+              held={hostStillOn(snapshot, snapshot.questionNumber - 1)}
+            />
             <div className="text-[11px] font-mono uppercase tracking-widest text-slate-500">
               {snapshot.lanesCompleted}/{snapshot.lanesInPlay} matches through it
             </div>
+            {snapshot.roomLockedIn && snapshot.autoAdvance && snapshot.revealSecondsLeft > 0 && (
+              <div className="text-[11px] font-mono uppercase tracking-widest text-neon-green">
+                moves on in {snapshot.revealSecondsLeft}s
+              </div>
+            )}
             {snapshot.roomLockedIn && (
               <Big variant="neon" fullWidth onClick={() => send({ kind: "advance-room" }, "Move the room on")}>
                 MOVE THE ROOM ON <ArrowRight size={16} />
@@ -1310,6 +1525,83 @@ const PlayingRemote: React.FC<{
           />
         ))}
       </div>
+    </div>
+  );
+};
+
+/**
+ * The ballot on what to play next, with the host's own vote — the desk lets
+ * the host vote from their seat, so this does too — and a redraw.
+ */
+const BallotRemote: React.FC<{ snapshot: BroadcastSnapshot; send: Send }> = ({
+  snapshot,
+  send,
+}) => {
+  const poll = snapshot.categoryPoll;
+  const host = snapshot.players.find((player) => player.isHost);
+  if (!poll) {
+    return (
+      <Card title="The vote on what to play next">
+        <p className="text-xs text-slate-500 leading-snug">
+          No ballot this round — the category pool is empty, or every category
+          in it was played tonight. The pool is edited on the host's desk.
+        </p>
+      </Card>
+    );
+  }
+  return (
+    <Card
+      title="The vote on what to play next"
+      action={
+        <button
+          onClick={() => send({ kind: "redraw-ballot" }, "Draw different options")}
+          className="flex items-center gap-1 text-[10px] font-mono uppercase tracking-widest text-slate-400"
+        >
+          <Shuffle size={12} /> redraw
+        </button>
+      }
+    >
+      <CategoryVotePanel
+        poll={poll}
+        readOnly={!host}
+        myVote={host ? (poll.votes[host.id] ?? null) : null}
+        onVote={(categoryId) =>
+          send({ kind: "host-vote", pollId: poll.id, categoryId }, "Your vote")
+        }
+      />
+    </Card>
+  );
+};
+
+/** Liking the round just played, from the host's own seat. */
+const LikeRemote: React.FC<{ snapshot: BroadcastSnapshot; send: Send }> = ({
+  snapshot,
+  send,
+}) => {
+  const category = snapshot.category;
+  const host = snapshot.players.find((player) => player.isHost);
+  if (!category || !host) return null;
+  const row = snapshot.categoryLikes.find((like) => like.categoryId === category.id);
+  const liked = Boolean(row?.playerIds.includes(host.id));
+  return (
+    <div className="flex flex-wrap items-center gap-3">
+      <CategoryLikeButton
+        category={category}
+        count={row?.playerIds.length ?? 0}
+        liked={liked}
+        onToggle={(next) =>
+          send(
+            { kind: "host-like", categoryId: category.id, liked: next },
+            next ? `Liked ${category.name}` : `Unliked ${category.name}`,
+          )
+        }
+        compact
+      />
+      <span className="text-[11px] font-mono uppercase tracking-widest text-slate-500">
+        {row?.playerIds.length
+          ? `${row.playerIds.length} liked this round`
+          : "no likes on this one yet"}
+      </span>
     </div>
   );
 };
@@ -1338,6 +1630,21 @@ const RoundEndRemote: React.FC<{ snapshot: BroadcastSnapshot; send: Send }> = ({
         <ArrowRight size={20} />
       </Big>
 
+      <Card title={`Round ${snapshot.roundNumber} complete`}>
+        <div className="space-y-3">
+          <p className="text-sm text-slate-400">
+            {snapshot.championId
+              ? "The bracket is decided — one player is left standing."
+              : snapshot.nextRoundMatchups
+                ? `${snapshot.nextRoundMatchups.length} matchup(s) drawn for round ${snapshot.roundNumber + 1}.`
+                : snapshot.roundNumber < snapshot.totalRounds
+                  ? `Round ${snapshot.roundNumber + 1} of ${snapshot.totalRounds} is up next.`
+                  : "No further rounds are configured."}
+          </p>
+          <LikeRemote snapshot={snapshot} send={send} />
+        </div>
+      </Card>
+
       {round && (
         <Card title={`Round ${snapshot.roundNumber} results`}>
           <div className="space-y-2">
@@ -1355,21 +1662,7 @@ const RoundEndRemote: React.FC<{ snapshot: BroadcastSnapshot; send: Send }> = ({
         </Card>
       )}
 
-      {snapshot.categoryPoll && (
-        <Card
-          title="The vote on what to play next"
-          action={
-            <button
-              onClick={() => send({ kind: "redraw-ballot" }, "Draw different options")}
-              className="flex items-center gap-1 text-[10px] font-mono uppercase tracking-widest text-slate-400"
-            >
-              <Shuffle size={12} /> redraw
-            </button>
-          }
-        >
-          <CategoryVotePanel poll={snapshot.categoryPoll} readOnly />
-        </Card>
-      )}
+      <BallotRemote snapshot={snapshot} send={send} />
     </div>
   );
 };
@@ -1412,6 +1705,7 @@ const GameOverRemote: React.FC<{ snapshot: BroadcastSnapshot; send: Send }> = ({
         confirmText="Replay the same questions with every score reset and the bracket redrawn?"
         onConfirm={() => send({ kind: "play-again" }, "Play again")}
       />
+      {snapshot.categoryPoll && <BallotRemote snapshot={snapshot} send={send} />}
     </div>
   );
 };
@@ -1464,6 +1758,7 @@ const RemoteControlScreen: React.FC = () => {
   }, [feedback]);
 
   const [showCodes, setShowCodes] = useState(false);
+  const [showText, setShowText] = useState(false);
 
   const hostPlayer = useMemo(
     () => snapshot?.players.find((player) => player.isHost),
@@ -1505,7 +1800,14 @@ const RemoteControlScreen: React.FC = () => {
 
     switch (snapshot.phase) {
       case GamePhase.LOBBY:
-        return <LobbyRemote snapshot={snapshot} send={send} />;
+        return (
+          <>
+            <LobbyRemote snapshot={snapshot} send={send} />
+            <div className="mt-4">
+              <HostPlayerRemote snapshot={snapshot} send={send} />
+            </div>
+          </>
+        );
       case GamePhase.CATEGORY_SELECT:
         return <WheelRemote snapshot={snapshot} send={send} />;
       case GamePhase.PLAYING:
@@ -1631,6 +1933,14 @@ const RemoteControlScreen: React.FC = () => {
         {snapshot && (
           <div className="space-y-4">
             <BenchRemote snapshot={snapshot} send={send} />
+            {snapshot.phase !== GamePhase.PLAYING && snapshot.phase !== GamePhase.LOBBY && (
+              <div className="flex items-center justify-between gap-2 rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-2">
+                <span className="text-[11px] text-slate-400">
+                  Big screen moves itself on next round
+                </span>
+                <AutoAdvanceSwitch snapshot={snapshot} send={send} />
+              </div>
+            )}
             <Card
               title="Scores"
               action={
@@ -1648,6 +1958,7 @@ const RemoteControlScreen: React.FC = () => {
                 players={snapshot.players}
                 codes={link.codes}
                 showCodes={showCodes}
+                live={snapshot.phase === GamePhase.PLAYING ? link.liveScores : undefined}
                 reinstate={
                   snapshot.phase === GamePhase.CATEGORY_SELECT ||
                   snapshot.phase === GamePhase.PLAYING ||
@@ -1657,6 +1968,36 @@ const RemoteControlScreen: React.FC = () => {
                     : undefined
                 }
               />
+            </Card>
+            <Card
+              title="Big screen text"
+              action={
+                <button
+                  onClick={() => setShowText((shown) => !shown)}
+                  className="text-[10px] font-mono uppercase tracking-widest text-slate-400"
+                >
+                  {showText ? "close" : "edit"}
+                </button>
+              }
+            >
+              {showText ? (
+                <BroadcastTextForm
+                  compact
+                  broadcastTitle={snapshot.broadcastTitle}
+                  broadcastSubtitle={snapshot.broadcastSubtitle}
+                  onApply={(text) =>
+                    send(
+                      { kind: "set-broadcast-text", title: text.title, subtitle: text.subtitle },
+                      "Big screen text",
+                    )
+                  }
+                />
+              ) : (
+                <p className="text-xs text-slate-400 truncate">
+                  {renderBroadcastText(snapshot.broadcastTitle, DEFAULT_BROADCAST_TITLE)} —{" "}
+                  {renderBroadcastText(snapshot.broadcastSubtitle, DEFAULT_BROADCAST_SUBTITLE)}
+                </p>
+              )}
             </Card>
             {snapshot.bracket.length > 0 && (
               <Card title={snapshot.roundRobin ? "Round robin" : "Bracket"}>

@@ -146,6 +146,13 @@ import {
 import type { RemoteBinding, RemoteBindings } from "../services/remoteControl";
 import type { SeatBindings } from "../services/seats";
 import {
+  acceptsLatecomers,
+  admit,
+  admitAll,
+  takesNewPlayers,
+  turnAway,
+} from "../services/latecomers";
+import {
   allocatePin,
   claimRoomAsHost,
   clearStoredSnapshot,
@@ -352,6 +359,8 @@ interface GameContextType extends GameState {
   admitPlayer: (playerId: string) => string | null;
   /** Deal in everybody on the bench. */
   admitLatecomers: () => void;
+  /** Send a latecomer away before they were dealt in. Returns why not, or null. */
+  turnAwayPlayer: (playerId: string) => string | null;
   nextRound: () => void;
   restartGame: () => void;
   playAgain: () => void;
@@ -565,91 +574,6 @@ const concludeGame = (prev: GameState): GameState => {
     wheelSpinning: false,
     phase: GamePhase.GAME_OVER,
   };
-};
-
-/**
- * Whether somebody new can still get a seat: the lobby, or a game that is
- * running. A latecomer is benched until the host deals them in, so letting
- * them in costs the room nothing — and turning them away cost the host a
- * round of explaining. A finished game takes nobody.
- */
-const acceptsLatecomers = (state: GameState): boolean =>
-  state.phase === GamePhase.CATEGORY_SELECT ||
-  state.phase === GamePhase.PLAYING ||
-  state.phase === GamePhase.ROUND_END;
-
-const takesNewPlayers = (state: GameState): boolean =>
-  state.phase === GamePhase.LOBBY || acceptsLatecomers(state);
-
-/**
- * Deal one player in, or say why not.
- *
- * Who it is for: a latecomer on the bench, or a player knocked out of the
- * bracket. Where they land depends on where the game is:
- *
- * - **Between rounds** (the wheel is up, or the round has just ended and the
- *   next draw is on the screen) they go straight into that draw.
- * - **During a round** they are marked as entering and go into the next
- *   draw the moment it is made, so the round in play is not disturbed.
- * - **A game with no bracket** — one player, until now — simply takes them:
- *   there is no draw to be dealt into.
- */
-const admit = (
-  prev: GameState,
-  playerId: string,
-): { state: GameState; reason: string | null } => {
-  const player = prev.players.find((p) => p.id === playerId);
-  if (!player) return { state: prev, reason: "That player has left the game." };
-  if (player.entering) return { state: prev, reason: `${player.name} is already in from the next round.` };
-  if (!player.benched && !player.eliminated) {
-    return { state: prev, reason: `${player.name} is already in the field.` };
-  }
-
-  const patch = (changes: Partial<Player>, bracket = prev.bracket): GameState => ({
-    ...prev,
-    bracket,
-    players: prev.players.map((p) => (p.id === playerId ? { ...p, ...changes } : p)),
-  });
-
-  if (prev.phase === GamePhase.LOBBY || prev.bracket.length === 0) {
-    return {
-      state: patch({ benched: false, entering: false, eliminated: false, losersBracket: false }),
-      reason: null,
-    };
-  }
-
-  if (prev.phase === GamePhase.PLAYING) {
-    return { state: patch({ entering: true }), reason: null };
-  }
-
-  const roundIndex =
-    prev.phase === GamePhase.CATEGORY_SELECT
-      ? prev.currentRound - 1
-      : prev.phase === GamePhase.ROUND_END
-        ? prev.currentRound
-        : -1;
-  const round = roundIndex >= 0 ? prev.bracket[roundIndex] : undefined;
-  if (!round) {
-    return {
-      state: prev,
-      reason:
-        prev.phase === GamePhase.ROUND_END
-          ? "There is no next round to deal them into."
-          : "The game is over.",
-    };
-  }
-
-  const result = enterRound(round, player, prev.losersBracket);
-  if (!result) {
-    return {
-      state: prev,
-      reason: `The final is set — ${player.name} stays on the Redemption Table.`,
-    };
-  }
-
-  const bracket = [...prev.bracket];
-  bracket[roundIndex] = result.round;
-  return { state: patch(result.player, bracket), reason: null };
 };
 
 /**
@@ -2947,11 +2871,21 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
   };
 
   const admitLatecomers = () => {
-    setState((prev) =>
-      prev.players
-        .filter((player) => player.benched && !player.entering)
-        .reduce((next, player) => admit(next, player.id).state, prev),
-    );
+    setState(admitAll);
+  };
+
+  /**
+   * Turn a latecomer away before they were ever in the game. Their seat goes,
+   * and so does the device binding for it, so a stale message from that phone
+   * cannot speak for a seat that is no longer there.
+   */
+  const turnAwayPlayer = (playerId: string): string | null => {
+    const { reason } = turnAway(stateRef.current, playerId);
+    if (!reason) {
+      seatUids.current.delete(playerId);
+      setState((prev) => turnAway(prev, playerId).state);
+    }
+    return reason;
   };
 
   /**
@@ -3196,6 +3130,39 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         }
         admitLatecomers();
         return null;
+      case "turn-away":
+        return turnAwayPlayer(command.playerId);
+      case "set-broadcast-text":
+        if (typeof command.title !== "string" || typeof command.subtitle !== "string") {
+          return "That text did not come through — try again.";
+        }
+        setBroadcastText({ title: command.title, subtitle: command.subtitle });
+        return null;
+      case "set-host-player": {
+        if (!is(GamePhase.LOBBY)) return "Your player can only be changed in the lobby.";
+        const name = typeof command.name === "string" ? command.name.trim().slice(0, 24) : "";
+        if (!name) return "Give your player a name.";
+        if (!AVATARS.includes(command.avatar)) return "This host window does not know that avatar.";
+        hostJoinAsPlayer(name, command.avatar);
+        return null;
+      }
+      case "host-vote": {
+        const poll = current.categoryPoll;
+        if (!poll || poll.id !== command.pollId) return "That ballot has closed.";
+        if (!poll.options.some((option) => option.id === command.categoryId)) {
+          return "That option is no longer on the ballot.";
+        }
+        if (!current.currentPlayerId) return "You have no seat in this game to vote from.";
+        voteForCategory(command.pollId, command.categoryId);
+        return null;
+      }
+      case "host-like":
+        if (!current.currentPlayerId) return "You have no seat in this game to like from.";
+        if (!current.roundsConfig.some((round) => round.category.id === command.categoryId)) {
+          return "This game has not played that category.";
+        }
+        setCategoryLike(command.categoryId, command.liked);
+        return null;
       case "end-game":
         if (
           !is(GamePhase.CATEGORY_SELECT) &&
@@ -3363,6 +3330,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         redrawCategoryPoll,
         admitPlayer,
         admitLatecomers,
+        turnAwayPlayer,
         nextRound,
         restartGame,
         playAgain,

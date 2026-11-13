@@ -893,6 +893,16 @@ export type RemoteCommand =
   /** Deal one latecomer, or every latecomer, into the game. */
   | { kind: "deal-in"; playerId: string }
   | { kind: "deal-in-all" }
+  /** Send a latecomer away before they were ever dealt in. */
+  | { kind: "turn-away"; playerId: string }
+  /** The headline and the line under it on the big screen. Empty is the default. */
+  | { kind: "set-broadcast-text"; title: string; subtitle: string }
+  /** The host's own name and avatar, while the lobby is open. */
+  | { kind: "set-host-player"; name: string; avatar: string }
+  /** The host's own vote in the ballot on what to play next. */
+  | { kind: "host-vote"; pollId: string; categoryId: string }
+  /** The host's own like, or unlike, of a category this game has played. */
+  | { kind: "host-like"; categoryId: string; liked: boolean }
   /** Send a knocked-out player back into the bracket. */
   | { kind: "reinstate"; playerId: string }
   /** Stop the night where it stands and put the final places up. */

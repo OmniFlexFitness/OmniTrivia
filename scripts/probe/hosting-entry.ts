@@ -39,6 +39,14 @@ import {
 } from "../../src/services/proof";
 import { verifiedRejoinCode } from "../../src/services/seats";
 import {
+  acceptsLatecomers,
+  admit,
+  admitAll,
+  awaitingHost,
+  takesNewPlayers,
+  turnAway,
+} from "../../src/services/latecomers";
+import {
   DEFAULT_BROADCAST_SUBTITLE,
   DEFAULT_BROADCAST_TITLE,
   formatBroadcastDate,
@@ -1417,6 +1425,144 @@ const playSeededNight = (
     "a latecomer who played a qualifying round is drawn into the next one",
     second.nextRound !== null && activePlayerIds(second.nextRound).includes(late.id),
     second.nextRound ? activePlayerIds(second.nextRound).join(", ") : "no next round",
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * 3c. Letting somebody in after START GAME, from the host's own screen
+ * ------------------------------------------------------------------ */
+
+{
+  const lateOf = (n: number, extra: Partial<Player> = {}): Player => ({
+    ...makePlayers(n)[n - 1],
+    id: `late${n}`,
+    name: `Late ${n}`,
+    benched: true,
+    ...extra,
+  });
+  const wheel = (players: Player[], round = 1, options: Partial<GameState> = {}): GameState =>
+    ({
+      phase: GamePhase.CATEGORY_SELECT,
+      currentRound: round,
+      players,
+      bracket: [buildFirstRound(players.filter((p) => !p.benched), { qualifying: true })],
+      losersBracket: false,
+      qualifyingRounds: 1,
+      roundRobin: false,
+      ...options,
+    }) as unknown as GameState;
+  const drawn = (state: GameState, round = 0) => activePlayerIds(state.bracket[round]);
+  const noRepeats = (ids: string[]) => new Set(ids).size === ids.length;
+
+  check(
+    "the door stays open on the wheel, during a round and between rounds — not once it is over",
+    [GamePhase.CATEGORY_SELECT, GamePhase.PLAYING, GamePhase.ROUND_END].every((phase) =>
+      acceptsLatecomers({ phase }),
+    ) &&
+      takesNewPlayers({ phase: GamePhase.LOBBY }) &&
+      !acceptsLatecomers({ phase: GamePhase.LOBBY }) &&
+      !takesNewPlayers({ phase: GamePhase.GAME_OVER }),
+  );
+
+  // Round one's wheel: the draw is made again with the latecomer in it.
+  const four = makePlayers(4);
+  const late = lateOf(5);
+  const before = wheel([...four, late]);
+  check(
+    "a latecomer waits on the bench, out of round one's draw, until the host decides",
+    awaitingHost(late) && !drawn(before).includes(late.id),
+  );
+  const { state: dealt, reason } = admit(before, late.id);
+  check(
+    "dealt in on round one's wheel, round one is drawn again with them in it",
+    reason === null &&
+      drawn(dealt).length === 5 &&
+      drawn(dealt).includes(late.id) &&
+      noRepeats(drawn(dealt)) &&
+      dealt.bracket[0] !== before.bracket[0] &&
+      dealt.players.find((p) => p.id === late.id)?.benched === false,
+    drawn(dealt).join(", "),
+  );
+
+  // Two latecomers are mixed into the field, not left to meet only each other.
+  let separated = false;
+  for (let attempt = 0; attempt < 40 && !separated; attempt++) {
+    const two = admitAll(wheel([...four, lateOf(5), lateOf(6)]));
+    separated = two.bracket[0].matchups.some(
+      (m) =>
+        (m.playerAId === "late5" && m.playerBId !== "late6") ||
+        (m.playerBId === "late5" && m.playerAId !== "late6"),
+    );
+  }
+  const both = admitAll(wheel([...four, lateOf(5), lateOf(6)]));
+  check(
+    "DEAL IN EVERYONE on round one's wheel draws every latecomer into one fresh draw",
+    drawn(both).length === 6 && noRepeats(drawn(both)) && both.players.every((p) => !p.benched),
+    drawn(both).join(", "),
+  );
+  check("and they are drawn against the field, not only against each other", separated);
+
+  // A game that started with one player has no bracket until a second arrives.
+  const solo = {
+    ...wheel([makePlayers(1)[0], lateOf(2)]),
+    bracket: [],
+  } as GameState;
+  const pair = admit(solo, "late2").state;
+  check(
+    "a one-player game gets its bracket when a latecomer is dealt in on round one's wheel",
+    pair.bracket.length === 1 && drawn(pair).length === 2,
+  );
+
+  // Two players with a best-of final drew the final; a third reopens it.
+  const final2 = {
+    ...wheel([...makePlayers(2), lateOf(3)]),
+    qualifyingRounds: 0,
+    bracket: [buildFirstRound(makePlayers(2), { finalBestOf: 3 })],
+  } as GameState;
+  const three = admit(final2, "late3");
+  check(
+    "a third player on round one's wheel of a two-player final is drawn in, not refused",
+    three.reason === null && drawn(three.state).length === 3,
+    three.reason ?? drawn(three.state).join(", "),
+  );
+
+  // During a round: in from the next draw, and nothing in play moves.
+  const playing = { ...before, phase: GamePhase.PLAYING } as GameState;
+  const entering = admit(playing, late.id).state;
+  check(
+    "dealt in during a round, they are marked for the next draw and this one is left alone",
+    entering.bracket[0] === playing.bracket[0] &&
+      entering.players.find((p) => p.id === late.id)?.entering === true,
+  );
+
+  // A later wheel keeps its draw and seats them in it, as before.
+  const later = wheel([...four, late], 2, {
+    bracket: [
+      { ...buildFirstRound(four, { qualifying: true }), resolved: true },
+      buildFirstRound(four, { qualifying: true }),
+    ],
+    qualifyingRounds: 2,
+  } as Partial<GameState>);
+  const intoLater = admit(later, late.id).state;
+  check(
+    "on a later round's wheel they are seated in the draw already made",
+    drawn(intoLater, 1).includes(late.id) &&
+      later.bracket[1].matchups.every((m, i) => intoLater.bracket[1].matchups[i].id === m.id),
+  );
+
+  // Turning somebody away.
+  const away = turnAway(before, late.id);
+  check(
+    "turning a latecomer away takes their seat out of the game",
+    away.reason === null && !away.state.players.some((p) => p.id === late.id),
+  );
+  check(
+    "a player already in the field cannot be turned away",
+    turnAway(dealt, late.id).reason !== null && turnAway(before, four[0].id).reason !== null,
+  );
+  check(
+    "nor can somebody already dealt in for the next round",
+    turnAway(entering, late.id).reason !== null,
   );
 }
 

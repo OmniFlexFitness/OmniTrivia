@@ -839,6 +839,15 @@ const PlayerScreen: React.FC = () => {
 
   const hostLive = hostSeenAt > 0 && now - hostSeenAt < HOST_TIMEOUT_MS;
   const me = snapshot?.players.find((p) => p.id === currentPlayerId);
+  // Whether this seat has ever been in the host's game. A latecomer the host
+  // turns away is simply gone from the next snapshot, and only a seat that
+  // was there before can tell that apart from a snapshot that is merely
+  // older than its own join.
+  const seenInGame = useRef(false);
+  if (me) seenInGame.current = true;
+  const turnedAway = Boolean(
+    snapshot && !me && seenInGame.current && snapshot.phase !== GamePhase.LOBBY,
+  );
 
   // The two things this screen is built around: the match this player is in,
   // and their own seat at it.
@@ -1049,6 +1058,24 @@ const PlayerScreen: React.FC = () => {
       );
     }
 
+    if (turnedAway) {
+      return (
+        <div className="text-center py-12">
+          <Hourglass className="mx-auto mb-4 text-slate-400" size={40} />
+          <div className="text-2xl font-black text-white mb-2">
+            Not added to this game
+          </div>
+          <p className="text-slate-400 max-w-sm mx-auto mb-6">
+            The host did not deal you into this one. Have a word with them — if
+            they want you in, scan the code on the big screen again.
+          </p>
+          <Button onClick={leave} variant="secondary" className="mx-auto">
+            LEAVE
+          </Button>
+        </div>
+      );
+    }
+
     // On the bench: joined after the game started, in the room but not in the
     // field until the host deals them in. The same screen whatever the phase,
     // because nothing on their phone changes until then.
@@ -1057,12 +1084,12 @@ const PlayerScreen: React.FC = () => {
         <div className="text-center py-12">
           <Hourglass className="mx-auto mb-4 text-neon-yellow" size={40} />
           <div className="text-2xl font-black text-white mb-2">
-            {me.entering ? "You're in from the next round" : "You're in"}
+            {me.entering ? "You're in from the next round" : "Waiting for the host"}
           </div>
           <p className="text-slate-400 max-w-sm mx-auto">
             {me.entering
               ? "The host has dealt you in. Hang on for this round to finish — you are in the draw for the next one."
-              : "The game had already started, so the host will deal you in — usually at the next round. Your score starts from there."}
+              : "The game had already started, so the host has to let you in. They can see you're here — sit tight. Your score starts from the round you're dealt into."}
           </p>
           {rejoinCode && (
             <div className="mt-6 inline-flex flex-col items-center gap-1 rounded-xl border border-neon-yellow/50 bg-neon-yellow/5 px-6 py-3">

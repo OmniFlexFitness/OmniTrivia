@@ -29,7 +29,7 @@ import {
 import Button from "./Button";
 import AvatarDisplay from "./AvatarDisplay";
 import BracketView, { SideTag } from "./BracketView";
-import { championAtEnd, matchupById, sideOf } from "../services/bracket";
+import { championAtEnd, matchupById, matchupForPlayer, sideOf } from "../services/bracket";
 import QuestionCard from "./QuestionCard";
 import { QuestionPanel } from "./CyberQuestion";
 import PrizePodium from "./PrizePodium";
@@ -734,15 +734,19 @@ const RoomScreenPanel: React.FC = () => {
 
 /** How the field is spread across the round's questions. */
 /**
- * Who arrived after START GAME and is waiting to be dealt in.
+ * Who arrived after START GAME and is waiting on the host.
  *
- * One tap each, or one for everybody. Between rounds they land in the draw on
- * the screen; during a round they are in from the next one. The panel is
- * only there while somebody is on the bench, so a night where everybody
- * turned up on time never sees it.
+ * The QR code stays up on the big screen all night, so somebody can scan in
+ * mid-game; their seat waits here, on this desk only — the room does not see
+ * them until they are dealt in. One tap each to deal them in or turn them
+ * away, or one to deal in everybody. On round one's wheel dealing somebody in
+ * redraws round one with them in it, so the matchups the round starts with
+ * are the ones made after the spin. The panel is only there while somebody is
+ * on the bench, so a night where everybody turned up on time never sees it.
  */
 const BenchPanel: React.FC = () => {
-  const { players, phase, admitPlayer, admitLatecomers } = useGame();
+  const { players, phase, currentRound, admitPlayer, admitLatecomers, turnAwayPlayer } =
+    useGame();
   const [refusal, setRefusal] = React.useState<string | null>(null);
   const bench = players.filter((player) => player.benched);
   if (bench.length === 0) return null;
@@ -753,11 +757,13 @@ const BenchPanel: React.FC = () => {
       ? "in from the next round"
       : phase === GamePhase.ROUND_END
         ? "into the next round's draw"
-        : "into this round";
+        : phase === GamePhase.CATEGORY_SELECT && currentRound === 1
+          ? "into a fresh round-one draw"
+          : "into this round";
 
   return (
     <Panel
-      title={`Joined late · ${bench.length}`}
+      title={`Waiting to join · ${waiting.length}`}
       action={
         waiting.length > 1 ? (
           <button
@@ -788,22 +794,31 @@ const BenchPanel: React.FC = () => {
                 in from next round
               </span>
             ) : (
-              <Button
-                variant="neon"
-                className="!py-1 !px-3 text-xs flex items-center gap-1.5"
-                onClick={() => setRefusal(admitPlayer(player.id))}
-                title={`Deal ${player.name} ${where}`}
-              >
-                <UserPlus size={14} /> DEAL IN
-              </Button>
+              <>
+                <button
+                  onClick={() => setRefusal(turnAwayPlayer(player.id))}
+                  className="px-2 py-1 rounded border border-slate-600 text-[10px] font-mono uppercase tracking-widest text-slate-400 hover:text-red-300 hover:border-red-400/60"
+                  title={`Turn ${player.name} away — their phone is told they were not added`}
+                >
+                  turn away
+                </button>
+                <Button
+                  variant="neon"
+                  className="!py-1 !px-3 text-xs flex items-center gap-1.5"
+                  onClick={() => setRefusal(admitPlayer(player.id))}
+                  title={`Deal ${player.name} ${where}`}
+                >
+                  <UserPlus size={14} /> DEAL IN
+                </Button>
+              </>
             )}
           </div>
         ))}
       </div>
       <p className="text-[11px] text-slate-500 mt-2 leading-snug">
-        Dealt in {where}. In qualifying they join the field; once the bracket
-        is drawn they start on the Redemption Table, and BACK IN below puts
-        them in the bracket.
+        Only you can see this list. Dealt in {where}. In qualifying they join
+        the field; once the bracket is drawn they start on the Redemption
+        Table, and BACK IN below puts them in the bracket.
       </p>
       {refusal && <p className="text-xs text-amber-300 mt-2">{refusal}</p>}
     </Panel>
@@ -1079,6 +1094,8 @@ const HostPlayerPane: React.FC = () => {
     players,
     currentPlayerId,
     lanes,
+    bracket,
+    currentRound,
     questionsQueue,
     hostAnsweringEnabled,
     toggleHostAnswering,
@@ -1093,12 +1110,21 @@ const HostPlayerPane: React.FC = () => {
   const record =
     lane && seat ? answerBy(lane, hostPlayer.id, seat.questionIndex) : undefined;
   const question = seat ? questionsQueue[seat.questionIndex] : undefined;
-  const opponentId = lane?.playerIds.find((id) => id !== hostPlayer.id) ?? null;
+  // On the wheel nothing is dealt yet, so the match is read off the draw on
+  // the screen: who the host will be up against once the round starts.
+  const drawn =
+    !lane && phase === GamePhase.CATEGORY_SELECT
+      ? matchupForPlayer(bracket[currentRound - 1], hostPlayer.id)
+      : undefined;
+  const opponentId =
+    lane?.playerIds.find((id) => id !== hostPlayer.id) ??
+    (drawn ? (drawn.playerAId === hostPlayer.id ? drawn.playerBId : drawn.playerAId) : null);
   const opponent = opponentId ? players.find((p) => p.id === opponentId) : null;
 
   const status = () => {
     if (!hostAnsweringEnabled)
       return "Answering is off — nothing in the round waits on you.";
+    if (drawn) return "Drawn in — your questions come when the round starts.";
     if (hostPlayer.eliminated && !lane) return "You are out of the bracket.";
     if (!lane) return "You are not in this round.";
     // Switching answering back on mid-round does not deal a seat: the round is
@@ -1150,7 +1176,7 @@ const HostPlayerPane: React.FC = () => {
               ? `vs ${opponent.name}`
               : lane?.redemption
                 ? "Redemption table — no opponent"
-                : lane
+                : lane || drawn
                   ? "Bye"
                   : "No matchup"}
           </div>
