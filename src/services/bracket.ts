@@ -6,7 +6,7 @@ import {
   Matchup,
   Player,
 } from "../types";
-import { FINAL_BEST_OF, WIN_MULTIPLIER } from "../constants";
+import { FINAL_BEST_OF, PLACE_MULTIPLIERS, WIN_MULTIPLIER } from "../constants";
 
 /**
  * The bracket for a room of players: single elimination, or double
@@ -26,6 +26,10 @@ import { FINAL_BEST_OF, WIN_MULTIPLIER } from "../constants";
  * A round-robin game has no bracket at all: every round pairs each player
  * with somebody they have not played yet, nobody goes out, and when the host
  * calls it the highest total takes the night.
+ *
+ * A free-for-all has no opponents either: every player gets a seat of their
+ * own each round, the round is ranked across the whole room, and its top
+ * three earn a placement bonus. After the last round the highest total wins.
  */
 
 const shuffle = <T,>(items: T[]): T[] => {
@@ -114,6 +118,7 @@ const ID_PREFIX: Record<BracketSide, string> = {
   losers: "l",
   final: "f",
   roundRobin: "rr",
+  freeForAll: "ffa",
 };
 
 /** Which side of the bracket a matchup is on. Older matchups are all winners. */
@@ -127,6 +132,7 @@ export const SIDE_LABELS: Record<BracketSide, string> = {
   losers: "Loser's bracket",
   final: "Grand final",
   roundRobin: "Round robin",
+  freeForAll: "Free-for-all",
 };
 
 /**
@@ -173,6 +179,17 @@ const pair = (
   return matchups;
 };
 
+/**
+ * A free-for-all round's draw: one seat per player, nobody across from them.
+ * Each one plays exactly like a bye — the player answers the round alone, on
+ * their own clock — and the round is ranked across all of them when it ends.
+ */
+const soloSeats = (roundNumber: number, playerIds: string[]): Matchup[] =>
+  playerIds.map((playerAId, index) => ({
+    ...pair(roundNumber, [playerAId], "freeForAll")[0],
+    id: `r${roundNumber}-${ID_PREFIX.freeForAll}${index + 1}`,
+  }));
+
 /** Games a best-of series needs to win: more than half of them. */
 export const winsNeeded = (bestOf: number): number => Math.floor(bestOf / 2) + 1;
 
@@ -209,8 +226,23 @@ export const seriesScore = (
   };
 };
 
+/**
+ * The three shapes a night can take. Two booleans on the game say which —
+ * `freeForAll` wins over `roundRobin`, and neither is a bracket — and this is
+ * the one name every screen and every ranking reads them through.
+ */
+export type GameFormat = "bracket" | "roundRobin" | "freeForAll";
+
+/** The format a game's settings call for. */
+export const gameFormat = (
+  state: { roundRobin?: boolean; freeForAll?: boolean },
+): GameFormat =>
+  state.freeForAll ? "freeForAll" : state.roundRobin ? "roundRobin" : "bracket";
+
 /** How a game is shaped from its very first draw. */
 export interface OpeningOptions {
+  /** No opponents: every player on their own seat, ranked across the room. */
+  freeForAll?: boolean;
   /** No bracket: everybody plays everybody, and nobody goes out. */
   roundRobin?: boolean;
   /** Round one is a qualifying round: nobody goes out. */
@@ -222,11 +254,15 @@ export interface OpeningOptions {
 
 /** The opening options a game's settings call for. */
 export const openingOptions = (
-  state: Pick<GameState, "qualifyingRounds" | "losersBracket" | "roundRobin">,
+  state: Pick<GameState, "qualifyingRounds" | "losersBracket" | "roundRobin"> & {
+    freeForAll?: boolean;
+  },
 ): OpeningOptions =>
-  // A round robin has no bracket for qualifying to seed or a loser's bracket
-  // to catch anybody, so it ignores both.
-  state.roundRobin
+  // A free-for-all or a round robin has no bracket for qualifying to seed or
+  // a loser's bracket to catch anybody, so both ignore them.
+  state.freeForAll
+    ? { freeForAll: true }
+    : state.roundRobin
     ? { roundRobin: true }
     : {
         qualifying: state.qualifyingRounds > 0,
@@ -242,7 +278,9 @@ export const openingOptions = (
  * Without them it is the bracket's first round — or, for a room of two with a
  * best-of final, game one of that final. In a round robin it is the first
  * round of the schedule: neighbours in the shuffled order meet, and that
- * order is the roster every later round rotates (see `roundRobinOrder`).
+ * order is the roster every later round rotates (see `roundRobinOrder`). In a
+ * free-for-all everybody gets a seat of their own, and the shuffled order is
+ * only the tiebreak of last resort.
  */
 export const buildFirstRound = (
   players: Player[],
@@ -250,6 +288,10 @@ export const buildFirstRound = (
 ): BracketRound => {
   const ids = shuffle(players.map((p) => p.id));
   const bestOf = options.finalBestOf ?? 1;
+
+  if (options.freeForAll) {
+    return { roundNumber: 1, matchups: soloSeats(1, ids), resolved: false };
+  }
 
   if (options.roundRobin) {
     return { roundNumber: 1, matchups: pair(1, ids, "roundRobin"), resolved: false };
@@ -350,6 +392,26 @@ export const isRoundRobinRound = (round: BracketRound | undefined): boolean =>
 export const isRoundRobinGame = (rounds: BracketRound[]): boolean =>
   rounds.length > 0 && rounds.every(isRoundRobinRound);
 
+/** A round of a free-for-all: every matchup in it is a seat of its own. */
+export const isFreeForAllRound = (round: BracketRound | undefined): boolean =>
+  Boolean(round && round.matchups.length > 0 && round.matchups.every((m) => sideOf(m) === "freeForAll"));
+
+/** A game played as a free-for-all, read off the rounds it has drawn. */
+export const isFreeForAllGame = (rounds: BracketRound[]): boolean =>
+  rounds.length > 0 && rounds.every(isFreeForAllRound);
+
+/**
+ * A game's format read off the rounds it has drawn — for a screen that only
+ * has the bracket. A game ended before any round was played has nothing to
+ * read, and reads as a bracket; pass the setting where there is one.
+ */
+export const formatOfRounds = (rounds: BracketRound[]): GameFormat =>
+  isFreeForAllGame(rounds)
+    ? "freeForAll"
+    : isRoundRobinGame(rounds)
+      ? "roundRobin"
+      : "bracket";
+
 /** A round that is a game of the final: nobody else can be dealt into it. */
 export const isFinalRound = (round: BracketRound | undefined): boolean =>
   Boolean(round && round.matchups.length > 0 && round.matchups.every((m) => sideOf(m) === "final"));
@@ -368,6 +430,7 @@ export const entrySide = (
   losersBracket: boolean,
 ): BracketSide | null => {
   if (isFinalRound(round)) return null;
+  if (isFreeForAllRound(round)) return "freeForAll";
   if (isRoundRobinRound(round)) return "roundRobin";
   if (isQualifyingRound(round)) return "qualifying";
   return losersBracket ? "losers" : "winners";
@@ -395,9 +458,12 @@ export const addToDraw = (
   if (activePlayerIds(round).includes(playerId) || side === "final") return round;
 
   const matchups = [...round.matchups];
-  const byeIndex = matchups.findIndex(
-    (m) => sideOf(m) === side && isBye(m) && !m.series,
-  );
+  // Every seat in a free-for-all is meant to be on its own: a newcomer gets
+  // one too, rather than an opponent being sat down across from somebody.
+  const byeIndex =
+    side === "freeForAll"
+      ? -1
+      : matchups.findIndex((m) => sideOf(m) === side && isBye(m) && !m.series);
 
   if (byeIndex >= 0) {
     const bye = matchups[byeIndex];
@@ -481,6 +547,64 @@ export const winBonuses = (round: BracketRound): Record<string, number> => {
 };
 
 /**
+ * What a free-for-all place adds to a total: the round's points again, times
+ * that place's multiplier less one. Whole points, like the win bonus. Nothing
+ * below third.
+ */
+export const placementBonusFor = (roundScore: number, place: number): number => {
+  const multiplier = PLACE_MULTIPLIERS[place - 1];
+  return multiplier === undefined
+    ? 0
+    : Math.round(Math.max(0, roundScore) * (multiplier - 1));
+};
+
+/**
+ * Rank a free-for-all round across the whole room and pay its top three.
+ *
+ * Places go by the round's points and are shared on a tie, the way a race
+ * shares them: two players level on top are both 1st and both paid 1st, and
+ * the next player is 3rd. Breaking that tie on the running total would hand
+ * one of two identical rounds a bigger bonus, which reads as the game being
+ * unfair. A round of zero places nowhere — there is nothing to multiply, and
+ * a phone left on the table is not on the podium.
+ *
+ * Every seat is "won" by the player in it: nobody goes out of a free-for-all,
+ * and `winnerId` is how the rest of the game knows a seat has been settled.
+ */
+const resolveFreeForAll = (
+  round: BracketRound,
+  byId: Map<string, Player>,
+): BracketRound => {
+  const pointsOf = (matchup: Matchup) => byId.get(matchup.playerAId)?.roundScore ?? 0;
+  const placeOf = (matchup: Matchup): number | null => {
+    const points = pointsOf(matchup);
+    if (points <= 0) return null;
+    const place =
+      1 + round.matchups.filter((other) => pointsOf(other) > points).length;
+    return place <= PLACE_MULTIPLIERS.length ? place : null;
+  };
+
+  const matchups = round.matchups.map<Matchup>((matchup) => {
+    const player = byId.get(matchup.playerAId);
+    const place = player ? placeOf(matchup) : null;
+    const bonus = place ? placementBonusFor(player?.roundScore ?? 0, place) : 0;
+    // Cleared first, so settling a round twice cannot leave a stale place.
+    const { place: _stale, winBonus: _bonus, ...seat } = matchup;
+    return {
+      ...seat,
+      scoreA: player?.roundScore ?? null,
+      scoreB: null,
+      winnerId: player?.id ?? null,
+      tiebreak: null,
+      ...(place ? { place } : {}),
+      ...(bonus > 0 ? { winBonus: bonus } : {}),
+    };
+  });
+
+  return { ...round, matchups, resolved: true };
+};
+
+/**
  * Decide every matchup in a round on that round's points.
  *
  * Ties are broken on the running total and then on the draw order, rather than
@@ -491,6 +615,16 @@ export const resolveRound = (
   players: Player[],
 ): { round: BracketRound; advancingIds: string[] } => {
   const byId = new Map(players.map((p) => [p.id, p]));
+
+  if (isFreeForAllRound(round)) {
+    const settled = resolveFreeForAll(round, byId);
+    return {
+      round: settled,
+      advancingIds: settled.matchups
+        .map((m) => m.winnerId)
+        .filter((id): id is string => id !== null),
+    };
+  }
 
   const matchups = round.matchups.map<Matchup>((matchup) => {
     const a = byId.get(matchup.playerAId);
@@ -688,7 +822,7 @@ export const enterRound = (
   const settled = { ...player, benched: false, entering: false };
 
   if (player.benched) {
-    if (side === "qualifying" || side === "roundRobin") {
+    if (side === "qualifying" || side === "roundRobin" || side === "freeForAll") {
       return {
         round: addToDraw(round, player.id, side),
         player: { ...settled, eliminated: false, losersBracket: false },
@@ -1002,6 +1136,82 @@ export const roundRobinStandings = <T extends StandingLike>(
   );
 };
 
+/**
+ * How often each player finished 1st, 2nd and 3rd in a free-for-all round,
+ * by player: `[firsts, seconds, thirds]`. Settled rounds only.
+ */
+export const placeCounts = (rounds: BracketRound[]): Map<string, number[]> => {
+  const counts = new Map<string, number[]>();
+  rounds
+    .filter((round) => round.resolved)
+    .forEach((round) =>
+      round.matchups.forEach((m) => {
+        if (sideOf(m) !== "freeForAll" || !m.place) return;
+        const row = counts.get(m.playerAId) ?? PLACE_MULTIPLIERS.map(() => 0);
+        row[m.place - 1] += 1;
+        counts.set(m.playerAId, row);
+      }),
+    );
+  return counts;
+};
+
+/**
+ * A free-for-all's standings: highest total first. Ties go to more round
+ * wins, then more 2nds, then more 3rds, then more points answered (the
+ * redemption score, which leaves the bonuses out), then the draw — never to a
+ * coin flip. Players still on the bench never played, so they rank below
+ * everybody who did.
+ */
+export const freeForAllStandings = <T extends StandingLike>(
+  players: T[],
+  rounds: BracketRound[],
+): T[] => {
+  const places = placeCounts(rounds);
+  const placesOf = (id: string) => places.get(id) ?? [];
+  const drawOrder = rounds[0] ? activePlayerIds(rounds[0]) : players.map((p) => p.id);
+  const seed = new Map(drawOrder.map((id, index) => [id, index]));
+  const seedOf = (id: string) => seed.get(id) ?? Number.MAX_SAFE_INTEGER;
+  const byPlaces = (a: T, b: T) => {
+    for (let i = 0; i < PLACE_MULTIPLIERS.length; i++) {
+      const gap = (placesOf(b.id)[i] ?? 0) - (placesOf(a.id)[i] ?? 0);
+      if (gap !== 0) return gap;
+    }
+    return 0;
+  };
+
+  return [...players].sort(
+    (a, b) =>
+      Number(Boolean(a.benched)) - Number(Boolean(b.benched)) ||
+      b.score - a.score ||
+      byPlaces(a, b) ||
+      (b.redemptionScore ?? 0) - (a.redemptionScore ?? 0) ||
+      seedOf(a.id) - seedOf(b.id),
+  );
+};
+
+/** One row of a settled free-for-all round, for a screen to list. */
+export interface RoundPlacing {
+  playerId: string;
+  /** The round's points, before any bonus. */
+  points: number;
+  /** 1, 2 or 3 — or null below the podium. */
+  place: number | null;
+  /** What the place added to the total. */
+  bonus: number;
+}
+
+/** A settled free-for-all round as a ranked list: best round first. */
+export const roundPlacings = (round: BracketRound | undefined): RoundPlacing[] =>
+  (round?.matchups ?? [])
+    .filter((m) => sideOf(m) === "freeForAll")
+    .map((m) => ({
+      playerId: m.playerAId,
+      points: m.scoreA ?? 0,
+      place: m.place ?? null,
+      bonus: m.winBonus ?? 0,
+    }))
+    .sort((a, b) => b.points - a.points);
+
 /** A side that would hand out a genuine bye: odd, and more than a lone player. */
 const owesBye = (ids: string[]): boolean => ids.length >= 3 && ids.length % 2 === 1;
 
@@ -1076,6 +1286,35 @@ export const settleRound = (
     standingOrder(ids, (id) => totals.get(id) ?? 0, drawOrder);
   const roundNumber = round.roundNumber + 1;
   const base = { round: resolved, wildcardIds: [] as string[], bonuses };
+
+  /* --- a free-for-all round: no opponents, ranked across the room --- */
+  if (isFreeForAllRound(resolved)) {
+    const played = new Set(activePlayerIds(resolved));
+    const field = [
+      ...drawOrder.filter((id) => played.has(id)),
+      ...activePlayerIds(resolved).filter((id) => !drawOrder.includes(id)),
+    ].filter((id) => present.has(id));
+
+    // The next round's seats go up in standings order, so the draw on the
+    // screen between rounds reads as the leaderboard it is.
+    const ranked = freeForAllStandings(
+      field.map((id) => ({ id, score: totals.get(id) ?? 0 })),
+      history,
+    ).map((p) => p.id);
+
+    return {
+      ...base,
+      winnersIds: field,
+      losersIds: [],
+      eliminatedIds: [],
+      // Decided on the totals once the rounds run out or the host ends it.
+      championId: null,
+      nextRound:
+        options.hasMoreRounds && field.length >= 1
+          ? { roundNumber, matchups: soloSeats(roundNumber, ranked), resolved: false }
+          : null,
+    };
+  }
 
   /* --- a round-robin round: nobody goes out, and there is no bracket --- */
   if (isRoundRobinRound(resolved)) {
@@ -1437,9 +1676,10 @@ export const rankStanding = <T extends StandingLike>(
  * the rounds ran out, or the host ended the game early.
  *
  * `rounds` is what was actually played: an unplayed draw sitting on the
- * screen decides nothing. `roundRobin` is the game's own format, for a game
- * ended before a round was played — with no rounds left to read it from.
+ * screen decides nothing. `format` is the game's own, for a game ended
+ * before a round was played — with no rounds left to read it from.
  *
+ * - **A free-for-all** goes to the top of its standings.
  * - **A round robin** goes to the top of its standings.
  * - **A bracket** goes to the leader among the players still standing:
  *   somebody nobody has beaten ahead of somebody in the loser's bracket, then
@@ -1449,9 +1689,12 @@ export const rankStanding = <T extends StandingLike>(
 export const championAtEnd = <T extends StandingLike>(
   players: T[],
   rounds: BracketRound[],
-  roundRobin: boolean = isRoundRobinGame(rounds),
+  format: GameFormat = formatOfRounds(rounds),
 ): string | null => {
-  if (roundRobin) {
+  if (format === "freeForAll") {
+    return freeForAllStandings(players, rounds)[0]?.id ?? null;
+  }
+  if (format === "roundRobin") {
     return roundRobinStandings(players, rounds)[0]?.id ?? null;
   }
 
@@ -1488,9 +1731,9 @@ export interface Podium {
  * every screen. With three or more players all three are always filled, so a
  * host who ends the night early still has three names to read out.
  *
- * A round robin is the top three of its standings, in order. `roundRobin`
- * says so for a game ended before any round was played, which has no rounds
- * to read its format from.
+ * A round robin or a free-for-all is the top three of its standings, in
+ * order. `format` says which for a game ended before any round was played,
+ * which has no rounds to read its format from.
  *
  * In a bracket game:
  *
@@ -1510,10 +1753,13 @@ export const podium = <T extends StandingLike>(
   players: T[],
   rounds: BracketRound[],
   championId: string | null,
-  roundRobin: boolean = isRoundRobinGame(rounds),
+  format: GameFormat = formatOfRounds(rounds),
 ): Podium => {
-  if (roundRobin) {
-    const ranked = roundRobinStandings(players, rounds);
+  if (format === "roundRobin" || format === "freeForAll") {
+    const ranked =
+      format === "freeForAll"
+        ? freeForAllStandings(players, rounds)
+        : roundRobinStandings(players, rounds);
     // The champion the game already called stays champion, even if a screen
     // is a beat behind on the scores.
     const order = championId

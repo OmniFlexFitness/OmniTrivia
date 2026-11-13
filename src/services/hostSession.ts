@@ -71,6 +71,7 @@ export type PersistedHostState = Pick<
   | "losersBracket"
   | "qualifyingRounds"
   | "roundRobin"
+  | "freeForAll"
   | "botsEnabled"
   | "theme"
   | "typedAnswersEnabled"
@@ -155,6 +156,7 @@ export const captureHostState = (state: GameState): PersistedHostState => ({
   losersBracket: state.losersBracket,
   qualifyingRounds: state.qualifyingRounds,
   roundRobin: state.roundRobin,
+  freeForAll: state.freeForAll,
   botsEnabled: state.botsEnabled,
   theme: state.theme,
   typedAnswersEnabled: state.typedAnswersEnabled,
@@ -267,6 +269,8 @@ export const applyHostState = (
     typeof state.qualifyingRounds === "number" ? state.qualifyingRounds : 0,
   // A game saved before round robins existed was a bracket.
   roundRobin: state.roundRobin === true,
+  // A game saved before free-for-alls existed was not one.
+  freeForAll: state.freeForAll === true,
   // Games saved before bots could be turned off always allowed them.
   botsEnabled: state.botsEnabled !== false,
   // A game saved before themes keeps whatever this window is showing.

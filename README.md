@@ -29,6 +29,7 @@ exactly as they are defined here, and so does the code.
 | **Loser's bracket** | Optional double elimination, switched on at setup or in the lobby. A first loss drops a player into the loser's bracket instead of out; a loss there ends their night. Both sides play in every round, on the same category, and the last player on each side meets in a best-of-3 **grand final**. |
 | **Redemption Table** | Where a player knocked out of the bracket keeps playing: every round, same spin, same category, same questions, their own seat and nobody across from them. Their **redemption score** keeps building there — the points they answered their way to in every round of the game, qualifying and bracket included — and it decides the redemption prize (third place). |
 | **Round robin** | The other format, switched on at setup or in the lobby instead of a bracket. Every round pairs each player with somebody they have not played yet, until everybody has played everybody — one round fewer than the number of players, or one per player when the number is odd (each sits out once on a bye, which counts as a win). Nobody goes out, a win still counts **×1.5** on the total, and the highest total wins. Qualifying rounds and the loser's bracket do not apply to it. |
+| **Free-for-all** | The third format, switched on at setup, in the lobby or from the remote instead of a bracket or a round robin. No matchups: every player has a seat of their own each round and plays against the whole room, Kahoot style. After every round its leaderboard goes up and that round's **1st, 2nd and 3rd** are paid a **placement bonus** — the round counts **×1.5**, **×1.25** and **×1.1** on their totals. Nobody goes out, the night runs exactly the **number of rounds** the host set, and the highest total after the last one wins. |
 | **END GAME** | The host's button — on the desk and the remote, from the wheel, during a round or between rounds — that stops the night where it stands and puts the final results up. A round in play is settled first on the scores as they stand; an unplayed draw is dropped. 1st, 2nd and 3rd are called on what was played. |
 | **Wildcard** | The bracket's odd seat, handed to the best round on the Redemption Table instead of a free bye. One per player per game, never on a round of zero. In a loser's-bracket game it comes back into the loser's bracket only. |
 | **Remote** | A tablet or phone running the round for the host — spin, start, pause, +10s, close, end the round, next round — once it has the PIN and the host password. The host's window still runs the game; the remote drives it. |
@@ -96,6 +97,36 @@ GAME**) and there is no bracket at all:
 - **More rounds than a cycle** are rematches; fewer, and not everybody meets.
   A latecomer dealt in joins the field, and from then on the rounds are paired
   to keep rematches to a minimum.
+
+### Free-for-all
+
+Switch **FREE-FOR-ALL** on at setup or in the lobby (any time before **START
+GAME**) and there are no matchups at all — it overrides round robin,
+qualifying rounds and the loser's bracket:
+
+- **Everyone against the room.** Every round deals each player a seat of their
+  own, on the same category and the same questions, still on their own clock.
+- **The length of the night is yours.** **NUMBER OF ROUNDS** on the setup
+  screen (and the **ROUNDS** count on the import screens) is exactly how many
+  rounds are played. **END GAME** stops it early on the totals so far.
+- **A leaderboard after every round.** The projector, the host desk, the
+  remote and every phone show the round ranked on that round's points, then
+  the overall standings under it. Each phone picks out its own row.
+- **Round places pay.** The round's 1st counts **×1.5** on the total (the
+  same as winning a matchup in the other formats), 2nd **×1.25** and 3rd
+  **×1.1** — so a 480-point round in 1st adds 720. A tie shares the place and
+  the bonus (two level on top are both 1st, the next is 3rd), and a round of
+  zero places nowhere.
+- **The highest total wins.** 1st, 2nd and 3rd are the top three totals; a
+  tie goes to more rounds won, then more 2nds, then more 3rds, then more
+  points answered, then the draw.
+- **Latecomers** dealt in get a seat of their own from the next draw.
+
+The multipliers live in `PLACE_MULTIPLIERS` in `src/constants.ts`.
+`npm run check-hosting` plays free-for-alls of 2 to 20 players over 1 to 8
+rounds and checks every round's places and bonuses against an independent
+ranking, that nobody is knocked out or crowned early, and that the night goes
+to the highest total.
 
 ### The loser's bracket
 
@@ -750,8 +781,10 @@ nothing else: the game plays exactly the same.
 
 The host's window publishes the choice with the game, so the big screen, the
 remote and every player's phone switch with it within a second. A phone that
-has not joined yet still shows the everyday look until it does. The choice is
-remembered in the host's browser, so it stays on until they switch it off.
+has not joined yet still shows the everyday look until it does. It is off by
+default and is a choice for one game: every new game opens in the everyday
+look, so switch it on again for the next Halloween night. A game in progress
+keeps it through a reload or a host taking the game back.
 Anyone whose device asks for reduced motion gets the colours and the still
 decorations without the animation.
 

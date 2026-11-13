@@ -54,6 +54,7 @@ import {
 import {
   buildFirstRound,
   championAtEnd,
+  gameFormat,
   enterRound,
   openingOptions,
   settleRound,
@@ -105,7 +106,6 @@ import {
   applyTheme,
   isTheme,
   readThemePreference,
-  saveThemePreference,
 } from "../services/theme";
 import {
   applyBotsSetting,
@@ -236,6 +236,13 @@ interface GameContextType extends GameState {
    * bracket: up until the first round is drawn.
    */
   setRoundRobin: (enabled: boolean) => void;
+  /**
+   * Play a free-for-all instead: no opponents, every round ranked across the
+   * whole room, the top three paid a placement bonus, and the highest total
+   * after the last round wins. Takes precedence over the round robin. Same
+   * window: up until the first round is drawn.
+   */
+  setFreeForAll: (enabled: boolean) => void;
   /**
    * End the night now and put the final places up — from the wheel, in the
    * middle of a round (which is settled on the scores as they stand first), or
@@ -570,7 +577,7 @@ const concludeGame = (prev: GameState): GameState => {
     // The format comes from the setting: a round robin ended on round one's
     // wheel has no rounds left to say it was one.
     championId:
-      prev.championId ?? championAtEnd(prev.players, bracket, prev.roundRobin),
+      prev.championId ?? championAtEnd(prev.players, bracket, gameFormat(prev)),
     wheelSpinning: false,
     phase: GamePhase.GAME_OVER,
   };
@@ -646,10 +653,11 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     autoAdvance: true,
     losersBracket: false,
     roundRobin: false,
+    freeForAll: false,
     qualifyingRounds: DEFAULT_QUALIFYING_ROUNDS,
     // A host who turned bots off last time meant it for next time too.
     botsEnabled: readBotsPreference(),
-    // Code Red stays on for a host who left it on.
+    // Every new game opens in neon; Code Red is switched on for the night.
     theme: readThemePreference(),
     // Off unless this host switched them on: typing is the format a room
     // likes least.
@@ -1932,7 +1940,6 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     });
 
   const setTheme = (theme: Theme) => {
-    saveThemePreference(theme);
     setState((prev) => (prev.theme === theme ? prev : { ...prev, theme }));
   };
 
@@ -1958,6 +1965,13 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
       prev.bracket.length > 0 && prev.phase !== GamePhase.LOBBY
         ? prev
         : { ...prev, roundRobin: enabled },
+    );
+
+  const setFreeForAll = (enabled: boolean) =>
+    setState((prev) =>
+      prev.bracket.length > 0 && prev.phase !== GamePhase.LOBBY
+        ? prev
+        : { ...prev, freeForAll: enabled },
     );
 
   const setQualifyingRounds = (rounds: number) =>
@@ -2800,6 +2814,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
       resumeError: null,
       // A fresh suggestion for the next game rather than the last game's.
       hostPassword: suggestHostPassword(),
+      // Code Red was for the game that just ended: the next one opens in
+      // neon, the same as one started in a fresh window.
+      theme: readThemePreference(),
       currentPlayerId: null,
       roomWarning: null,
       roundsConfig: [],
@@ -3053,6 +3070,10 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         if (!is(GamePhase.LOBBY)) return "The first round is already drawn.";
         setRoundRobin(command.enabled);
         return null;
+      case "set-free-for-all":
+        if (!is(GamePhase.LOBBY)) return "The first round is already drawn.";
+        setFreeForAll(command.enabled);
+        return null;
       case "spin":
         if (!is(GamePhase.CATEGORY_SELECT) || current.currentRound !== command.round) {
           return "That wheel has already been played.";
@@ -3301,6 +3322,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         setLosersBracket,
         setQualifyingRounds,
         setRoundRobin,
+        setFreeForAll,
         endGameNow,
         setBotsEnabled,
         setTheme,

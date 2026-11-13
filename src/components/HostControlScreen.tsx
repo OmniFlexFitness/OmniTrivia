@@ -29,7 +29,15 @@ import {
 import Button from "./Button";
 import AvatarDisplay from "./AvatarDisplay";
 import BracketView, { SideTag } from "./BracketView";
-import { championAtEnd, matchupById, matchupForPlayer, sideOf } from "../services/bracket";
+import {
+  championAtEnd,
+  gameFormat,
+  isFreeForAllRound,
+  matchupById,
+  matchupForPlayer,
+  sideOf,
+} from "../services/bracket";
+import RoundPlacings from "./RoundPlacings";
 import QuestionCard from "./QuestionCard";
 import { QuestionPanel } from "./CyberQuestion";
 import PrizePodium from "./PrizePodium";
@@ -355,9 +363,11 @@ const LaneCard: React.FC<{ lane: MatchupLane }> = ({ lane }) => {
           {matchup && <SideTag side={sideOf(matchup)} />}
           {lane.redemption
             ? "redemption table"
-            : lane.playerIds.length < 2
-              ? "bye"
-              : "matchup"}{" "}
+            : matchup && sideOf(matchup) === "freeForAll"
+              ? "own seat"
+              : lane.playerIds.length < 2
+                ? "bye"
+                : "matchup"}{" "}
           · {completed}/{questionsQueue.length}{" "}
           {lane.seats.length > 1 ? "both through" : "through"}
         </span>
@@ -531,14 +541,15 @@ const EndRoundControl: React.FC<{ className?: string }> = ({
  * a 1st, 2nd and 3rd to read out. It cannot be taken back, so it always asks.
  */
 const EndGameControl: React.FC = () => {
-  const { phase, players, bracket, endGameNow, roundRobin } = useGame();
+  const { phase, players, bracket, endGameNow, roundRobin, freeForAll } = useGame();
+  const format = gameFormat({ roundRobin, freeForAll });
   const [confirming, setConfirming] = React.useState(false);
 
   // Who would take 1st if the night ended on this click — the same pick
   // the final screen will make.
   const played = bracket.filter((round) => round.resolved);
   const leader = players.find(
-    (p) => p.id === championAtEnd(players, played, roundRobin),
+    (p) => p.id === championAtEnd(players, played, format),
   );
 
   if (!confirming) {
@@ -564,7 +575,7 @@ const EndGameControl: React.FC = () => {
             ? "This round has not been played, so it does not count. The game ends on the rounds already played."
             : "The next round is not played. The game ends on the rounds already played."}{" "}
         1st, 2nd and 3rd go up on every screen
-        {roundRobin ? ", on the totals" : ""}
+        {format !== "bracket" ? ", on the totals" : ""}
         {leader && phase !== GamePhase.PLAYING
           ? ` — ${leader.name} would take 1st.`
           : "."}{" "}
@@ -952,6 +963,7 @@ const RoundEndControls: React.FC = () => {
   const round = bracket[currentRound - 1];
   const next = bracket[currentRound];
   const isLastRound = championId !== null || currentRound >= totalRounds;
+  const freeForAll = isFreeForAllRound(round);
 
   return (
     <div className="space-y-4">
@@ -965,6 +977,10 @@ const RoundEndControls: React.FC = () => {
           <p className="text-slate-400 text-sm">
             {championId
               ? "The bracket is decided — one player is left standing."
+              : freeForAll
+                ? currentRound < totalRounds
+                  ? `The round's 1st, 2nd and 3rd are paid. Round ${currentRound + 1} of ${totalRounds} is up next — the highest total after round ${totalRounds} wins.`
+                  : "That was the last round — the highest total takes the night."
               : next
                 ? `${next.matchups.length} matchup(s) drawn for round ${currentRound + 1}.`
                 : currentRound < totalRounds
@@ -975,13 +991,15 @@ const RoundEndControls: React.FC = () => {
 
         <HostLikeStrip />
 
-        {round && (
+        {round && freeForAll ? (
+          <RoundPlacings round={round} players={players} size="desk" />
+        ) : round ? (
           <BracketView
             bracket={[round]}
             players={players}
             currentRound={currentRound}
           />
-        )}
+        ) : null}
       </div>
 
       <Panel title="What the room wants next">
@@ -1010,10 +1028,12 @@ const GameOverControls: React.FC<{ onShowInsights: () => void }> = ({
     currentRound,
     championId,
     roundRobin,
+    freeForAll,
     playAgain,
     restartGame,
   } = useGame();
   const champion = players.find((p) => p.id === championId);
+  const format = gameFormat({ roundRobin, freeForAll });
 
   return (
     <div className="space-y-4">
@@ -1022,7 +1042,7 @@ const GameOverControls: React.FC<{ onShowInsights: () => void }> = ({
       <div className="bg-slate-900 border border-yellow-600/50 rounded-2xl p-5 text-center">
         <Crown size={40} className="mx-auto text-yellow-400 mb-2" />
         <div className="text-xs font-mono uppercase tracking-[0.3em] text-yellow-400">
-          1st place{roundRobin ? "" : " · Champion"}
+          1st place{format === "bracket" ? " · Champion" : ""}
         </div>
         <div className="text-3xl font-black text-white mt-1">
           {champion?.name ?? "No one"}
@@ -1035,7 +1055,7 @@ const GameOverControls: React.FC<{ onShowInsights: () => void }> = ({
         players={players}
         bracket={bracket}
         championId={championId}
-        roundRobin={roundRobin}
+        format={format}
         size="desk"
         hideChampion
       />
@@ -1100,6 +1120,7 @@ const HostPlayerPane: React.FC = () => {
     hostAnsweringEnabled,
     toggleHostAnswering,
     advanceMyQuestion,
+    freeForAll,
   } = useGame();
 
   const hostPlayer = players.find((p) => p.id === currentPlayerId);
@@ -1176,9 +1197,11 @@ const HostPlayerPane: React.FC = () => {
               ? `vs ${opponent.name}`
               : lane?.redemption
                 ? "Redemption table — no opponent"
-                : lane || drawn
-                  ? "Bye"
-                  : "No matchup"}
+                : freeForAll
+                  ? "Free-for-all — against the whole room"
+                  : lane || drawn
+                    ? "Bye"
+                    : "No matchup"}
           </div>
         </div>
         <div className="text-right">
@@ -1270,6 +1293,7 @@ const HostControlScreen: React.FC = () => {
     categoryLikes,
     championId,
     roundRobin,
+    freeForAll,
     loading,
     roomWarning,
     remotes,
@@ -1655,7 +1679,7 @@ const HostControlScreen: React.FC = () => {
           )}
 
           {bracket.length > 0 && (
-            <Panel title={roundRobin ? "Round robin" : "Bracket"}>
+            <Panel title={freeForAll ? "Free-for-all" : roundRobin ? "Round robin" : "Bracket"}>
               <BracketView
                 bracket={bracket}
                 players={players}

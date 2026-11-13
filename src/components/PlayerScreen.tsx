@@ -16,7 +16,19 @@ import { useApplyTheme } from "../services/theme";
 import CodeRedBadge from "./CodeRedBadge";
 import { readSeat } from "../services/seat";
 import { SideTag } from "./BracketView";
-import { matchupById, seriesScore, sideOf, winBonusFor } from "../services/bracket";
+import {
+  freeForAllStandings,
+  gameFormat,
+  isFreeForAllRound,
+  matchupById,
+  placeCounts,
+  seriesScore,
+  sideOf,
+  winBonusFor,
+} from "../services/bracket";
+import RoundPlacings, { PLACE_STYLES } from "./RoundPlacings";
+import { PLACE_MULTIPLIER_TEXT } from "./FreeForAllToggle";
+import { PLACE_MULTIPLIERS } from "../constants";
 import { WIN_MULTIPLIER } from "../constants";
 import {
   postMessage,
@@ -155,6 +167,10 @@ const MyMatchup: React.FC<{
             {opponent.name}
           </span>
         </div>
+      ) : sideOf(matchup) === "freeForAll" ? (
+        <div className="text-sm text-neon-purple font-bold">
+          You against the whole room.
+        </div>
       ) : (
         <div className="text-sm text-neon-green font-bold">
           Bye — you go through without playing anyone.
@@ -190,7 +206,9 @@ const StakesLine: React.FC<{
     : 0;
 
   const line =
-    side === "roundRobin"
+    side === "freeForAll"
+      ? `Free-for-all — no opponent, you're up against the whole room. Finish the round 1st, 2nd or 3rd and it counts ${PLACE_MULTIPLIER_TEXT} on your total.`
+      : side === "roundRobin"
       ? hasOpponent
         ? `Round robin — nobody goes out, and you'll play everybody. Beat them and this round's points count ×${WIN_MULTIPLIER} on your total; the highest total wins the night.`
         : `Round robin bye — play the round on your own; it counts as a win, so your points count ×${WIN_MULTIPLIER}.`
@@ -270,7 +288,9 @@ const RoundIntro: React.FC<{
   // a game that keeps running — it just gets the screen it had before.
   const slices = snapshot.wheelSlices ?? [];
   const round = snapshot.bracket[snapshot.roundNumber - 1];
-  const pairing = pairingFor(round?.matchups, snapshot, playerId);
+  // A free-for-all has nobody to put across the VS from you.
+  const freeForAll = isFreeForAllRound(round);
+  const pairing = freeForAll ? null : pairingFor(round?.matchups, snapshot, playerId);
   // What this phone's own wheel has stopped on. Naming the category the moment
   // the host's wheel stops would spoil the one on the screen in front of them.
   const [settled, setSettled] = useState<Category | null>(null);
@@ -345,18 +365,20 @@ const RoundIntro: React.FC<{
             matchups={round.matchups}
             snapshot={snapshot}
             playerId={playerId}
-            label="Your matchup this round"
+            label={freeForAll ? "This round" : "Your matchup this round"}
           />
         </div>
       )}
 
       <p className="text-slate-500 text-sm text-center max-w-sm">
-        {pairing
-          ? "You play this round against one opponent, at your own pace."
-          : "You play this round on the Redemption Table — same questions, no opponent."}{" "}
+        {freeForAll
+          ? "You play this round against the whole room, at your own pace."
+          : pairing
+            ? "You play this round against one opponent, at your own pace."
+            : "You play this round on the Redemption Table — same questions, no opponent."}{" "}
         Answer fast — every second left on your clock is worth points — and
         the last question counts double. You find out how you did when your
-        match is over.
+        {freeForAll ? " round" : " match"} is over.
       </p>
 
       {announced && children}
@@ -387,6 +409,23 @@ const OpponentStrip: React.FC<{
     seat?.status === LaneStatus.DONE
       ? "done"
       : `Q${Math.min((seat?.completed ?? 0) + 1, total)}/${total}`;
+
+  const laneMatchup = matchupById(snapshot.bracket ?? [], lane.matchupId);
+  if (laneMatchup && sideOf(laneMatchup) === "freeForAll") {
+    return (
+      <div className="cyber-panel flex items-center justify-between gap-3 px-4 py-3 mb-4 border border-neon-purple/40">
+        <div className="min-w-0">
+          <div className="cyber-hud text-[10px] text-neon-purple">Free-for-all</div>
+          <div className="text-xs text-slate-400">
+            You against the room · top 3 count {PLACE_MULTIPLIER_TEXT}
+          </div>
+        </div>
+        <div className="cyber-hud text-[10px] text-slate-400 tracking-normal shrink-0">
+          {where(mySeat)}
+        </div>
+      </div>
+    );
+  }
 
   if (lane.redemption) {
     const me = snapshot.players.find((p) => p.id === playerId);
@@ -505,6 +544,59 @@ const MatchResult: React.FC<{
   const opponentSeat = seatsOf(lane).find((candidate) => candidate.playerId === opponentId);
   const theirs = opponentSeat?.roundPoints ?? opponent?.roundScore ?? 0;
   const theirCorrect = (opponentSeat?.results ?? []).filter((r) => r.correct).length;
+  const seatMatchup = matchupById(snapshot.bracket ?? [], lane.matchupId);
+
+  if (seatMatchup && sideOf(seatMatchup) === "freeForAll") {
+    // The place is only known once every seat in the room is in, which is
+    // when the round settles — until then, the points are the whole story.
+    const settled = seatMatchup.winnerId !== null;
+    const style = seatMatchup.place ? PLACE_STYLES[seatMatchup.place - 1] : null;
+    return (
+      <div className="py-4 space-y-5">
+        <div className="text-center">
+          <div className="cyber-hud text-[11px] text-slate-500">Round complete</div>
+          <div className={`cyber-question text-3xl mt-1 ${style ? style.tone : "text-white"}`}>
+            {style
+              ? `${style.medal} ${style.label} this round`
+              : settled
+                ? `+${mine} points`
+                : `${mine} points`}
+          </div>
+          <div className="text-xs text-slate-400 mt-1">
+            {correct}/{results.length} correct
+            {style ? ` · ${mine} points` : ""}
+          </div>
+          {style && (seatMatchup.winBonus ?? 0) > 0 && (
+            <div className={`cyber-hud text-xs mt-2 ${style.tone}`}>
+              +{seatMatchup.winBonus} place bonus (×{PLACE_MULTIPLIERS[seatMatchup.place! - 1]}) on your total
+            </div>
+          )}
+          {!settled && (
+            <div className="text-xs text-slate-500 mt-2">
+              The round's places go up when everyone has finished.
+            </div>
+          )}
+        </div>
+
+        <div>
+          <div className="cyber-hud text-[10px] text-slate-500 mb-2 text-center">
+            Your answers
+          </div>
+          <div className="flex flex-wrap justify-center gap-2">
+            {results.map((result, index) => (
+              <ResultChip
+                key={index}
+                index={index}
+                answered={result.answered}
+                correct={result.correct}
+                points={result.points}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (lane.redemption) {
     const me = snapshot.players.find((p) => p.id === playerId);
@@ -1133,6 +1225,11 @@ const PlayerScreen: React.FC = () => {
       );
     }
 
+    // How the night is shaped, for the standings below: a free-for-all ranks
+    // on its own tiebreaks and shows round places in place of redemption.
+    const format = gameFormat(snapshot);
+    const places = format === "freeForAll" ? placeCounts(snapshot.bracket ?? []) : null;
+
     switch (snapshot.phase) {
       case GamePhase.LOBBY:
         return (
@@ -1193,15 +1290,31 @@ const PlayerScreen: React.FC = () => {
                 players={snapshot.players}
                 bracket={snapshot.bracket ?? []}
                 championId={snapshot.championId}
-                roundRobin={snapshot.roundRobin}
+                format={format}
                 className="my-4"
               />
+            )}
+
+            {/* The free-for-all's moment: who took the round. */}
+            {format === "freeForAll" && snapshot.phase === GamePhase.ROUND_END && (
+              <div className="py-2">
+                <div className="cyber-hud text-[11px] text-slate-500 mb-2 text-center">
+                  Round {snapshot.roundNumber} leaderboard
+                </div>
+                <RoundPlacings
+                  round={snapshot.bracket?.[snapshot.roundNumber - 1]}
+                  players={snapshot.players}
+                  size="phone"
+                  limit={5}
+                  meId={currentPlayerId}
+                />
+              </div>
             )}
 
             {/* The pairings for the round after this one are drawn the moment
                 this one is settled, so the wait between rounds can at least
                 say who you are playing next. */}
-            {snapshot.nextRoundMatchups && (
+            {format !== "freeForAll" && snapshot.nextRoundMatchups && (
               <MyMatchup
                 matchups={snapshot.nextRoundMatchups}
                 snapshot={snapshot}
@@ -1211,9 +1324,15 @@ const PlayerScreen: React.FC = () => {
             )}
 
             <div className="space-y-2 py-6">
-              {[...snapshot.players]
-                .sort((a, b) => b.score - a.score)
-                .map((player, index) => (
+              {format === "freeForAll" && (
+                <div className="cyber-hud text-[11px] text-slate-500 text-center">
+                  Standings
+                </div>
+              )}
+              {(format === "freeForAll"
+                ? freeForAllStandings(snapshot.players, snapshot.bracket ?? [])
+                : [...snapshot.players].sort((a, b) => b.score - a.score)
+              ).map((player, index) => (
                   <div
                     key={player.id}
                     className={`flex items-center gap-3 p-3 rounded-xl border ${
@@ -1241,9 +1360,18 @@ const PlayerScreen: React.FC = () => {
                       <div className="truncate font-bold text-white">
                         {player.name}
                       </div>
-                      <div className="font-mono text-[10px] uppercase tracking-widest text-orange-300">
-                        R {player.redemptionScore ?? 0}
-                      </div>
+                      {places ? (
+                        <div className="font-mono text-[10px] uppercase tracking-widest text-neon-purple">
+                          {(places.get(player.id) ?? [])
+                            .map((n, i) => (n > 0 ? `${n}× ${PLACE_STYLES[i].label}` : null))
+                            .filter(Boolean)
+                            .join(" · ") || "—"}
+                        </div>
+                      ) : (
+                        <div className="font-mono text-[10px] uppercase tracking-widest text-orange-300">
+                          R {player.redemptionScore ?? 0}
+                        </div>
+                      )}
                     </div>
                     {!player.eliminated && player.wildcardUsed && (
                       <span className="font-mono text-[10px] uppercase tracking-widest text-neon-yellow">

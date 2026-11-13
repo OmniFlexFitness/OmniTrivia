@@ -17,6 +17,13 @@ import {
   enterRound,
   entrySide,
   isRoundRobinGame,
+  isFreeForAllGame,
+  freeForAllStandings,
+  formatOfRounds,
+  gameFormat,
+  openingOptions,
+  placementBonusFor,
+  roundPlacings,
   matchRecords,
   podium,
   roundRobinRounds,
@@ -954,8 +961,8 @@ const pairCounts = (rounds: BracketRound[]): Map<string, number> => {
   // A round robin ended on round one's wheel: its only round is unplayed and
   // dropped, so the format has to come from the setting, not the rounds.
   const early = makePlayers(4).map((p, i) => ({ ...p, score: 0, redemptionScore: [0, 0, 300, 0][i] }));
-  const earlyChamp = championAtEnd(early, [], true);
-  const earlyPlaces = podium(early, [], earlyChamp, true);
+  const earlyChamp = championAtEnd(early, [], "roundRobin");
+  const earlyPlaces = podium(early, [], earlyChamp, "roundRobin");
   check(
     "a round robin ended before any round is played is still placed as a round robin",
     // Round-robin tiebreaks — points answered before the draw — put p3
@@ -1550,6 +1557,20 @@ const playSeededNight = (
       later.bracket[1].matchups.every((m, i) => intoLater.bracket[1].matchups[i].id === m.id),
   );
 
+  // A free-for-all: round one is drawn again with the latecomer in the room.
+  const ffa = wheel([...four, late], 1, {
+    freeForAll: true,
+    bracket: [buildFirstRound(four, { freeForAll: true })],
+  } as Partial<GameState>);
+  const ffaIn = admit(ffa, late.id).state;
+  check(
+    "in a free-for-all, dealt in on round one's wheel, they are in the room's draw",
+    drawn(ffaIn).length === 5 &&
+      drawn(ffaIn).includes(late.id) &&
+      ffaIn.bracket[0].matchups.every((m) => sideOf(m) === "freeForAll"),
+    drawn(ffaIn).join(", "),
+  );
+
   // Turning somebody away.
   const away = turnAway(before, late.id);
   check(
@@ -1563,6 +1584,298 @@ const playSeededNight = (
   check(
     "nor can somebody already dealt in for the next round",
     turnAway(entering, late.id).reason !== null,
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * 3d. Free-for-all: everyone against the room, round places, totals win
+ * ------------------------------------------------------------------ */
+
+/**
+ * The places a round should pay, worked out independently of the app: rank
+ * the round's points, shared on a tie the way a race shares them, and pay the
+ * top three ×1.5 / ×1.25 / ×1.1 — nothing on a round of zero.
+ */
+const expectedPlaces = (points: Map<string, number>): Map<string, { place: number; bonus: number }> => {
+  const paid = new Map<string, { place: number; bonus: number }>();
+  const multipliers = [1.5, 1.25, 1.1];
+  for (const [id, mine] of points) {
+    if (mine <= 0) continue;
+    const place = 1 + [...points.values()].filter((other) => other > mine).length;
+    if (place > 3) continue;
+    paid.set(id, { place, bonus: Math.round(mine * (multipliers[place - 1] - 1)) });
+  }
+  return paid;
+};
+
+/** Play a free-for-all the way `finishRound` does: random scores, settle, repeat. */
+const playFreeForAll = (
+  count: number,
+  rounds: number,
+  seed: number,
+): {
+  rounds: BracketRound[];
+  players: Player[];
+  badPlaces: number;
+  out: number;
+  crowned: number;
+  bonusTotal: Map<string, number>;
+} => {
+  const random = rng(seed);
+  let players = makePlayers(count);
+  let played: BracketRound[] = [buildFirstRound(players, openingOptions({
+    qualifyingRounds: 2,
+    losersBracket: true,
+    roundRobin: true,
+    freeForAll: true,
+  }))];
+  let badPlaces = 0;
+  let out = 0;
+  let crowned = 0;
+  const bonusTotal = new Map<string, number>();
+
+  for (let roundNumber = 1; roundNumber <= rounds; roundNumber++) {
+    const current = played[roundNumber - 1];
+    if (!current) break;
+
+    const inRound = new Set(activePlayerIds(current));
+    players = players.map((p) => {
+      if (!inRound.has(p.id)) return { ...p, roundScore: 0 };
+      // Coarse steps, so ties — including ties for a paid place — happen often.
+      const points = Math.floor(random() * 5) * 100;
+      return {
+        ...p,
+        roundScore: points,
+        score: p.score + points,
+        redemptionScore: (p.redemptionScore ?? 0) + points,
+      };
+    });
+
+    const outcome = settleRound(current, players, {
+      losersBracket: true,
+      playedRounds: played.slice(0, roundNumber - 1),
+      hasMoreRounds: roundNumber < rounds,
+      wildcards: true,
+      qualifyingRounds: 2,
+      seeded: true,
+      finalBestOf: 3,
+    });
+    if (outcome.championId) crowned += 1;
+    out += outcome.eliminatedIds.length + outcome.losersIds.length;
+
+    const expected = expectedPlaces(new Map(players.map((p) => [p.id, p.roundScore])));
+    outcome.round.matchups.forEach((m) => {
+      const want = expected.get(m.playerAId);
+      if ((m.place ?? null) !== (want?.place ?? null)) badPlaces += 1;
+      if ((m.winBonus ?? 0) !== (want?.bonus ?? 0)) badPlaces += 1;
+      if ((outcome.bonuses[m.playerAId] ?? 0) !== (want?.bonus ?? 0)) badPlaces += 1;
+    });
+
+    players = players.map((p) => {
+      const bonus = outcome.bonuses[p.id] ?? 0;
+      if (bonus) bonusTotal.set(p.id, (bonusTotal.get(p.id) ?? 0) + bonus);
+      return bonus ? { ...p, score: p.score + bonus } : p;
+    });
+    played = [...played.slice(0, roundNumber - 1), outcome.round];
+    if (outcome.nextRound) played.push(outcome.nextRound);
+  }
+
+  return { rounds: played, players, badPlaces, out, crowned, bonusTotal };
+};
+
+{
+  let roundCount = true;
+  let ownSeats = true;
+  let allFreeForAll = true;
+  let places = 0;
+  let nobodyOut = true;
+  let nobodyCrowned = true;
+  let winnerIsTop = true;
+  let leaderboardOrder = true;
+  let detail = "";
+
+  for (let count = 2; count <= 20; count++) {
+    for (let seed = 1; seed <= 6; seed++) {
+      const rounds = 1 + ((count + seed) % 8);
+      const night = playFreeForAll(count, rounds, count * 131 + seed);
+
+      if (night.rounds.length !== rounds || night.rounds.some((r) => !r.resolved)) {
+        roundCount = false;
+        detail = `${count} players, ${rounds} rounds set: ${night.rounds.length} drawn`;
+      }
+      night.rounds.forEach((round) => {
+        const ids = activePlayerIds(round);
+        if (
+          round.matchups.length !== count ||
+          round.matchups.some((m) => m.playerBId !== null) ||
+          new Set(ids).size !== count
+        ) {
+          ownSeats = false;
+        }
+      });
+      if (!isFreeForAllGame(night.rounds)) allFreeForAll = false;
+      places += night.badPlaces;
+      if (night.out > 0) nobodyOut = false;
+      if (night.crowned > 0) nobodyCrowned = false;
+
+      const top = Math.max(...night.players.map((p) => p.score));
+      const champion = championAtEnd(night.players, night.rounds);
+      if (night.players.find((p) => p.id === champion)?.score !== top) {
+        winnerIsTop = false;
+        detail = `${count} players: champion ${champion} is not on ${top}`;
+      }
+
+      // Each round after the first is seated in standings order, so the
+      // draw between rounds reads as the leaderboard.
+      for (let i = 1; i < night.rounds.length; i++) {
+        const seats = night.rounds[i].matchups.map((m) => m.playerAId);
+        const totalsThen = new Map<string, number>();
+        night.rounds.slice(0, i).forEach((r) =>
+          r.matchups.forEach((m) =>
+            totalsThen.set(m.playerAId, (totalsThen.get(m.playerAId) ?? 0) + (m.scoreA ?? 0) + (m.winBonus ?? 0)),
+          ),
+        );
+        for (let k = 1; k < seats.length; k++) {
+          if ((totalsThen.get(seats[k - 1]) ?? 0) < (totalsThen.get(seats[k]) ?? 0)) {
+            leaderboardOrder = false;
+          }
+        }
+      }
+    }
+  }
+
+  check("a free-for-all runs exactly the rounds the host set — 1 to 8, for 2 to 20 players", roundCount, detail);
+  check("every round seats every player on their own, nobody across from them", ownSeats);
+  check("every round of the game is a free-for-all round — no bracket, round robin, qualifying or loser's bracket, even with those switched on", allFreeForAll);
+  check("each round's 1st, 2nd and 3rd are paid ×1.5, ×1.25 and ×1.1 exactly, ties shared, nothing below 3rd or on zero", places === 0, `${places} wrong`);
+  check("nobody is knocked out or dropped in a free-for-all", nobodyOut);
+  check("nobody is crowned before the rounds run out", nobodyCrowned);
+  check("the night goes to the highest total", winnerIsTop, detail);
+  check("every round after the first is seated in standings order", leaderboardOrder);
+
+  // A tie for 1st: both are 1st and both paid 1st; the next player is 3rd.
+  const tied = makePlayers(5).map((p, i) => ({ ...p, roundScore: [400, 400, 300, 200, 0][i] }));
+  const tieRound = settleRound(buildFirstRound(tied, { freeForAll: true }), tied, {
+    losersBracket: false,
+    playedRounds: [],
+    hasMoreRounds: true,
+  }).round;
+  const placeOf = (id: string) => tieRound.matchups.find((m) => m.playerAId === id);
+  check(
+    "a tie on the round shares the place and the bonus — 400, 400, 300 are 1st, 1st, 3rd",
+    placeOf("p1")?.place === 1 &&
+      placeOf("p2")?.place === 1 &&
+      placeOf("p1")?.winBonus === 200 &&
+      placeOf("p2")?.winBonus === 200 &&
+      placeOf("p3")?.place === 3 &&
+      placeOf("p3")?.winBonus === 30 &&
+      placeOf("p4")?.place === undefined &&
+      placeOf("p5")?.place === undefined,
+    tieRound.matchups.map((m) => `${m.playerAId}:${m.place ?? "-"}/${m.winBonus ?? 0}`).join(" "),
+  );
+
+  const silent = makePlayers(4);
+  const silentRound = settleRound(buildFirstRound(silent, { freeForAll: true }), silent, {
+    losersBracket: false,
+    playedRounds: [],
+    hasMoreRounds: false,
+  });
+  check(
+    "a round of zero places nobody and pays nothing",
+    silentRound.round.matchups.every((m) => !m.place && !m.winBonus) &&
+      Object.keys(silentRound.bonuses).length === 0 &&
+      silentRound.nextRound === null,
+  );
+
+  check(
+    "placementBonusFor is ×1.5, ×1.25, ×1.1 on the round, and nothing from 4th",
+    placementBonusFor(1000, 1) === 500 &&
+      placementBonusFor(1000, 2) === 250 &&
+      placementBonusFor(1000, 3) === 100 &&
+      placementBonusFor(1000, 4) === 0,
+  );
+
+  // Level on total: more round wins first, then more 2nds.
+  const level = makePlayers(3).map((p) => ({ ...p, score: 1000 }));
+  const levelRounds: BracketRound[] = [
+    {
+      roundNumber: 1,
+      resolved: true,
+      matchups: [
+        { id: "r1-ffa1", roundNumber: 1, bracket: "freeForAll", playerAId: "p1", playerBId: null, winnerId: "p1", scoreA: 300, scoreB: null, tiebreak: null, place: 2 },
+        { id: "r1-ffa2", roundNumber: 1, bracket: "freeForAll", playerAId: "p2", playerBId: null, winnerId: "p2", scoreA: 400, scoreB: null, tiebreak: null, place: 1 },
+        { id: "r1-ffa3", roundNumber: 1, bracket: "freeForAll", playerAId: "p3", playerBId: null, winnerId: "p3", scoreA: 200, scoreB: null, tiebreak: null, place: 3 },
+      ],
+    },
+  ];
+  check(
+    "level on total goes to more round wins, then more 2nds",
+    freeForAllStandings(level, levelRounds).map((p) => p.id).join() === "p2,p1,p3",
+    freeForAllStandings(level, levelRounds).map((p) => p.id).join(),
+  );
+
+  const night = playFreeForAll(9, 5, 777);
+  const ranked = freeForAllStandings(night.players, night.rounds).map((p) => p.id);
+  const places9 = podium(night.players, night.rounds, championAtEnd(night.players, night.rounds));
+  check(
+    "1st, 2nd and 3rd are the top three of the standings",
+    places9.championId === ranked[0] &&
+      places9.runnerUpId === ranked[1] &&
+      places9.redemptionId === ranked[2],
+  );
+  check(
+    "every placement bonus paid is recorded on the seat it was earned in",
+    night.players.every(
+      (p) =>
+        (night.bonusTotal.get(p.id) ?? 0) ===
+        night.rounds.reduce(
+          (sum, r) => sum + (r.matchups.find((m) => m.playerAId === p.id)?.winBonus ?? 0),
+          0,
+        ),
+    ),
+  );
+  const listed = roundPlacings(night.rounds[0]);
+  check(
+    "a round's leaderboard lists everybody, best round first",
+    listed.length === 9 && listed.every((row, i) => i === 0 || listed[i - 1].points >= row.points),
+  );
+
+  // Ended on round one's wheel: nothing played, the format from the setting.
+  const early = makePlayers(3).map((p, i) => ({ ...p, redemptionScore: [0, 250, 0][i] }));
+  check(
+    "a free-for-all ended before any round is played still calls three places",
+    championAtEnd(early, [], "freeForAll") === "p2" &&
+      new Set(Object.values(podium(early, [], "p2", "freeForAll"))).size === 3,
+  );
+
+  // A latecomer dealt in gets a seat of their own, never somebody's opponent.
+  const room = makePlayers(4);
+  const firstRound = buildFirstRound(room, { freeForAll: true });
+  const late: Player = { ...makePlayers(5)[4], benched: true };
+  const dealt = enterRound(firstRound, late, false);
+  check(
+    "a latecomer dealt into a free-for-all gets a seat of their own",
+    entrySide(firstRound, false) === "freeForAll" &&
+      dealt !== null &&
+      dealt.round.matchups.length === 5 &&
+      dealt.round.matchups.every((m) => m.playerBId === null) &&
+      new Set(dealt.round.matchups.map((m) => m.id)).size === 5 &&
+      dealt.player.benched === false &&
+      dealt.player.eliminated === false,
+    dealt ? dealt.round.matchups.map((m) => `${m.id}:${m.playerAId}/${m.playerBId}`).join(" ") : "refused",
+  );
+  check(
+    "dealing somebody into a free-for-all never sits them across from anybody",
+    addToDraw(firstRound, "p9", "freeForAll").matchups.every((m) => m.playerBId === null),
+  );
+
+  check(
+    "free-for-all wins over every other format switch, and reads back as one",
+    gameFormat({ roundRobin: true, freeForAll: true }) === "freeForAll" &&
+      gameFormat({ roundRobin: true }) === "roundRobin" &&
+      gameFormat({}) === "bracket" &&
+      formatOfRounds([firstRound]) === "freeForAll" &&
+      sideOf(firstRound.matchups[0]) === "freeForAll",
   );
 }
 
