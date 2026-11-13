@@ -2874,6 +2874,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
       resumeError: null,
       // A fresh suggestion for the next game rather than the last game's.
       hostPassword: suggestHostPassword(),
+      // Code Red was for the game that just ended: the next one opens in
+      // neon, the same as one started in a fresh window.
+      theme: readThemePreference(),
       currentPlayerId: null,
       roomWarning: null,
       roundsConfig: [],
