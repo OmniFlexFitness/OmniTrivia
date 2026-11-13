@@ -17,8 +17,15 @@ import { Check, RotateCcw, Tv } from "lucide-react";
  * keystroke — a host clearing the box to retype it should not see the
  * projector flash back to the default in front of the room halfway through.
  */
-const BroadcastTextEditor: React.FC<{ compact?: boolean }> = ({ compact = false }) => {
-  const { broadcastTitle, broadcastSubtitle, setBroadcastText } = useGame();
+export const BroadcastTextForm: React.FC<{
+  compact?: boolean;
+  /** What the big screen is showing now. */
+  broadcastTitle: string;
+  broadcastSubtitle: string;
+  /** Put the text up. Empty strings are the defaults. */
+  onApply: (text: { title: string; subtitle: string }) => void;
+}> = ({ compact = false, broadcastTitle, broadcastSubtitle, onApply }) => {
+  const setBroadcastText = onApply;
   const [title, setTitle] = useState(broadcastTitle);
   const [subtitle, setSubtitle] = useState(broadcastSubtitle);
 
@@ -105,6 +112,19 @@ const BroadcastTextEditor: React.FC<{ compact?: boolean }> = ({ compact = false 
         </button>
       </div>
     </form>
+  );
+};
+
+/** The host desk's copy, wired straight to the game. */
+const BroadcastTextEditor: React.FC<{ compact?: boolean }> = ({ compact = false }) => {
+  const { broadcastTitle, broadcastSubtitle, setBroadcastText } = useGame();
+  return (
+    <BroadcastTextForm
+      compact={compact}
+      broadcastTitle={broadcastTitle}
+      broadcastSubtitle={broadcastSubtitle}
+      onApply={setBroadcastText}
+    />
   );
 };
 

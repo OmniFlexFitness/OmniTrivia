@@ -855,6 +855,14 @@ const SeatProgress: React.FC<{
   );
 };
 
+
+/**
+ * How long a newly granted seat may be missing from the host's snapshots
+ * before this phone takes it that the host turned it away. Generous against a
+ * slow room link: a late verdict only delays the turned-away screen.
+ */
+const SEAT_SETTLE_MS = 5000;
+
 const PlayerScreen: React.FC = () => {
   const {
     clientPin,
@@ -875,6 +883,10 @@ const PlayerScreen: React.FC = () => {
     return stored?.gamePin === clientPin ? stored : null;
   });
   const [hostSeenAt, setHostSeenAt] = useState(0);
+  // When the last snapshot reached this phone, by this phone's clock. Kept
+  // apart from `hostSeenAt`, which a heartbeat also moves: only a snapshot
+  // says who is in the game.
+  const [snapshotAt, setSnapshotAt] = useState(0);
   const [now, setNow] = useState(Date.now());
   const [outOfDate, setOutOfDate] = useState(false);
   const latchedHost = useRef<string | null>(null);
@@ -902,6 +914,7 @@ const PlayerScreen: React.FC = () => {
         latchedHost.current = message.snapshot.hostId;
         setSnapshot(message.snapshot);
         setHostSeenAt(Date.now());
+        setSnapshotAt(Date.now());
       } else if (message.type === "host-heartbeat") {
         if (latchedHost.current && message.hostId !== latchedHost.current) return;
         // When it got here, not the time the host stamped on it: that is the
@@ -931,6 +944,30 @@ const PlayerScreen: React.FC = () => {
 
   const hostLive = hostSeenAt > 0 && now - hostSeenAt < HOST_TIMEOUT_MS;
   const me = snapshot?.players.find((p) => p.id === currentPlayerId);
+  // A latecomer the host turns away is simply gone from the next snapshot,
+  // which has to be told apart from a snapshot that is merely older than the
+  // join. Two things settle it: this seat has been in a snapshot before, or a
+  // snapshot has arrived since the seat was granted and the seat has still
+  // not shown up a few seconds on. Seating somebody changes the host's game,
+  // so a snapshot with them in it follows within a second or so; when the
+  // host turns them away before that one gets here, none ever does. A link
+  // slow enough to miss the window shows this screen only until the seat
+  // turns up, which clears it.
+  const seenInGame = useRef(false);
+  const seatSince = useRef({ id: currentPlayerId, at: Date.now() });
+  if (seatSince.current.id !== currentPlayerId) {
+    seatSince.current = { id: currentPlayerId, at: Date.now() };
+    seenInGame.current = false;
+  }
+  if (me) seenInGame.current = true;
+  const turnedAway = Boolean(
+    snapshot &&
+      currentPlayerId &&
+      !me &&
+      snapshot.phase !== GamePhase.LOBBY &&
+      (seenInGame.current ||
+        (snapshotAt > seatSince.current.at && now - seatSince.current.at > SEAT_SETTLE_MS)),
+  );
 
   // The two things this screen is built around: the match this player is in,
   // and their own seat at it.
@@ -1141,6 +1178,24 @@ const PlayerScreen: React.FC = () => {
       );
     }
 
+    if (turnedAway) {
+      return (
+        <div className="text-center py-12">
+          <Hourglass className="mx-auto mb-4 text-slate-400" size={40} />
+          <div className="text-2xl font-black text-white mb-2">
+            Not added to this game
+          </div>
+          <p className="text-slate-400 max-w-sm mx-auto mb-6">
+            The host did not deal you into this one. Have a word with them — if
+            they want you in, scan the code on the big screen again.
+          </p>
+          <Button onClick={leave} variant="secondary" className="mx-auto">
+            LEAVE
+          </Button>
+        </div>
+      );
+    }
+
     // On the bench: joined after the game started, in the room but not in the
     // field until the host deals them in. The same screen whatever the phase,
     // because nothing on their phone changes until then.
@@ -1149,12 +1204,12 @@ const PlayerScreen: React.FC = () => {
         <div className="text-center py-12">
           <Hourglass className="mx-auto mb-4 text-neon-yellow" size={40} />
           <div className="text-2xl font-black text-white mb-2">
-            {me.entering ? "You're in from the next round" : "You're in"}
+            {me.entering ? "You're in from the next round" : "Waiting for the host"}
           </div>
           <p className="text-slate-400 max-w-sm mx-auto">
             {me.entering
               ? "The host has dealt you in. Hang on for this round to finish — you are in the draw for the next one."
-              : "The game had already started, so the host will deal you in — usually at the next round. Your score starts from there."}
+              : "The game had already started, so the host has to let you in. They can see you're here — sit tight. Your score starts from the round you're dealt into."}
           </p>
           {rejoinCode && (
             <div className="mt-6 inline-flex flex-col items-center gap-1 rounded-xl border border-neon-yellow/50 bg-neon-yellow/5 px-6 py-3">

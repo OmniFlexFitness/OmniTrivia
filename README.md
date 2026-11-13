@@ -35,7 +35,7 @@ exactly as they are defined here, and so does the code.
 | **Remote** | A tablet or phone running the round for the host — spin, start, pause, +10s, close, end the round, next round — once it has the PIN and the host password. The host's window still runs the game; the remote drives it. |
 | **Category pool** | The host's own standing list of categories. The end-of-round vote draws its options from it. It is separate from the questions a game happens to be loaded with. |
 | **Rejoin code** | Four digits dealt to a player when they join — random, and theirs to change before they confirm. Their name and that code get them back into the same seat — score, streak and place in the bracket — from any phone, at any point in the game. |
-| **Bench** | Where somebody who joins after **START GAME** waits: in the room, on the leaderboard at zero, not drawn and not waited on. The host deals them in from the desk or the remote — into the draw on the screen between rounds, or in from the next draw during one. In qualifying they join the field; once the bracket is drawn they start on the Redemption Table, and **BACK IN** can send them, or anyone knocked out, into the bracket. |
+| **Bench** | Where somebody who joins after **START GAME** waits: in the room, not drawn and not waited on — and off the big screen, so only the host sees them. The host deals them in, or turns them away, from the desk or the remote. On round one's wheel, dealing somebody in draws round one again with them in it; on later wheels and between rounds they go into the draw on the screen; during a round they are in from the next draw. In qualifying they join the field; once the bracket is drawn they start on the Redemption Table, and **BACK IN** can send them, or anyone knocked out, into the bracket. |
 | **Host password** | What the host sets when they open the game. With the PIN it takes the running game back on any device if the host's window closes, reloads or dies. |
 
 ### How a game runs
@@ -43,8 +43,12 @@ exactly as they are defined here, and so does the code.
 1. The host loads questions, opens a lobby, and players join with the PIN.
 2. **START GAME** draws the round-one matchups at random. With qualifying
    rounds on (the default is two), round one is a qualifying round. The PIN
-   keeps working: anyone who joins after this lands on the **bench**, and the
-   host deals them in with one tap.
+   keeps working, and the big screen keeps a small **Late? Scan to join** QR in
+   its corner for the rest of the night: anyone who joins after this lands on
+   the **bench**, seen only by the host, who deals them in or turns them away
+   with one tap. The round-one draw is final when **START ROUND** is pressed —
+   somebody dealt in on round one's wheel is mixed into a fresh draw, not
+   handed the leftover seat.
 3. Each round: the wheel is spun, whichever slice stops under the pointer is
    the category, every matchup is dealt that round's questions, and the matches
    play out. The wheel carries only the categories still to be played, so it
@@ -805,19 +809,27 @@ the header of the control screen — has a link and a QR code for each:
   It is the password in picture form, so it stays hidden until tapped and
   hides itself again after two minutes.) Without the QR, open
   `?view=remote&pin=1234` and type the host password — in any letter case.
-  Either way the round runs from wherever you are standing: add bots and start the game, turn the loser's bracket on or off
-  in the lobby, **spin** the wheel (the laptop's wheel spins, lands and
+  Either way the round runs from wherever you are standing: add bots, set
+  your own name and avatar, and start the game, turn the loser's bracket on or
+  off in the lobby, **spin** the wheel (the laptop's wheel spins, lands and
   decides, exactly as if you had pressed it there), **start the round**,
   pause / +10s / close one table or every table, **move the room on**, **end
-  the round**, redraw the ballot, **start the next round**, **play again**.
-  It also shows the answer to whatever each table is reading, behind a tap,
-  for adjudicating from the floor, and switches your own seat's answering
-  off so nothing waits on you while you walk.
+  the round**, **deal in** or **turn away** latecomers, send players **back
+  in**, change the big-screen text, switch auto-advance, cast your own vote
+  and like on the ballot, redraw it, **start the next round**, **end the
+  game**, **play again**. It shows live scores during a round, and the
+  answer (with its explanation) to whatever each table is reading, behind a
+  tap, for adjudicating from the floor — held back, as on the desk, while
+  your own seat has not answered that question yet. It also switches your own
+  seat's answering off so nothing waits on you while you walk.
 
 The laptop still runs the game in both cases — the remote is a second set of
 hands on its buttons, not a second host — so keep its window open and not
 minimised (a hidden tab's timers are slowed down by the browser). The header
-shows which remotes are linked. Ending the game for good stays on the laptop.
+shows which remotes are linked. A few things stay on the laptop because they
+live in its browser: opening the projector window, the category pool, the
+data panel, **NEW GAME** (which closes the room and starts setup over), and
+answering on your own seat.
 
 **How the remote proves it is you.** The tablet holds the same proof a
 returning host uses — from the QR, or derived from the typed password — and

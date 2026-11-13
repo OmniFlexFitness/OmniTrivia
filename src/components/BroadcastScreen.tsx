@@ -16,6 +16,7 @@ import {
   attachRoomChannel,
   canReachOtherDevices,
   detachRoomChannel,
+  joinUrl,
   pinFromUrl,
   pinViewToUrl,
   postMessage,
@@ -48,6 +49,8 @@ import {
   renderBroadcastText,
 } from "../services/broadcastText";
 import JoinCode from "./JoinCode";
+import QRCode from "react-qr-code";
+import { awaitingHost, takesNewPlayers } from "../services/latecomers";
 import CategoryVotePanel from "./CategoryVotePanel";
 import SpectatorWheel from "./SpectatorWheel";
 import { GLOSSARY, SCORING_RULES } from "../content/instructions";
@@ -1440,10 +1443,42 @@ const GameOverStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
  * Shell
  * ------------------------------------------------------------------ */
 
+/**
+ * The game as the room may see it: everybody except latecomers still waiting
+ * on the host. Their phones read their own place on the bench off the same
+ * snapshot, so they are left in what is published and only kept off this
+ * screen — dealing somebody in or turning them away is the host's call, made
+ * on the host's own screen, and the room only ever sees the outcome.
+ */
+const roomView = (snapshot: BroadcastSnapshot | null): BroadcastSnapshot | null =>
+  snapshot && snapshot.players.some(awaitingHost)
+    ? { ...snapshot, players: snapshot.players.filter((player) => !awaitingHost(player)) }
+    : snapshot;
+
+/**
+ * The way in for anybody who arrives after START GAME, kept in the corner of
+ * the screen for as long as the game takes latecomers. Small enough never to
+ * sit on a question; big enough to scan from a table.
+ */
+const LateJoinCorner: React.FC<{ pin: string }> = ({ pin }) => (
+  <div className="flex items-center gap-3 rounded-xl border border-slate-700 bg-slate-900/70 pl-1.5 pr-3 py-1.5">
+    <div className="bg-white rounded-md p-1 shrink-0" style={{ width: 76, height: 76 }}>
+      <QRCode value={joinUrl(pin)} style={{ height: "100%", width: "100%" }} />
+    </div>
+    <div className="leading-tight text-left">
+      <div className="text-[11px] font-mono uppercase tracking-[0.25em] text-slate-400">
+        Late? Scan to join
+      </div>
+      <div className="font-mono font-black text-2xl tracking-[0.2em] text-white">{pin}</div>
+    </div>
+  </div>
+);
+
 const BroadcastScreen: React.FC = () => {
-  const [snapshot, setSnapshot] = useState<BroadcastSnapshot | null>(() =>
+  const [heard, setSnapshot] = useState<BroadcastSnapshot | null>(() =>
     readStoredSnapshot(),
   );
+  const snapshot = useMemo(() => roomView(heard), [heard]);
   const [hostSeenAt, setHostSeenAt] = useState(0);
   const [now, setNow] = useState(Date.now());
   const [outOfDate, setOutOfDate] = useState(false);
@@ -1649,9 +1684,12 @@ const BroadcastScreen: React.FC = () => {
               {snapshot.gameName}
             </span>
           )}
-          {snapshot?.gamePin && (
-            <span className="text-slate-400">PIN {snapshot.gamePin}</span>
-          )}
+          {snapshot?.gamePin &&
+            (snapshot.phase !== GamePhase.LOBBY && takesNewPlayers(snapshot) ? (
+              <LateJoinCorner pin={snapshot.gamePin} />
+            ) : (
+              <span className="text-slate-400">PIN {snapshot.gamePin}</span>
+            ))}
           <span
             className={`flex items-center gap-2 ${hostLive ? "text-neon-green" : "text-red-500 animate-pulse"}`}
           >
