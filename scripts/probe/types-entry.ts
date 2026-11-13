@@ -1003,6 +1003,7 @@ const start: GameState = {
   autoAdvance: true,
   losersBracket: false,
   roundRobin: false,
+  freeForAll: false,
   qualifyingRounds: 0,
   botsEnabled: false,
   hostAnsweringEnabled: true,

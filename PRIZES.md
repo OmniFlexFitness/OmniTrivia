@@ -32,6 +32,12 @@ phone show the same three names:
 three highest totals (ties to more matchups won, then points answered). The
 55 / 25 / 20 split below works the same way for it.
 
+**A free-for-all** has no bracket or matchups either: the three places are the
+three highest totals after the last round (ties to more rounds won, then more
+2nds, then more 3rds, then points answered). Every round's own 1st, 2nd and 3rd
+are already paid in points — ×1.5, ×1.25 and ×1.1 on that round — so there is
+no need for a per-round prize, and the same 55 / 25 / 20 split applies.
+
 Two things about Redemption matter for prize design:
 
 - **It counts the whole game, for everybody.** Redemption points build from

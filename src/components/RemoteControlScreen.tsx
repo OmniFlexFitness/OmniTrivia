@@ -38,6 +38,8 @@ import {
 import { parseHostEnvelope, readHostSession } from "../services/hostSession";
 import { buildReveal, seatsOf } from "../services/snapshot";
 import {
+  gameFormat,
+  isFreeForAllRound,
   matchupById,
   roundRobinRounds,
   roundsToDecide,
@@ -45,6 +47,8 @@ import {
 } from "../services/bracket";
 import AvatarDisplay from "./AvatarDisplay";
 import PrizePodium from "./PrizePodium";
+import RoundPlacings from "./RoundPlacings";
+import { PLACE_MULTIPLIER_TEXT } from "./FreeForAllToggle";
 import QualifyingRoundsControl from "./QualifyingRoundsControl";
 import { FINAL_BEST_OF } from "../constants";
 import BracketView, { MatchupCard, SideTag } from "./BracketView";
@@ -711,9 +715,11 @@ const LaneRemote: React.FC<{
           {matchup && <SideTag side={sideOf(matchup)} />}
           {lane.redemption
             ? "redemption table"
-            : lane.playerIds.length < 2
-              ? "bye"
-              : "matchup"}
+            : matchup && sideOf(matchup) === "freeForAll"
+              ? "own seat"
+              : lane.playerIds.length < 2
+                ? "bye"
+                : "matchup"}
         </span>
         {done && (
           <span className="flex items-center gap-1 text-slate-400">
@@ -1015,6 +1021,8 @@ const LobbyRemote: React.FC<{ snapshot: BroadcastSnapshot; send: Send }> = ({
 }) => {
   // Older hosts publish no qualifying count; they were elimination from round one.
   const qualifying = snapshot.qualifyingRounds ?? 0;
+  // Older hosts publish no free-for-all setting; their games were never one.
+  const freeForAll = snapshot.freeForAll === true;
   const needed = roundsToDecide(
     snapshot.players.length,
     snapshot.losersBracket,
@@ -1042,7 +1050,33 @@ const LobbyRemote: React.FC<{ snapshot: BroadcastSnapshot; send: Send }> = ({
         </div>
       </Card>
 
-      <Card title={snapshot.roundRobin ? "Format" : "Bracket"}>
+      <Card title={freeForAll || snapshot.roundRobin ? "Format" : "Bracket"}>
+        <button
+          onClick={() =>
+            send(
+              { kind: "set-free-for-all", enabled: !freeForAll },
+              freeForAll ? "Free-for-all off" : "Free-for-all on",
+            )
+          }
+          className={`w-full flex items-center gap-3 rounded-xl border p-3 text-left mb-3 ${
+            freeForAll
+              ? "border-neon-purple/70 bg-neon-purple/10 text-white"
+              : "border-slate-600 text-slate-300"
+          }`}
+        >
+          <Users size={20} className={freeForAll ? "text-neon-purple" : ""} />
+          <span className="flex-1">
+            <span className="block font-bold">
+              Free-for-all {freeForAll ? "on" : "off"}
+            </span>
+            <span className="block text-xs text-slate-400">
+              {freeForAll
+                ? `Everyone against everyone · top 3 each round count ${PLACE_MULTIPLIER_TEXT} · ${snapshot.totalRounds} rounds, highest total wins`
+                : "Off — players are paired off each round"}
+            </span>
+          </span>
+        </button>
+        {!freeForAll && (
         <button
           onClick={() =>
             send(
@@ -1068,7 +1102,8 @@ const LobbyRemote: React.FC<{ snapshot: BroadcastSnapshot; send: Send }> = ({
             </span>
           </span>
         </button>
-        {!snapshot.roundRobin && (
+        )}
+        {!freeForAll && !snapshot.roundRobin && (
         <>
         <button
           onClick={() =>
@@ -1338,7 +1373,11 @@ const RoundEndRemote: React.FC<{ snapshot: BroadcastSnapshot; send: Send }> = ({
         <ArrowRight size={20} />
       </Big>
 
-      {round && (
+      {round && isFreeForAllRound(round) ? (
+        <Card title={`Round ${snapshot.roundNumber} leaderboard`}>
+          <RoundPlacings round={round} players={snapshot.players} size="desk" />
+        </Card>
+      ) : round && (
         <Card title={`Round ${snapshot.roundNumber} results`}>
           <div className="space-y-2">
             {round.matchups.map((matchup) => (
@@ -1385,14 +1424,14 @@ const GameOverRemote: React.FC<{ snapshot: BroadcastSnapshot; send: Send }> = ({
         <div className="text-center space-y-2">
           <Crown size={36} className="mx-auto text-yellow-400" />
           <div className="text-[11px] font-mono uppercase tracking-[0.3em] text-yellow-400">
-            1st place{snapshot.roundRobin ? "" : " · Champion"}
+            1st place{gameFormat(snapshot) === "bracket" ? " · Champion" : ""}
           </div>
           <div className="text-3xl font-black text-white">{champion?.name ?? "No one"}</div>
           <PrizePodium
             players={snapshot.players}
             bracket={snapshot.bracket}
             championId={snapshot.championId}
-            roundRobin={snapshot.roundRobin}
+            format={gameFormat(snapshot)}
             hideChampion
             className="pt-2 text-left"
           />
@@ -1659,7 +1698,15 @@ const RemoteControlScreen: React.FC = () => {
               />
             </Card>
             {snapshot.bracket.length > 0 && (
-              <Card title={snapshot.roundRobin ? "Round robin" : "Bracket"}>
+              <Card
+                title={
+                  snapshot.freeForAll
+                    ? "Free-for-all"
+                    : snapshot.roundRobin
+                      ? "Round robin"
+                      : "Bracket"
+                }
+              >
                 <BracketView
                   bracket={snapshot.bracket}
                   players={snapshot.players}

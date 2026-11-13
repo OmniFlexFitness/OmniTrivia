@@ -77,6 +77,16 @@ export const GLOSSARY: GlossaryEntry[] = [
       "The other way to play the night, chosen by the host instead of a bracket. Every round pairs you with somebody you have not played yet, until everybody has played everybody; with odd numbers each player sits one round out on a bye, which counts as a win. Nobody goes out, beating your opponent still counts ×1.5 on your total, and the highest total wins.",
   },
   {
+    term: "Free-for-all",
+    definition:
+      "The third way to play the night, chosen by the host instead of a bracket or a round robin. No matchups: everybody plays every round's questions against the whole room, and the leaderboard goes up after each one. Nobody goes out, the host sets how many rounds, and the highest total after the last one wins.",
+  },
+  {
+    term: "Round places",
+    definition:
+      "A free-for-all's bonus. At the end of every round the room is ranked on that round's points: 1st counts ×1.5 on your total, 2nd ×1.25 and 3rd ×1.1. A tie shares the place and the bonus, and a round of zero places nowhere.",
+  },
+  {
     term: "Redemption Table",
     definition:
       "Where you play once you are out of the bracket. Same spin, same category, same questions, your own clock and nobody across from you. Your redemption points keep building here: every point you score all game — qualifying, the bracket and the table alike — counts towards the redemption prize, third place.",
@@ -174,6 +184,7 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
       "Typed answers are off unless you switch them on: most of a room does not enjoy spelling an answer out on a phone. Off, Claude is not asked to write them and an imported file's or the bank's typed rows are left out. It is one switch for every way questions come in.",
       "Loser's bracket turns the night into double elimination: a first loss drops a player into it rather than out. It needs roughly twice as many rounds to settle, and the lobby tells you exactly how many for the players who turn up.",
       "Round robin replaces the bracket altogether: everybody plays everybody at least once, nobody goes out, and the highest total wins. It needs one round fewer than the number of players (one per player when the number is odd); the lobby says how many for the room you get. Qualifying rounds and the loser's bracket do not apply to it.",
+      "Free-for-all drops the matchups too: everyone plays against the whole room, Kahoot style. The leaderboard goes up after every round, and that round's 1st, 2nd and 3rd count ×1.5, ×1.25 and ×1.1 on their totals. Rounds is exactly how long the night runs; the highest total after the last one wins.",
       "Whatever the format, END GAME on your desk or the remote stops the night whenever you choose and calls 1st, 2nd and 3rd on what has been played.",
     ],
   },
@@ -249,6 +260,7 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
       "Qualifying rounds can still be changed here, up until START GAME.",
       "The loser's bracket can still be switched on or off here, up until START GAME. The panel says how many rounds the bracket needs for the players in the room.",
       "So can round robin — everybody plays everybody, highest total wins. The panel says how many rounds it takes for everyone to meet everyone.",
+      "And free-for-all — no matchups, everyone against the whole room, a leaderboard after every round and a bonus for its top three.",
       "Hosting from more than one screen: CAST shows a link and QR code for putting the broadcast on any device, and REMOTE shows one for running the round from a tablet with the host password.",
       "The host password on this screen is what takes this game back if this window goes away. It is shown here and nowhere else — note it down now.",
     ],
@@ -278,6 +290,7 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
       "You and your opponent answer the same questions; whoever has more points at the end of the round wins the matchup — and in every round, the winner's points count ×1.5 on their total.",
       "Every point you score, in every round, also goes on your redemption points — the most of them, by anybody who is not champion or runner-up, takes third place, so a lost matchup never makes your answers worth less.",
       "Out of the bracket? You are on the Redemption Table: the same questions, no opponent, and your redemption points keep building. The best round there can earn a wildcard back into the bracket.",
+      "In a free-for-all you have no opponent at all: you are up against the whole room. Finish the round 1st, 2nd or 3rd and it counts ×1.5, ×1.25 or ×1.1 on your total.",
       "The big screen is behind you on purpose. It only moves when the slowest player in the room is through a question, and it never shows an answer mid-round.",
     ],
   },
@@ -308,6 +321,7 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
       "Losers stay on the leaderboard with their score and move to the Redemption Table, where they keep playing every round. With a loser's bracket, a first loss drops a player into it instead, and only a second loss puts them on the table.",
       "When the next round has an odd seat, the best round on the Redemption Table takes it as a wildcard — knocked out this round included. It is marked WILDCARD on the pairings.",
       "In a round robin nobody goes out: the next round pairs everybody with somebody they have not played yet, and the standings are the race for the night.",
+      "In a free-for-all there are no matchups to settle: the round's leaderboard goes up, its 1st, 2nd and 3rd are paid ×1.5, ×1.25 and ×1.1, and the standings under it are the race for the night.",
       "The next round's pairings are drawn as soon as this one is settled, so who you play next is on your screen before the wheel is spun for it.",
       "Vote on what you want to play in future: the options are the same on every screen, and the host keeps the results.",
       "Liking the category you have just played tells the host to write more of it.",
@@ -316,10 +330,11 @@ export const GUIDES: Record<GuideKey, ScreenGuide> = {
 
   gameOver: {
     title: "End of the game",
-    lead: "Whoever wins the best-of-3 final takes it — or, if the rounds run out or the host ends the game first, whoever leads the final series, else the highest score still in, with anyone unbeaten ranked ahead of the loser's bracket. A round robin goes to the highest total.",
+    lead: "Whoever wins the best-of-3 final takes it — or, if the rounds run out or the host ends the game first, whoever leads the final series, else the highest score still in, with anyone unbeaten ranked ahead of the loser's bracket. A round robin or a free-for-all goes to the highest total.",
     points: [
       "Three places are called every time, however the game ended: 1st, the champion; 2nd, the runner-up; and 3rd, the redemption winner — the most redemption points (every point answered in every round, before the ×1.5 win bonus) by anybody not already champion or runner-up.",
       "In a round robin, 1st, 2nd and 3rd are simply the top three totals. A tie goes to more matchups won, then more points answered, then the draw.",
+      "In a free-for-all, 1st, 2nd and 3rd are the top three totals too. A tie goes to more rounds won, then more 2nds, then more 3rds, then more points answered, then the draw.",
       "PLAY AGAIN replays the same questions with the scores reset and the bracket redrawn.",
       "The category data — likes and votes — is kept between games, so it is worth checking after a few nights rather than one.",
     ],

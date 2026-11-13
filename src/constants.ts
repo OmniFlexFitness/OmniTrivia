@@ -51,6 +51,13 @@ export const TIMER_DURATION = 15; // seconds per question
  * on after the qualifying rounds.
  */
 export const WIN_MULTIPLIER = 1.5;
+/**
+ * A free-for-all's placement bonus: the round's 1st, 2nd and 3rd place count
+ * this many times over on their totals. First matches WIN_MULTIPLIER, so
+ * winning a round is worth what winning a matchup is in every other format;
+ * second and third step down from it. Index 0 is 1st place.
+ */
+export const PLACE_MULTIPLIERS: readonly number[] = [1.5, 1.25, 1.1];
 /** Games in the final — first to more than half takes the night. */
 export const FINAL_BEST_OF = 3;
 /** Rounds before the bracket, unless the host chooses otherwise. */

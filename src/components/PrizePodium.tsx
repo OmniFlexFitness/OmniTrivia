@@ -2,9 +2,11 @@ import React from "react";
 import { Crown, Flame, Medal } from "lucide-react";
 import { BracketRound } from "../types";
 import {
+  GameFormat,
   StandingLike,
-  isRoundRobinGame,
+  formatOfRounds,
   matchRecords,
+  placeCounts,
   podium,
 } from "../services/bracket";
 import AvatarDisplay from "./AvatarDisplay";
@@ -12,7 +14,8 @@ import AvatarDisplay from "./AvatarDisplay";
 /**
  * The night's three prize places — 1st, 2nd and 3rd — on whichever screen is
  * showing the end of the game. In a bracket game they are the champion, the
- * runner-up and the redemption winner; in a round robin, the top three totals.
+ * runner-up and the redemption winner; in a round robin or a free-for-all,
+ * the top three totals.
  *
  * Worked out by `podium` from the bracket and the scores, so the projector,
  * the host's desk and every phone call the same three names — a host reading
@@ -66,7 +69,7 @@ const PrizePodium: React.FC<{
    * The game's format, from its settings. Read off the bracket when absent —
    * which cannot tell for a game ended before a round was played.
    */
-  roundRobin?: boolean;
+  format?: GameFormat;
   size?: PodiumSize;
   /** Leave the champion out, for a screen that already headlines them. */
   hideChampion?: boolean;
@@ -75,16 +78,31 @@ const PrizePodium: React.FC<{
   players,
   bracket,
   championId,
-  roundRobin: roundRobinSetting,
+  format: formatSetting,
   size = "phone",
   hideChampion = false,
   className = "",
 }) => {
-  // A round robin has no bracket to have won or a redemption table to have
-  // played on: its places are the standings, and the record is worth showing.
-  const roundRobin = roundRobinSetting ?? isRoundRobinGame(bracket);
-  const places = podium(players, bracket, championId, roundRobin);
-  const records = roundRobin ? matchRecords(bracket) : null;
+  // A round robin or a free-for-all has no bracket to have won or a
+  // redemption table to have played on: its places are the standings, and
+  // the record behind them is worth showing — wins and losses in a round
+  // robin, rounds won in a free-for-all.
+  const format = formatSetting ?? formatOfRounds(bracket);
+  const onTotals = format !== "bracket";
+  const places = podium(players, bracket, championId, format);
+  const records = format === "roundRobin" ? matchRecords(bracket) : null;
+  const roundWins = format === "freeForAll" ? placeCounts(bracket) : null;
+  const recordOf = (player: PodiumPlayer): string | null => {
+    if (records) {
+      const record = records.get(player.id);
+      return `${player.score} pts · ${record?.wins ?? 0}–${record?.losses ?? 0}`;
+    }
+    if (roundWins) {
+      const won = roundWins.get(player.id)?.[0] ?? 0;
+      return `${player.score} pts · ${won} round${won === 1 ? "" : "s"} won`;
+    }
+    return null;
+  };
   const shown = PLACES.filter(
     (place) => !(hideChampion && place.key === "championId"),
   )
@@ -114,7 +132,7 @@ const PrizePodium: React.FC<{
           >
             <div className={`flex items-center gap-2 cyber-hud ${tone} ${room ? "text-sm" : "text-[10px]"}`}>
               <Icon size={room ? 22 : 14} /> {place}
-              {roundRobin ? " place" : ` · ${label}`}
+              {onTotals ? " place" : ` · ${label}`}
             </div>
             <AvatarDisplay
               avatar={player.avatar}
@@ -126,9 +144,7 @@ const PrizePodium: React.FC<{
               {player.name}
             </div>
             <div className={`font-mono ${tone} ${room ? "text-lg" : "text-xs"}`}>
-              {records
-                ? `${player.score} pts · ${records.get(player.id)?.wins ?? 0}–${records.get(player.id)?.losses ?? 0}`
-                : detail(player)}
+              {recordOf(player) ?? detail(player)}
             </div>
           </div>
         ) : null,
