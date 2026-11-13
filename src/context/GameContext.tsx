@@ -105,7 +105,6 @@ import {
   applyTheme,
   isTheme,
   readThemePreference,
-  saveThemePreference,
 } from "../services/theme";
 import {
   applyBotsSetting,
@@ -725,7 +724,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     qualifyingRounds: DEFAULT_QUALIFYING_ROUNDS,
     // A host who turned bots off last time meant it for next time too.
     botsEnabled: readBotsPreference(),
-    // Code Red stays on for a host who left it on.
+    // Every new game opens in neon; Code Red is switched on for the night.
     theme: readThemePreference(),
     // Off unless this host switched them on: typing is the format a room
     // likes least.
@@ -2008,7 +2007,6 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     });
 
   const setTheme = (theme: Theme) => {
-    saveThemePreference(theme);
     setState((prev) => (prev.theme === theme ? prev : { ...prev, theme }));
   };
 
@@ -2876,6 +2874,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
       resumeError: null,
       // A fresh suggestion for the next game rather than the last game's.
       hostPassword: suggestHostPassword(),
+      // Code Red was for the game that just ended: the next one opens in
+      // neon, the same as one started in a fresh window.
+      theme: readThemePreference(),
       currentPlayerId: null,
       roomWarning: null,
       roundsConfig: [],

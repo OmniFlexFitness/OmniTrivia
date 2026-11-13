@@ -22,22 +22,24 @@ const PREFERENCE_KEY = "omnitrivia:theme";
 export const isTheme = (value: unknown): value is Theme =>
   value === "neon" || value === "code-red";
 
-/** What this host chose last time. Neon unless they switched Code Red on. */
+/**
+ * The theme a new game opens in: always neon.
+ *
+ * Code Red is a choice for one night, not a setting to carry around. It used
+ * to be remembered in the host's browser, which meant a host who switched it
+ * on for Halloween opened every game after it in Halloween red. A game in
+ * progress still keeps its own theme — the host session saves it with the
+ * game — so a reload mid-night does not undo the host's choice.
+ *
+ * The choice that older builds saved is cleared here, so it cannot come back.
+ */
 export const readThemePreference = (): Theme => {
   try {
-    const saved = window.localStorage.getItem(PREFERENCE_KEY);
-    return isTheme(saved) ? saved : DEFAULT_THEME;
+    window.localStorage.removeItem(PREFERENCE_KEY);
   } catch {
-    return DEFAULT_THEME;
+    // Private mode: there is nothing saved to clear.
   }
-};
-
-export const saveThemePreference = (theme: Theme): void => {
-  try {
-    window.localStorage.setItem(PREFERENCE_KEY, theme);
-  } catch {
-    // Private mode: the theme still applies to this game.
-  }
+  return DEFAULT_THEME;
 };
 
 /* ------------------------------------------------------------------ *
