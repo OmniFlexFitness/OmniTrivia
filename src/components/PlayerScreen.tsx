@@ -763,6 +763,14 @@ const SeatProgress: React.FC<{
   );
 };
 
+
+/**
+ * How long a newly granted seat may be missing from the host's snapshots
+ * before this phone takes it that the host turned it away. Generous against a
+ * slow room link: a late verdict only delays the turned-away screen.
+ */
+const SEAT_SETTLE_MS = 5000;
+
 const PlayerScreen: React.FC = () => {
   const {
     clientPin,
@@ -783,6 +791,10 @@ const PlayerScreen: React.FC = () => {
     return stored?.gamePin === clientPin ? stored : null;
   });
   const [hostSeenAt, setHostSeenAt] = useState(0);
+  // When the last snapshot reached this phone, by this phone's clock. Kept
+  // apart from `hostSeenAt`, which a heartbeat also moves: only a snapshot
+  // says who is in the game.
+  const [snapshotAt, setSnapshotAt] = useState(0);
   const [now, setNow] = useState(Date.now());
   const [outOfDate, setOutOfDate] = useState(false);
   const latchedHost = useRef<string | null>(null);
@@ -810,6 +822,7 @@ const PlayerScreen: React.FC = () => {
         latchedHost.current = message.snapshot.hostId;
         setSnapshot(message.snapshot);
         setHostSeenAt(Date.now());
+        setSnapshotAt(Date.now());
       } else if (message.type === "host-heartbeat") {
         if (latchedHost.current && message.hostId !== latchedHost.current) return;
         // When it got here, not the time the host stamped on it: that is the
@@ -839,14 +852,29 @@ const PlayerScreen: React.FC = () => {
 
   const hostLive = hostSeenAt > 0 && now - hostSeenAt < HOST_TIMEOUT_MS;
   const me = snapshot?.players.find((p) => p.id === currentPlayerId);
-  // Whether this seat has ever been in the host's game. A latecomer the host
-  // turns away is simply gone from the next snapshot, and only a seat that
-  // was there before can tell that apart from a snapshot that is merely
-  // older than its own join.
+  // A latecomer the host turns away is simply gone from the next snapshot,
+  // which has to be told apart from a snapshot that is merely older than the
+  // join. Two things settle it: this seat has been in a snapshot before, or a
+  // snapshot has arrived since the seat was granted and the seat has still
+  // not shown up a few seconds on. Seating somebody changes the host's game,
+  // so a snapshot with them in it follows within a second or so; when the
+  // host turns them away before that one gets here, none ever does. A link
+  // slow enough to miss the window shows this screen only until the seat
+  // turns up, which clears it.
   const seenInGame = useRef(false);
+  const seatSince = useRef({ id: currentPlayerId, at: Date.now() });
+  if (seatSince.current.id !== currentPlayerId) {
+    seatSince.current = { id: currentPlayerId, at: Date.now() };
+    seenInGame.current = false;
+  }
   if (me) seenInGame.current = true;
   const turnedAway = Boolean(
-    snapshot && !me && seenInGame.current && snapshot.phase !== GamePhase.LOBBY,
+    snapshot &&
+      currentPlayerId &&
+      !me &&
+      snapshot.phase !== GamePhase.LOBBY &&
+      (seenInGame.current ||
+        (snapshotAt > seatSince.current.at && now - seatSince.current.at > SEAT_SETTLE_MS)),
   );
 
   // The two things this screen is built around: the match this player is in,
