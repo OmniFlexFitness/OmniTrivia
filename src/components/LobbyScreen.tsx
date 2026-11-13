@@ -10,13 +10,14 @@ import Instructions from './Instructions';
 import LosersBracketToggle from './LosersBracketToggle';
 import QualifyingRoundsControl from "./QualifyingRoundsControl";
 import RoundRobinToggle from "./RoundRobinToggle";
+import FreeForAllToggle, { PLACE_MULTIPLIER_TEXT } from "./FreeForAllToggle";
 import BotsToggle from './BotsToggle';
 import HostScreensPanel from './HostScreensPanel';
 import BroadcastTextEditor from './BroadcastTextEditor';
 import { Users, Zap, Settings, UserPlus, PlayCircle, Monitor, KeyRound, Eye, EyeOff, Tablet } from 'lucide-react';
 
 const LobbyScreen: React.FC = () => {
-  const { players, startGame, isHost, totalRounds, questionsPerRound, gamePin, gameName, hostPassword, addBot, hostJoinAsPlayer, currentPlayerId, openBroadcast, broadcastConnected, roomWarning, losersBracket, setLosersBracket, qualifyingRounds, setQualifyingRounds, roundRobin, setRoundRobin, remotes, botsEnabled, setBotsEnabled, theme, setTheme } = useGame();
+  const { players, startGame, isHost, totalRounds, questionsPerRound, gamePin, gameName, hostPassword, addBot, hostJoinAsPlayer, currentPlayerId, openBroadcast, broadcastConnected, roomWarning, losersBracket, setLosersBracket, qualifyingRounds, setQualifyingRounds, roundRobin, setRoundRobin, freeForAll, setFreeForAll, remotes, botsEnabled, setBotsEnabled, theme, setTheme } = useGame();
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [showScreens, setShowScreens] = useState(false);
   // Codes are hidden until asked for, for the same reason the password is:
@@ -186,13 +187,20 @@ const LobbyScreen: React.FC = () => {
                 a loser's bracket is going to take. */}
             {isHost ? (
               <div className="mt-4 pt-4 border-t border-slate-700 space-y-3">
-                <RoundRobinToggle
-                  enabled={roundRobin}
-                  onChange={setRoundRobin}
-                  players={players.length}
+                <FreeForAllToggle
+                  enabled={freeForAll}
+                  onChange={setFreeForAll}
                   rounds={totalRounds}
                 />
-                {!roundRobin && (
+                {!freeForAll && (
+                  <RoundRobinToggle
+                    enabled={roundRobin}
+                    onChange={setRoundRobin}
+                    players={players.length}
+                    rounds={totalRounds}
+                  />
+                )}
+                {!freeForAll && !roundRobin && (
                   <>
                     <QualifyingRoundsControl
                       rounds={qualifyingRounds}
@@ -221,17 +229,22 @@ const LobbyScreen: React.FC = () => {
               </div>
             ) : (
               <>
-                {roundRobin && (
+                {freeForAll && (
+                  <div className="mt-3 text-xs font-mono uppercase tracking-widest text-neon-purple">
+                    Free-for-all — everyone against everyone, top 3 each round count {PLACE_MULTIPLIER_TEXT}
+                  </div>
+                )}
+                {!freeForAll && roundRobin && (
                   <div className="mt-3 text-xs font-mono uppercase tracking-widest text-violet-300">
                     Round robin — everybody plays everybody, highest total wins
                   </div>
                 )}
-                {!roundRobin && qualifyingRounds > 0 && (
+                {!freeForAll && !roundRobin && qualifyingRounds > 0 && (
                   <div className="mt-3 text-xs font-mono uppercase tracking-widest text-cyan-300">
                     {qualifyingRounds} qualifying round{qualifyingRounds === 1 ? "" : "s"} — nobody goes out, wins count ×{WIN_MULTIPLIER}
                   </div>
                 )}
-                {!roundRobin && losersBracket && (
+                {!freeForAll && !roundRobin && losersBracket && (
                   <div className="mt-3 text-xs font-mono uppercase tracking-widest text-orange-300">
                     Loser's bracket on — lose twice to go out
                   </div>

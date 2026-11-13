@@ -1,8 +1,14 @@
 import React from "react";
 import { BracketRound, BracketSide, Matchup, PublicPlayer } from "../types";
-import { SIDE_LABELS, seriesScore, sideOf } from "../services/bracket";
+import {
+  SIDE_LABELS,
+  isFreeForAllGame,
+  seriesScore,
+  sideOf,
+} from "../services/bracket";
 import AvatarDisplay from "./AvatarDisplay";
-import { Crown, ListOrdered, Repeat, ShieldAlert, Swords, Trophy } from "lucide-react";
+import RoundPlacings from "./RoundPlacings";
+import { Crown, ListOrdered, Repeat, ShieldAlert, Swords, Trophy, Users } from "lucide-react";
 
 /**
  * The head-to-head bracket, drawn one column per round.
@@ -13,7 +19,8 @@ import { Crown, ListOrdered, Repeat, ShieldAlert, Swords, Trophy } from "lucide-
  * A game with a loser's bracket plays both sides in the same round, so it is
  * drawn as two rows of columns — the winners' side over the loser's side —
  * with the grand final after them. A single-elimination game is one row, the
- * way it always was.
+ * way it always was. A free-for-all has no matchups to draw, so it is one
+ * column per round of that round's leaderboard instead.
  */
 
 /** The small chip that says which bracket a matchup belongs to. */
@@ -35,7 +42,9 @@ export const SideTag: React.FC<{ side: BracketSide; size?: "sm" | "lg" }> = ({
             ? "border-cyan-400/60 text-cyan-300 bg-cyan-400/10"
             : side === "roundRobin"
               ? "border-violet-400/60 text-violet-300 bg-violet-400/10"
-              : "border-orange-400/60 text-orange-300 bg-orange-500/10"
+              : side === "freeForAll"
+                ? "border-neon-purple/60 text-neon-purple bg-neon-purple/10"
+                : "border-orange-400/60 text-orange-300 bg-orange-500/10"
       }`}
     >
       {side === "final" ? (
@@ -44,6 +53,8 @@ export const SideTag: React.FC<{ side: BracketSide; size?: "sm" | "lg" }> = ({
         <ListOrdered size={large ? 12 : 10} />
       ) : side === "roundRobin" ? (
         <Repeat size={large ? 12 : 10} />
+      ) : side === "freeForAll" ? (
+        <Users size={large ? 12 : 10} />
       ) : (
         <ShieldAlert size={large ? 12 : 10} />
       )}
@@ -269,6 +280,17 @@ const BracketView: React.FC<BracketViewProps> = ({
     );
   }
 
+  if (isFreeForAllGame(bracket)) {
+    return (
+      <FreeForAllBoard
+        bracket={bracket}
+        players={players}
+        currentRound={currentRound}
+        size={size}
+      />
+    );
+  }
+
   const sides: BracketSide[] = ["roundRobin", "qualifying", "winners", "losers", "final"];
   const present = sides.filter((side) =>
     bracket.some((round) => round.matchups.some((m) => sideOf(m) === side)),
@@ -363,5 +385,52 @@ const BracketView: React.FC<BracketViewProps> = ({
     </div>
   );
 };
+
+/**
+ * A free-for-all's rounds so far: one column per round, each its leaderboard
+ * with the 1st, 2nd and 3rd it paid. The round being played is a list of who
+ * is in it — its places are not known until it is settled.
+ */
+const FreeForAllBoard: React.FC<{
+  bracket: BracketRound[];
+  players: PublicPlayer[];
+  currentRound: number;
+  size: "sm" | "lg";
+}> = ({ bracket, players, currentRound, size }) => (
+  <div className="flex gap-4 overflow-x-auto custom-scrollbar pb-2">
+    {bracket.map((round) => {
+      const isLive = round.roundNumber === currentRound && !round.resolved;
+      return (
+        <div key={round.roundNumber} className="shrink-0 w-64 md:w-72 space-y-2">
+          <div
+            className={`flex items-center justify-between px-1 text-xs font-mono uppercase tracking-widest ${
+              isLive ? "text-neon-blue" : "text-slate-500"
+            }`}
+          >
+            <span>Round {round.roundNumber}</span>
+            {isLive ? (
+              <span className="animate-pulse">● live</span>
+            ) : !round.resolved ? (
+              <span>up next</span>
+            ) : null}
+          </div>
+          {round.resolved ? (
+            <RoundPlacings
+              round={round}
+              players={players}
+              size={size === "lg" ? "room" : "desk"}
+              limit={size === "lg" ? 5 : 8}
+            />
+          ) : (
+            <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-3 text-sm text-slate-400">
+              {round.matchups.length} player{round.matchups.length === 1 ? "" : "s"} ·
+              everyone against everyone
+            </div>
+          )}
+        </div>
+      );
+    })}
+  </div>
+);
 
 export default BracketView;

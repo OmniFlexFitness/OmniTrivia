@@ -224,8 +224,17 @@ export interface AnswerRecord {
  * out, and the totals it builds are what the bracket is seeded on.
  * "roundRobin" is a round of a round-robin game: no bracket at all, everybody
  * meets everybody, nobody goes out, and the highest total takes the night.
+ * "freeForAll" is a round of a free-for-all game: no opponents at all. Every
+ * player has a seat of their own, the round is ranked across the whole room,
+ * and the top three that round earn a placement bonus on their total.
  */
-export type BracketSide = "qualifying" | "winners" | "losers" | "final" | "roundRobin";
+export type BracketSide =
+  | "qualifying"
+  | "winners"
+  | "losers"
+  | "final"
+  | "roundRobin"
+  | "freeForAll";
 
 /**
  * Where a best-of final stands. Carried on every game of the series, as it
@@ -285,6 +294,12 @@ export interface Matchup {
   seedB?: number | null;
   /** Set on every game of a best-of final. */
   series?: FinalSeries;
+  /**
+   * A free-for-all seat's place in the round, across the whole room: 1, 2 or
+   * 3, shared on a tie. Absent below third, on a round of zero, and on every
+   * matchup that is not a free-for-all seat. `winBonus` carries what it paid.
+   */
+  place?: number;
 }
 
 export interface BracketRound {
@@ -498,6 +513,14 @@ export interface GameState {
    * loser's bracket and qualifying rounds. Fixed once the first round is drawn.
    */
   roundRobin: boolean;
+  /**
+   * Free-for-all instead of a bracket: no opponents, everybody plays every
+   * round against the whole room, and after each round the top three earn a
+   * placement bonus (see PLACE_MULTIPLIERS). The highest total after the last
+   * round takes the night. Overrides the round robin, the loser's bracket and
+   * qualifying rounds. Fixed once the first round is drawn.
+   */
+  freeForAll: boolean;
   /**
    * Rounds played before the bracket: nobody is knocked out, beating your
    * opponent is worth WIN_MULTIPLIER times the round's points, and the totals
@@ -789,6 +812,12 @@ export interface BroadcastSnapshot {
   qualifyingRounds: number;
   /** Round robin: no bracket, everybody plays everybody, highest total wins. */
   roundRobin: boolean;
+  /**
+   * Free-for-all: no opponents, every round ranked across the room, top three
+   * earn a placement bonus, highest total wins. Optional because a host on a
+   * build from before it sends none, and that means off.
+   */
+  freeForAll?: boolean;
   /** Bots may sit in this game — for the remote's switch. */
   botsEnabled: boolean;
   /**
@@ -874,6 +903,7 @@ export type RemoteCommand =
   | { kind: "set-losers-bracket"; enabled: boolean }
   | { kind: "set-qualifying-rounds"; rounds: number }
   | { kind: "set-round-robin"; enabled: boolean }
+  | { kind: "set-free-for-all"; enabled: boolean }
   | { kind: "set-bots"; enabled: boolean }
   | { kind: "set-theme"; theme: Theme }
   | { kind: "spin"; round: number }

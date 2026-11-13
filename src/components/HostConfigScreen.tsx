@@ -10,6 +10,7 @@ import { Settings, ArrowRight, KeyRound, Library, ListPlus, Loader2, RefreshCw, 
 import LosersBracketToggle from './LosersBracketToggle';
 import QualifyingRoundsControl from "./QualifyingRoundsControl";
 import RoundRobinToggle from "./RoundRobinToggle";
+import FreeForAllToggle from "./FreeForAllToggle";
 import BotsToggle from './BotsToggle';
 import TypedAnswersToggle from './TypedAnswersToggle';
 import DifficultyPicker from './DifficultyPicker';
@@ -34,6 +35,8 @@ const HostConfigScreen: React.FC = () => {
     setQualifyingRounds,
     roundRobin,
     setRoundRobin,
+    freeForAll,
+    setFreeForAll,
     botsEnabled,
     setBotsEnabled,
     typedAnswersEnabled,
@@ -217,9 +220,15 @@ const HostConfigScreen: React.FC = () => {
               how many rounds the night needs, so it belongs beside the two
               sliders that say how many there are. A round robin has no
               bracket, so the bracket's own settings step aside for it. */}
-          <RoundRobinToggle enabled={roundRobin} onChange={setRoundRobin} />
+          <FreeForAllToggle enabled={freeForAll} onChange={setFreeForAll} />
 
-          {!roundRobin && (
+          {/* A free-for-all has nobody to pair, so every pairing format
+              steps aside for it. */}
+          {!freeForAll && (
+            <RoundRobinToggle enabled={roundRobin} onChange={setRoundRobin} />
+          )}
+
+          {!freeForAll && !roundRobin && (
             <>
               <QualifyingRoundsControl
                 rounds={qualifyingRounds}

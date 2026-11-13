@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
+  BracketRound,
   BroadcastSnapshot,
   Category,
   GamePhase,
@@ -30,7 +31,16 @@ import CodeRedBadge from "./CodeRedBadge";
 import AvatarDisplay from "./AvatarDisplay";
 import PrizePodium from "./PrizePodium";
 import BracketView, { MatchupCard, SideTag } from "./BracketView";
-import { seriesScore, sideOf } from "../services/bracket";
+import RoundPlacings from "./RoundPlacings";
+import { PLACE_MULTIPLIER_TEXT } from "./FreeForAllToggle";
+import {
+  freeForAllStandings,
+  gameFormat,
+  isFreeForAllRound,
+  placeCounts,
+  seriesScore,
+  sideOf,
+} from "../services/bracket";
 import { WIN_MULTIPLIER } from "../constants";
 import {
   DEFAULT_BROADCAST_SUBTITLE,
@@ -321,6 +331,9 @@ const LaneRace: React.FC<{
 const roundKind = (matchups: Matchup[] | null | undefined): string | null => {
   const first = matchups?.[0];
   if (!first) return null;
+  if (sideOf(first) === "freeForAll") {
+    return `Free-for-all — everyone against everyone · top 3 count ${PLACE_MULTIPLIER_TEXT}`;
+  }
   if (sideOf(first) === "roundRobin") {
     return `Round robin — nobody goes out · wins count ×${WIN_MULTIPLIER}`;
   }
@@ -426,6 +439,8 @@ const MatchupStrip: React.FC<{
  * built, a Redemption Table for anybody knocked out, and a best-of-3 final.
  */
 const WALL_TERMS = ["Qualifying round", "Seeding", "Redemption Table", "Final series"];
+/** A free-for-all has none of those: the format and its bonus are the rules. */
+const FREE_FOR_ALL_TERMS = ["Free-for-all", "Round places"];
 
 /**
  * The rules, on the wall.
@@ -435,7 +450,37 @@ const WALL_TERMS = ["Qualifying round", "Seeding", "Redemption Table", "Final se
  * somebody asks. Answering it on the big screen, before the first question,
  * saves the host explaining it over a microphone.
  */
-const RoomRules: React.FC<{ compact?: boolean }> = ({ compact = false }) => {
+const RoomRules: React.FC<{ compact?: boolean; freeForAll?: boolean }> = ({
+  compact = false,
+  freeForAll = false,
+}) => {
+  if (compact && freeForAll) {
+    return (
+      <div className="flex flex-wrap justify-center gap-x-8 gap-y-2 text-lg text-slate-400">
+        <span>
+          <span className="text-neon-purple font-bold">Everyone</span> against
+          everyone
+        </span>
+        <span>
+          <span className="text-neon-blue font-bold">Your own pace</span> — no
+          waiting
+        </span>
+        <span>
+          <span className="text-neon-green font-bold">Answer fast</span> for more
+          points
+        </span>
+        <span>
+          <span className="text-yellow-300 font-bold">Top 3</span> each round
+          count {PLACE_MULTIPLIER_TEXT}
+        </span>
+        <span>
+          <span className="text-neon-yellow font-bold">Last question</span>{" "}
+          counts double
+        </span>
+      </div>
+    );
+  }
+
   if (compact) {
     return (
       <div className="flex flex-wrap justify-center gap-x-8 gap-y-2 text-lg text-slate-400">
@@ -473,7 +518,8 @@ const RoomRules: React.FC<{ compact?: boolean }> = ({ compact = false }) => {
         How this works
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-3">
-        {WALL_TERMS.map((term) => GLOSSARY.find((entry) => entry.term === term))
+        {(freeForAll ? FREE_FOR_ALL_TERMS : WALL_TERMS)
+          .map((term) => GLOSSARY.find((entry) => entry.term === term))
           .filter((entry): entry is (typeof GLOSSARY)[number] => Boolean(entry))
           .map((entry) => (
           <div key={entry.term} className="flex gap-3">
@@ -487,7 +533,7 @@ const RoomRules: React.FC<{ compact?: boolean }> = ({ compact = false }) => {
         ))}
       </div>
       <div className="mt-5 pt-4 border-t border-slate-800 flex flex-wrap justify-center gap-x-8 gap-y-2 text-slate-400">
-        {SCORING_RULES.slice(0, 4).map((rule) => (
+        {SCORING_RULES.slice(0, freeForAll ? 3 : 4).map((rule) => (
           <span key={rule} className="text-base">
             <span className="text-neon-green">▸</span> {rule}
           </span>
@@ -613,7 +659,7 @@ const StandbyStage: React.FC<{
           ))}
         </div>
 
-        <RoomRules />
+        <RoomRules freeForAll={snapshot.freeForAll === true} />
       </>
     ) : (
       <div className="max-w-2xl space-y-5">
@@ -728,15 +774,19 @@ const RoundIntroStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
         </div>
       )}
 
-      {bracketRound && (
+      {bracketRound && isFreeForAllRound(bracketRound) ? (
+        <div className="text-xl font-mono uppercase tracking-[0.25em] text-neon-purple">
+          {roundKind(bracketRound.matchups)}
+        </div>
+      ) : bracketRound ? (
         <MatchupStrip
           matchups={bracketRound.matchups}
           players={snapshot.players}
           title={roundKind(bracketRound?.matchups) ?? "This round's head-to-heads"}
         />
-      )}
+      ) : null}
 
-      <RoomRules compact />
+      <RoomRules compact freeForAll={snapshot.freeForAll === true} />
     </div>
   );
 };
@@ -1109,10 +1159,19 @@ const AnswerKey: React.FC<{ review: RoundReviewItem[] }> = ({ review }) => (
 const StandingsList: React.FC<{
   players: PublicPlayer[];
   showRoundScore: boolean;
-}> = ({ players, showRoundScore }) => {
-  const sorted = [...players].sort((a, b) =>
-    showRoundScore ? b.roundScore - a.roundScore : b.score - a.score,
-  );
+  /**
+   * The free-for-all's rounds: ranks on the totals the way the night is
+   * decided, and lists each player's round places in place of the
+   * redemption score, which a free-for-all has no table to play for.
+   */
+  freeForAllRounds?: BracketRound[];
+}> = ({ players, showRoundScore, freeForAllRounds }) => {
+  const places = freeForAllRounds ? placeCounts(freeForAllRounds) : null;
+  const sorted = freeForAllRounds
+    ? freeForAllStandings(players, freeForAllRounds)
+    : [...players].sort((a, b) =>
+        showRoundScore ? b.roundScore - a.roundScore : b.score - a.score,
+      );
 
   return (
     <div className="space-y-2">
@@ -1160,9 +1219,15 @@ const StandingsList: React.FC<{
                 </span>
               )}
             </div>
-            <div className="text-xs font-mono uppercase tracking-widest text-orange-300">
-              redemption · {player.redemptionScore ?? 0}
-            </div>
+            {places ? (
+              <div className="text-xs font-mono uppercase tracking-widest text-neon-purple">
+                {placesLine(places.get(player.id))}
+              </div>
+            ) : (
+              <div className="text-xs font-mono uppercase tracking-widest text-orange-300">
+                redemption · {player.redemptionScore ?? 0}
+              </div>
+            )}
           </div>
           {showRoundScore && (
             <div className="text-xl font-mono text-neon-green">
@@ -1178,10 +1243,19 @@ const StandingsList: React.FC<{
   );
 };
 
+/** "2× 1st · 1× 3rd", or a dash for a player who has not placed yet. */
+const placesLine = (counts: number[] | undefined): string => {
+  const parts = ["1st", "2nd", "3rd"]
+    .map((label, i) => ((counts?.[i] ?? 0) > 0 ? `${counts![i]}× ${label}` : null))
+    .filter(Boolean);
+  return parts.length > 0 ? parts.join(" · ") : "no round places yet";
+};
+
 const RoundEndStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
   snapshot,
 }) => {
   const round = snapshot.bracket[snapshot.roundNumber - 1];
+  const freeForAll = isFreeForAllRound(round);
 
   return (
     <div className="flex-1 flex flex-col gap-6 min-h-0 overflow-y-auto custom-scrollbar">
@@ -1204,9 +1278,11 @@ const RoundEndStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         <div>
           <div className="text-center text-xs font-mono uppercase tracking-[0.3em] text-slate-500 mb-3">
-            Round results
+            {freeForAll ? `Round ${snapshot.roundNumber} leaderboard` : "Round results"}
           </div>
-          {round && (
+          {round && freeForAll ? (
+            <RoundPlacings round={round} players={snapshot.players} size="room" limit={10} />
+          ) : round && (
             <div className="space-y-3">
               {round.matchups.map((matchup) => (
                 <MatchupCard
@@ -1224,13 +1300,21 @@ const RoundEndStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
 
         <div>
           <div className="text-center text-xs font-mono uppercase tracking-[0.3em] text-slate-500 mb-3">
-            {round?.matchups.some((m) => sideOf(m) === "qualifying")
+            {freeForAll
+              ? snapshot.roundNumber >= snapshot.totalRounds
+                ? "Standings — final round played"
+                : `Standings — the highest total after round ${snapshot.totalRounds} wins`
+              : round?.matchups.some((m) => sideOf(m) === "qualifying")
               ? "Standings — the bracket is seeded on these"
               : round?.matchups.some((m) => sideOf(m) === "roundRobin")
                 ? "Standings — the highest total wins the night"
                 : "Standings"}
           </div>
-          <StandingsList players={snapshot.players} showRoundScore />
+          <StandingsList
+            players={snapshot.players}
+            showRoundScore
+            freeForAllRounds={freeForAll ? snapshot.bracket : undefined}
+          />
         </div>
       </div>
 
@@ -1244,7 +1328,7 @@ const RoundEndStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
         <CategoryVotePanel poll={snapshot.categoryPoll} readOnly size="lg" />
       )}
 
-      {snapshot.nextRoundMatchups && snapshot.nextRoundMatchups.length > 0 && (
+      {!freeForAll && snapshot.nextRoundMatchups && snapshot.nextRoundMatchups.length > 0 && (
         <div className="bg-slate-900/60 border border-neon-blue/40 rounded-2xl p-5">
           <MatchupStrip
             matchups={snapshot.nextRoundMatchups}
@@ -1257,7 +1341,7 @@ const RoundEndStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
       {snapshot.bracket.length > 0 && (
         <div>
           <div className="text-xs font-mono uppercase tracking-[0.3em] text-slate-500 mb-3">
-            {snapshot.roundRobin ? "Every round so far" : "Bracket"}
+            {snapshot.roundRobin || freeForAll ? "Every round so far" : "Bracket"}
           </div>
           <BracketView
             bracket={snapshot.bracket}
@@ -1275,6 +1359,7 @@ const GameOverStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
   snapshot,
 }) => {
   const champion = snapshot.players.find((p) => p.id === snapshot.championId);
+  const format = gameFormat(snapshot);
 
   return (
     <div className="flex-1 flex flex-col gap-6 min-h-0 overflow-y-auto custom-scrollbar">
@@ -1283,7 +1368,7 @@ const GameOverStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
           <>
             <Crown size={72} className="mx-auto text-yellow-400 mb-2" />
             <div className="text-sm font-mono uppercase tracking-[0.4em] text-yellow-400">
-              1st place{snapshot.roundRobin ? "" : " · Champion"}
+              1st place{format === "bracket" ? " · Champion" : ""}
             </div>
             <div className="flex flex-col items-center gap-3 mt-4">
               <AvatarDisplay
@@ -1311,7 +1396,7 @@ const GameOverStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
         players={snapshot.players}
         bracket={snapshot.bracket}
         championId={snapshot.championId}
-        roundRobin={snapshot.roundRobin}
+        format={format}
         size="room"
         hideChampion={Boolean(champion)}
         className="w-full max-w-4xl mx-auto"
@@ -1328,7 +1413,11 @@ const GameOverStage: React.FC<{ snapshot: BroadcastSnapshot }> = ({
           <div className="text-xs font-mono uppercase tracking-[0.3em] text-slate-500 mb-3">
             Final standings
           </div>
-          <StandingsList players={snapshot.players} showRoundScore={false} />
+          <StandingsList
+            players={snapshot.players}
+            showRoundScore={false}
+            freeForAllRounds={format === "freeForAll" ? snapshot.bracket : undefined}
+          />
         </div>
         {snapshot.bracket.length > 0 && (
           <div>

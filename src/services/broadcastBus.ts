@@ -84,8 +84,11 @@ const ROOM_TTL_MS = 20000;
  * 12: round robin, and three places called whenever the game ends. An older
  * screen would label a round-robin game a bracket and call the wrong third
  * place, so it reloads.
+ *
+ * 13: the free-for-all. An older screen would draw every player's own seat as
+ * a bye, show no round places and call a bracket's podium, so it reloads.
  */
-export const SNAPSHOT_VERSION = 12;
+export const SNAPSHOT_VERSION = 13;
 
 /** How a snapshot's version compares to what this build can render. */
 export type SnapshotFit = "ok" | "sender-is-newer" | "sender-is-older";
