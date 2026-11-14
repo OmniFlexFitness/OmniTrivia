@@ -24,9 +24,18 @@ on:
     # letting them diverge, or the deployed Worker is whichever branch was
     # pushed last rather than whichever is newer.
     branches: [master, live]
-  # For redeploying without an empty commit — after rotating the Anthropic key,
-  # or to put the Worker back in step if it is ever changed from the dashboard.
+  # For redeploying without an empty commit, to put the Worker back in step if
+  # it is ever changed from the dashboard — and for rotating the Anthropic key.
   workflow_dispatch:
+    inputs:
+      # Off unless someone ticks it. A push never touches the key: if every
+      # deploy re-uploaded the GitHub copy, a key rotated the other way (with
+      # `npm run worker:secret`) would be silently put back to the old one on
+      # the next merge — which, near an expiry date, is an outage.
+      rotate_anthropic_key:
+        description: "Also replace the Worker's Anthropic key with the ANTHROPIC_API_KEY repository secret"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -126,6 +135,56 @@ jobs:
         with:
           node-version: 22
 
+      # check-live imports Firebase, so a rotation run needs the dependencies.
+      # Installed *before* the key is swapped: an install that fails here
+      # leaves the old key in place, where one that failed after the upload
+      # would leave a new key live and unverified.
+      - name: Install dependencies for the end-to-end check
+        if: github.event_name == 'workflow_dispatch' && inputs.rotate_anthropic_key
+        run: npm ci --no-audit --no-fund
+
+      # Replace the Worker's Anthropic key — only on a manual run with
+      # "rotate_anthropic_key" ticked. See worker/README.md, "Rotating the
+      # Anthropic key".
+      #
+      # The new key is asked about before it is uploaded. A key pasted with a
+      # missing character would otherwise replace a working one and turn every
+      # generation on the site into placeholders, which is a worse state than
+      # the expiring key it was meant to fix. GET /v1/models costs nothing and
+      # answers 401 for exactly the keys that would fail in production.
+      #
+      # The key never appears in the log: GitHub masks the secret, it goes to
+      # curl in a header and to wrangler on stdin, and only status codes and
+      # Anthropic's error *type* are printed.
+      - name: Rotate the Anthropic key
+        if: github.event_name == 'workflow_dispatch' && inputs.rotate_anthropic_key
+        env:
+          NEW_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -z "$NEW_KEY" ]; then
+            echo "::error::No ANTHROPIC_API_KEY repository secret, so there is nothing to rotate to. The Worker still has its old key. Add the secret (Settings -> Secrets and variables -> Actions -> Secrets) and run this again."
+            exit 1
+          fi
+
+          body=$(mktemp)
+          status=$(curl -sS --max-time 20 -o "$body" -w '%{http_code}' \
+            -H "x-api-key: $NEW_KEY" \
+            -H "anthropic-version: 2023-06-01" \
+            "https://api.anthropic.com/v1/models?limit=1" || true)
+          # curl already prints 000 when it never reached Anthropic.
+          [ -n "$status" ] || status="000"
+          if [ "$status" != "200" ]; then
+            kind=$(grep -oE '"type":"[a-z_]+_error"' "$body" | head -1 || true)
+            echo "::error::Anthropic refused the new key (HTTP $status ${kind}). It was NOT uploaded; the Worker keeps its old key. 401 means the secret is not a live key — re-copy it from the Console. A 400 naming a workspace means it is an identity-linked key; see worker/README.md."
+            exit 1
+          fi
+          echo "Anthropic accepts the new key."
+
+          printf '%s' "$NEW_KEY" | npx --yes wrangler@latest secret put ANTHROPIC_API_KEY --config worker/wrangler.toml
+          echo "::notice::The Worker's ANTHROPIC_API_KEY was replaced. Revoke the old key in the Anthropic Console once the end-to-end check below is green."
+
       # Prove the Worker that is now answering is the one just deployed.
       #
       # A green `wrangler deploy` says Cloudflare accepted the upload, not that
@@ -145,3 +204,10 @@ jobs:
           npm run check-proxy-gates
         env:
           PROXY_URL: https://trivia-api.omniflexfitness.com
+
+      # After a rotation, the one check that touches the key: a real sign-in,
+      # through the real Worker, to Anthropic, with a body malformed on purpose
+      # so it is free. Green here means the site can generate on the new key.
+      - name: Check the new key end to end
+        if: github.event_name == 'workflow_dispatch' && inputs.rotate_anthropic_key
+        run: npm run check-live
