@@ -296,10 +296,17 @@ make the new key, put it on the Worker, revoke the old one.
 
 **1. Make the new key.** Go to
 [console.anthropic.com/settings/keys](https://console.anthropic.com/settings/keys)
-directly — type it, don't follow the email's link — create a key in the same
-workspace as the old one, and copy it. The Console shows it once. API keys
-cannot be created through the Admin API; this step is always a person in the
-Console.
+directly — type it, don't follow the email's link — and click **Create key**
+with the same settings as the old one: **Linked account** the `omniflex-trivia`
+service account, scoped to the **OmniFlex Integrations** workspace (a
+workspace-scoped key needs no `ANTHROPIC_WORKSPACE_ID`). Copy it; the Console
+shows it once. API keys cannot be created through the Admin API, so this step
+is always a person in the Console.
+
+Choose the **expiration** deliberately. It is fixed when the key is created and
+can never be extended, and an expired key cannot be reactivated, so there is no
+"refresh" — only a new key. Anthropic emails 7 days ahead for keys that live at
+least 14 days.
 
 **2. Put it on the Worker.** Pick one:
 
