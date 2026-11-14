@@ -232,9 +232,10 @@ need — a token with only the account-level permission deploys the code and the
 fails on the routes. When the template asks which zone, include
 `omniflexfitness.com`.
 
-These are the *only* two secrets the workflow needs. The Anthropic key is not
-among them: it lives in Cloudflare, set once with `npm run worker:secret`, and
-it survives every deploy. Nothing in GitHub ever sees it.
+These are the only two secrets a deploy needs. The Anthropic key lives in
+Cloudflare and survives every deploy. A push never reads or changes it. The
+optional third secret, `ANTHROPIC_API_KEY`, is read only by a manual rotation
+run — see [Rotating the Anthropic key](#rotating-the-anthropic-key).
 
 Until both secrets exist the workflow fails on its first step and says which one
 is missing, deliberately — a workflow that skipped quietly would be the same
@@ -282,10 +283,51 @@ you meant to keep.
 
 ### Deploying without a code change
 
-Rotating the Anthropic key takes no deploy at all — `npm run worker:secret`
-takes effect immediately. For anything that does need a redeploy, use the
-workflow's **Run workflow** button (Actions → *Deploy the question proxy* →
-Run workflow) rather than an empty commit.
+Use the workflow's **Run workflow** button (Actions → *Deploy the question
+proxy* → Run workflow) rather than an empty commit.
+
+---
+
+## Rotating the Anthropic key
+
+Anthropic emails before a key expires. The Worker's key is the one named
+`live-omnitrivia` in the Console. Rotation is the same three steps either way:
+make the new key, put it on the Worker, revoke the old one.
+
+**1. Make the new key.** Go to
+[console.anthropic.com/settings/keys](https://console.anthropic.com/settings/keys)
+directly — type it, don't follow the email's link — create a key in the same
+workspace as the old one, and copy it. The Console shows it once. API keys
+cannot be created through the Admin API; this step is always a person in the
+Console.
+
+**2. Put it on the Worker.** Pick one:
+
+| | From your machine | From GitHub (no terminal) |
+| --- | --- | --- |
+| How | `npm run worker:secret`, paste at the hidden prompt | Paste into the `ANTHROPIC_API_KEY` repository secret, then Actions → *Deploy the question proxy* → **Run workflow** with *rotate_anthropic_key* ticked |
+| Checks the key first | No — a mistyped key goes live | Yes — Anthropic must accept it before it is uploaded |
+| Proves the site works after | Run `npm run check-live` yourself | Runs `check-live` for you |
+| Needs | `npm run worker:login` once | The two Cloudflare secrets above |
+
+Both take effect within seconds and need no redeploy. The GitHub path also lets
+an agent finish a rotation for you: you paste the key into GitHub's secret form,
+and the agent starts the run. The key never goes through a chat.
+
+**3. Revoke the old key** in the Console once `check-live` is green. Expiry
+would do it anyway, but revoking now proves nothing still depends on it before
+the expiry date makes the decision for you.
+
+Other places the old key might be, which the Worker rotation does not reach:
+`VITE_ANTHROPIC_API_KEY` in your local `.env` (for local play and
+`scripts/generate-questions.mjs`) — check whether it is the same key, and run
+`npm run check-key` after changing it.
+
+> [!NOTE]
+> Keeping a copy in GitHub means anyone who can push a workflow to this
+> repository could read it. For a repository only you write to, that is the
+> same trust you already give the Cloudflare token. If that changes, delete the
+> `ANTHROPIC_API_KEY` secret after each rotation; the Worker keeps the key.
 
 ---
 
