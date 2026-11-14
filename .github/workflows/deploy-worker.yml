@@ -135,6 +135,14 @@ jobs:
         with:
           node-version: 22
 
+      # check-live imports Firebase, so a rotation run needs the dependencies.
+      # Installed *before* the key is swapped: an install that fails here
+      # leaves the old key in place, where one that failed after the upload
+      # would leave a new key live and unverified.
+      - name: Install dependencies for the end-to-end check
+        if: github.event_name == 'workflow_dispatch' && inputs.rotate_anthropic_key
+        run: npm ci --no-audit --no-fund
+
       # Replace the Worker's Anthropic key — only on a manual run with
       # "rotate_anthropic_key" ticked. See worker/README.md, "Rotating the
       # Anthropic key".
